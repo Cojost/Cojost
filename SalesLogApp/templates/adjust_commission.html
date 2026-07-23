@@ -1,0 +1,84 @@
+{% extends 'SalesLogApp/base.html' %}
+{% block title %}Commission Settings{% endblock %}
+{% block page_title %}Commission Settings{% endblock %}
+{% block content %}
+<div class="intro">
+    <h2>Set up your pay plan</h2>
+    <p>Percentages apply to each sale. Minimums and maximums are optional dollar limits per sale.</p>
+    <div class="notice"><strong>{{ total_count|default:0 }} units</strong> recorded this month. The highest active bonus tier reached will be paid.</div>
+</div>
+
+<form method="post" novalidate>
+    {% csrf_token %}
+    {{ form.non_field_errors }}
+    <section class="card">
+        <h3>Front-end commission</h3>
+        <p class="card-description">Commission earned from the front-end gross on each sale.</p>
+        <div class="commission-grid">
+            {% include 'commission_field.html' with field=form.total_calculated_front_end %}
+            {% include 'commission_field.html' with field=form.frontend_minimum %}
+            {% include 'commission_field.html' with field=form.frontend_maximum %}
+        </div>
+        <div class="checkbox">{{ form.opt_out_front.errors }}<label>{{ form.opt_out_front }} {{ form.opt_out_front.label }}</label></div>
+    </section>
+
+    <section class="card">
+        <h3>Back-end commission</h3>
+        <p class="card-description">Commission earned from finance, products, and other back-end gross.</p>
+        <div class="commission-grid">
+            {% include 'commission_field.html' with field=form.total_calculated_back_end %}
+            {% include 'commission_field.html' with field=form.backend_minimum %}
+            {% include 'commission_field.html' with field=form.backend_maximum %}
+        </div>
+        <div class="checkbox">{{ form.opt_out_back.errors }}<label>{{ form.opt_out_back }} {{ form.opt_out_back.label }}</label></div>
+    </section>
+
+    <section class="card">
+        <h3>Unit bonus tiers</h3>
+        <p class="card-description">Add thresholds in ascending order. Only the highest active tier you reach is paid.</p>
+        {{ formset.non_form_errors }}
+        {{ formset.management_form }}
+        <table class="tier-table">
+            <thead><tr><th>Units required</th><th>Bonus amount ($)</th><th>Active</th><th>Remove</th></tr></thead>
+            <tbody>
+            {% for bonus_form in formset %}
+                <tr>
+                    <td data-label="Units required">{{ bonus_form.id }}{{ bonus_form.count_threshold.errors }}{{ bonus_form.count_threshold }}</td>
+                    <td data-label="Bonus amount ($)">{{ bonus_form.amount.errors }}{{ bonus_form.amount }}</td>
+                    <td data-label="Active">{{ bonus_form.active.errors }}{{ bonus_form.active }}</td>
+                    <td data-label="Remove">{% if bonus_form.instance.pk %}{{ bonus_form.DELETE }}{% else %}&mdash;{% endif %}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        <span class="helptext">A blank final row is available for adding a new tier.</span>
+    </section>
+
+    <section class="card">
+        <h3>Other bonuses and deductions</h3>
+        <p class="card-description">Add flat adjustments that are separate from unit bonus tiers. Deductions are subtracted automatically.</p>
+        {{ adjustment_formset.non_form_errors }}
+        {{ adjustment_formset.management_form }}
+        <table class="tier-table">
+            <thead><tr><th>Description</th><th>Type</th><th>Amount ($)</th><th>Active</th><th>Remove</th></tr></thead>
+            <tbody>
+            {% for adjustment_form in adjustment_formset %}
+                <tr>
+                    <td data-label="Description">{{ adjustment_form.id }}{{ adjustment_form.description.errors }}{{ adjustment_form.description }}</td>
+                    <td data-label="Type">{{ adjustment_form.kind.errors }}{{ adjustment_form.kind }}</td>
+                    <td data-label="Amount ($)">{{ adjustment_form.amount.errors }}{{ adjustment_form.amount }}</td>
+                    <td data-label="Active">{{ adjustment_form.active.errors }}{{ adjustment_form.active }}</td>
+                    <td data-label="Remove">{% if adjustment_form.instance.pk %}{{ adjustment_form.DELETE }}{% else %}&mdash;{% endif %}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        <span class="helptext">Use the blank final row to add an adjustment. Inactive entries are saved but not included in totals.</span>
+    </section>
+
+    <div class="actions">
+        <a href="{% url 'view_commission' %}" class="button button-secondary">Cancel</a>
+        <button type="submit" class="button button-primary">Save commission settings</button>
+    </div>
+</form>
+{% endblock %}

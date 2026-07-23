@@ -1,0 +1,120 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}STEW Log{% endblock %}</title>
+    <link rel="stylesheet" href="{% static 'styles.css' %}">
+    <style>
+        :root { color-scheme: light; --blue: #194f85; --border: #d8dee6; --muted: #5f6b78; }
+        * { box-sizing: border-box; }
+        body { margin: 0; background: #f5f7fa; color: #1f2933; font-family: Arial, sans-serif; }
+        .header { display: flex; align-items: center; gap: 18px; padding: 12px 84px 12px 24px; background: var(--blue); color: white; text-align: left; }
+        .header h1 { margin: 0; font-size: 1.5rem; }
+        .menu-btn { border: 0; background: transparent; color: white; font-size: 1.8rem; cursor: pointer; }
+        .menu { display: none; padding: 10px 24px; background: #123f6c; }
+        .menu.show { display: flex; gap: 20px; flex-wrap: wrap; }
+        .menu a { color: white; text-decoration: none; padding: 6px 0; }
+        .page { width: min(1050px, calc(100% - 32px)); margin: 28px auto 60px; }
+        .page.with-summary { padding-bottom: 130px; }
+        .intro { margin-bottom: 22px; }
+        .intro h2 { margin: 0 0 6px; }
+        .intro p { color: var(--muted); margin: 0; }
+        .notice { padding: 12px 16px; margin-top: 16px; border-left: 4px solid #2d7dd2; background: #eaf3fc; }
+        .card { margin: 18px 0; padding: 22px; background: white; border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 2px 8px rgba(20,35,50,.06); }
+        .card h2, .card h3 { margin: 0 0 6px; }
+        .card-description { margin: 0 0 18px; color: var(--muted); }
+        .toolbar, .actions { display: flex; justify-content: flex-end; align-items: center; gap: 12px; margin-bottom: 16px; }
+        .actions { margin: 22px 0 0; }
+        .button { display: inline-block; padding: 11px 18px; border: 1px solid transparent; border-radius: 6px; font-weight: 700; text-decoration: none; cursor: pointer; }
+        .button-primary { background: #1769aa; color: white; }
+        .button-secondary { border-color: #9ca7b2; background: white; color: #263442; }
+        .button-danger { background: #b42318; color: white; }
+        .table-wrap { overflow-x: auto; }
+        .data-table, .tier-table { width: 100%; margin: 0; border-collapse: collapse; }
+        .data-table th, .data-table td, .tier-table th, .tier-table td { padding: 11px 10px; border: 0; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+        .data-table th, .tier-table th { background: #f7f9fb; color: #4c5d6d; font-size: .78rem; text-transform: uppercase; }
+        .empty-state { padding: 28px 10px !important; color: var(--muted); text-align: center !important; }
+        .text-link { color: #1769aa; font-weight: 700; text-decoration: none; }
+        .danger-link { color: #b42318; }
+        .form-card { max-width: 780px; margin-right: auto; margin-left: auto; }
+        .form-card p { margin: 0 0 18px; }
+        .form-card label, .field label { display: block; margin-bottom: 6px; font-weight: 700; }
+        .form-card input:not([type="checkbox"]):not([type="radio"]), .form-card select, .form-card textarea, .field input[type="number"], .tier-table input[type="number"], .tier-table input[type="text"], .tier-table select { width: 100%; padding: 10px 12px; border: 1px solid #aeb8c2; border-radius: 6px; font: inherit; }
+        .form-card input[type="radio"], .form-card input[type="checkbox"], .tier-table input[type="checkbox"] { width: 18px; height: 18px; }
+        .form-card ul { color: var(--muted); font-size: .86rem; }
+        .helptext { display: block; margin-top: 5px; color: var(--muted); font-size: .86rem; }
+        .checkbox { margin-top: 18px; }
+        .checkbox label { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+        .errorlist { color: #b42318 !important; }
+        .commission-grid { display: grid; grid-template-columns: repeat(3, minmax(180px, 1fr)); gap: 18px; }
+        .summary { position: fixed; right: 16px; bottom: 14px; min-width: 290px; padding: 16px 20px; border: 1px solid var(--border); border-radius: 10px; background: white; box-shadow: 0 5px 18px rgba(20,35,50,.16); }
+        .summary h3 { margin: 0 0 9px; }
+        .summary-row { display: flex; justify-content: space-between; gap: 28px; margin: 7px 0; }
+        .summary-row strong { color: #1769aa; }
+        .summary-total { padding-top: 8px; border-top: 1px solid var(--border); }
+        .auth-page { max-width: 520px; }
+        @media (max-width: 760px) {
+            .header { padding-right: 58px; }
+            .page { width: calc(100% - 16px); margin: 16px 8px 50px; }
+            .card { padding: 16px 12px; }
+            .summary { right: 8px; bottom: 8px; left: 8px; min-width: 0; }
+            .toolbar, .actions { flex-wrap: wrap; }
+            .commission-grid { grid-template-columns: 1fr; }
+            .tier-table thead { display: none; }
+            .tier-table, .tier-table tbody, .tier-table tr, .tier-table td { display: block; width: 100%; }
+            .tier-table tr { padding: 12px 0; border-bottom: 2px solid var(--border); }
+            .tier-table td { border: 0; padding: 6px 0; }
+            .tier-table td::before { content: attr(data-label); display: block; margin-bottom: 4px; font-weight: 700; }
+        }
+    </style>
+</head>
+<body>
+    <header class="header site-header">
+        {% if user.is_authenticated %}<button type="button" class="menu-btn" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>{% endif %}
+        <h1>{% block page_title %}STEW Log{% endblock %}</h1>
+        <div class="account-links">
+            {% if user.is_authenticated %}
+                <a href="{% url 'account_logout' %}">Sign out</a>
+            {% else %}
+                <a href="{% url 'account_login' %}">Sign in</a>
+                <a href="{% url 'account_signup' %}">Register</a>
+            {% endif %}
+        </div>
+        <img
+            src="{% static 'SalesLogApp/images/stewlog-logo.png' %}"
+            alt="StewLog"
+            class="site-logo"
+            width="48"
+            height="48"
+        >
+    </header>
+    {% if user.is_authenticated %}
+    <nav class="menu" aria-label="Main navigation">
+        <a href="{% url 'add_sale' %}">Add Sale</a>
+        <a href="{% url 'view_sales' %}">View Sales</a>
+        <a href="{% url 'view_commission' %}">View Commission</a>
+        {% if commission_instance %}<a href="{% url 'adjust_commission_by_id' commission_instance.id %}">Commission Settings</a>{% else %}<a href="{% url 'adjust_commission' %}">Commission Settings</a>{% endif %}
+    </nav>
+    {% endif %}
+    <main class="page {% block page_class %}{% endblock %}">
+        {% if messages %}
+            <ul class="messages">
+                {% for message in messages %}<li>{{ message }}</li>{% endfor %}
+            </ul>
+        {% endif %}
+        {% block content %}{% endblock %}
+    </main>
+    {% if user.is_authenticated %}
+    <script>
+        const menuButton = document.querySelector('.menu-btn');
+        const menu = document.querySelector('.menu');
+        menuButton.addEventListener('click', () => {
+            const isOpen = menu.classList.toggle('show');
+            menuButton.setAttribute('aria-expanded', isOpen);
+        });
+    </script>
+    {% endif %}
+</body>
+</html>
