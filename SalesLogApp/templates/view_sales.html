@@ -2,6 +2,19 @@
 {% block title %}Sales Log{% endblock %}{% block page_title %}Sales Log{% endblock %}{% block page_class %}with-summary{% endblock %}
 {% block content %}
 <div class="intro"><h2>Your sales</h2><p>Review recorded deals and calculated commission.</p></div>
-<section class="card"><div class="toolbar"><a href="{% url 'add_sale' %}" class="button button-primary">Add Sale</a></div><div class="table-wrap"><table class="data-table"><thead><tr><th>Customer</th><th>Count</th><th>Date</th><th>Commission Total</th><th>Actions</th></tr></thead><tbody>{% for sale in sales %}<tr><td>{{ sale.customer }}</td><td>{{ sale.count }}</td><td>{{ sale.date }}</td><td>${{ sale.commission_total|floatformat:2 }}</td><td><a class="text-link" href="{% url 'edit_sale' sale.id %}">Edit</a> &nbsp; <a class="text-link danger-link" href="{% url 'delete_sale' sale.id %}">Delete</a></td></tr>{% empty %}<tr><td colspan="5" class="empty-state">No sales yet.</td></tr>{% endfor %}</tbody></table></div></section>
-<aside class="summary"><h3>Current month</h3><div class="summary-row"><span>Total Count</span><strong>{{ total_count|floatformat:1 }}</strong></div><div class="summary-row summary-total"><span>Total Commission</span><strong>${{ total_commission|floatformat:2 }}</strong></div></aside>
+<form method="get" class="card compact-form"><label for="sales-month">Report month</label><input id="sales-month" type="month" name="month" value="{{ selected_month|date:'Y-m' }}"><button class="button button-secondary" type="submit">View</button></form>
+<section class="card"><div class="toolbar"><a href="{% url 'print_sales' %}?month={{ selected_month|date:'Y-m' }}" target="_blank" rel="noopener" class="button button-secondary">Print Sales Log</a><a href="{% url 'add_sale' %}" class="button button-primary">Add Sale</a></div><div class="table-wrap"><table class="data-table"><thead><tr><th>Customer</th><th>Vehicle</th><th>Count</th><th>Split With</th><th>Date</th><th>Commission Total</th><th>Actions</th></tr></thead><tbody>{% for sale in sales %}<tr><td>{{ sale.customer }}</td><td>{% include 'sale_details/_automotive_summary.html' %}{% include 'sale_details/_automotive_dialog.html' %}</td><td>{{ sale.count }}</td><td>{% if sale.split_with_name %}{{ sale.split_with_name }}{% else %}&mdash;{% endif %}</td><td>{{ sale.date }}</td><td>${{ sale.commission_total|floatformat:2 }}</td><td><a class="text-link" href="{% url 'edit_sale' sale.id %}">Edit</a> &nbsp; <a class="text-link danger-link" href="{% url 'delete_sale' sale.id %}">Delete</a></td></tr>{% empty %}<tr><td colspan="7" class="empty-state">No sales for this month.</td></tr>{% endfor %}</tbody></table></div></section>
+<aside class="summary"><h3>{{ selected_month|date:"F Y" }}</h3><div class="summary-row"><span>Total Count</span><strong>{{ total_count|floatformat:1 }}</strong></div><div class="summary-row summary-total"><span>Total Commission</span><strong>${{ total_commission|floatformat:2 }}</strong></div></aside>
 {% endblock %}
+{% block page_scripts %}<script>
+document.querySelectorAll('.vehicle-details-trigger').forEach(function (trigger) {
+  const dialog = document.getElementById(trigger.dataset.dialog);
+  trigger.addEventListener('click', function () { dialog.showModal(); });
+  dialog.querySelector('.vehicle-dialog-close').addEventListener('click', function () { dialog.close(); });
+  dialog.addEventListener('click', function (event) {
+    const bounds = dialog.getBoundingClientRect();
+    if (event.clientX < bounds.left || event.clientX > bounds.right ||
+        event.clientY < bounds.top || event.clientY > bounds.bottom) dialog.close();
+  });
+});
+</script>{% endblock %}

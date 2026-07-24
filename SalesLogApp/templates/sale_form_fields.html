@@ -1,0 +1,42 @@
+{% for field in form %}
+  {% if field.name != "split_with_name" %}
+    <p>
+      {{ field.errors }}
+      {{ field.label_tag }}
+      {{ field }}
+      {% if field.help_text %}<span class="helptext">{{ field.help_text }}</span>{% endif %}
+    </p>
+  {% endif %}
+{% endfor %}
+<div id="split-deal-section" class="split-deal-section" role="group" aria-labelledby="split-deal-alert" hidden>
+  <div id="split-deal-alert" class="split-deal-alert" role="alert">
+    <strong>Split Deal:</strong> Enter the name of the salesperson who shares this deal.
+  </div>
+  <p>
+    {{ form.split_with_name.errors }}
+    {{ form.split_with_name.label_tag }}
+    {{ form.split_with_name }}
+  </p>
+</div>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const section = document.getElementById('split-deal-section');
+  const splitInput = document.getElementById('{{ form.split_with_name.id_for_label|escapejs }}');
+  const countControls = document.querySelectorAll('[name="{{ form.count.html_name|escapejs }}"]');
+  function selectedCount() {
+    const checked = document.querySelector('[name="{{ form.count.html_name|escapejs }}"]:checked');
+    if (checked) return checked.value;
+    const control = document.querySelector('[name="{{ form.count.html_name|escapejs }}"]');
+    return control ? control.value : '';
+  }
+  function updateSplitDeal() {
+    const isHalf = Number.parseFloat(selectedCount()) === 0.5;
+    section.hidden = !isHalf;
+    splitInput.required = isHalf;
+  }
+  countControls.forEach(function (control) {
+    control.addEventListener('change', updateSplitDeal);
+  });
+  updateSplitDeal();
+});
+</script>

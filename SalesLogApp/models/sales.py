@@ -5,7 +5,13 @@ from decimal import Decimal
 from datetime import date, timedelta
 from django.db.models import Sum
 from django.contrib.auth.models import User
+from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.utils import timezone
+
+
+class SaleType(models.TextChoices):
+    AUTOMOTIVE = 'automotive', 'Automotive'
 
 
 class Commission(models.Model):
@@ -152,9 +158,16 @@ class BaseSale(models.Model):
     customer = models.CharField(max_length=100)
     dealNumber = models.IntegerField(unique=True)
     count = models.DecimalField(default=1, max_digits=2, decimal_places=1)
+    split_with_name = models.CharField(max_length=100, blank=True, default='')
     frontEnd = models.DecimalField(max_digits=10, decimal_places=2)
     backend = models.DecimalField(max_digits=10, decimal_places=2)
     date = models.DateField()
+    sale_type = models.CharField(
+        max_length=32,
+        choices=SaleType.choices,
+        default=SaleType.AUTOMOTIVE,
+        db_index=True,
+    )
 
     class Meta:
         abstract = True
@@ -163,14 +176,24 @@ class Sale(BaseSale):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
 
     COUNT_CHOICES = [
-        (2, '2'),
-        (1, '1'),
-        (0.5, '0.5'),
+        (Decimal('2.0'), '2'),
+        (Decimal('1.0'), '1'),
+        (Decimal('0.5'), '0.5'),
     ]
 
     class Meta:
         indexes = [
             models.Index(fields=['user', 'date'], name='sale_user_date_idx'),
+            models.Index(
+                fields=['user', 'sale_type', 'date'],
+                name='sale_owner_type_date_idx',
+            ),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(sale_type=SaleType.AUTOMOTIVE),
+                name='sale_supported_type',
+            ),
         ]
    
 
@@ -213,4 +236,100 @@ class Sale(BaseSale):
         )
 
 class ArchivedSale(BaseSale):
-       archived_on = models.DateField(auto_now_add=True)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='archived_sales',
+    )
+    archived_on = models.DateField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['user', 'date'], name='archive_user_date_idx'),
+            models.Index(
+                fields=['user', 'sale_type', 'date'],
+                name='archive_owner_type_date_idx',
+            ),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(sale_type=SaleType.AUTOMOTIVE),
+                name='archive_supported_type',
+            ),
+        ]
+
+
+class DailyActivity(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    date = models.DateField(default=timezone.localdate)
+    leads_taken = models.PositiveIntegerField(default=0)
+    phone_calls_made = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-date']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user', 'date'], name='unique_daily_activity_user_date'
+            ),
+            models.CheckConstraint(
+                condition=models.Q(leads_taken__gte=0), name='activity_leads_nonnegative'
+            ),
+            models.CheckConstraint(
+                condition=models.Q(phone_calls_made__gte=0),
+                name='activity_calls_nonnegative',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['user', 'date'], name='activity_user_date_idx'),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.date and self.date > timezone.localdate():
+            raise ValidationError({'date': 'Activity dates cannot be in the future.'})
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+
+class MonthlyGoal(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    month_start = models.DateField()
+    target_units = models.DecimalField(max_digits=8, decimal_places=1, default=0)
+    target_commission = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-month_start']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user', 'month_start'], name='unique_monthly_goal_user_month'
+            ),
+            models.CheckConstraint(
+                condition=models.Q(target_units__gte=0), name='goal_units_nonnegative'
+            ),
+            models.CheckConstraint(
+                condition=models.Q(target_commission__gte=0),
+                name='goal_commission_nonnegative',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['user', 'month_start'], name='goal_user_month_idx'),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.month_start and self.month_start.day != 1:
+            raise ValidationError({'month_start': 'Month must be the first day of its month.'})
+
+    def save(self, *args, **kwargs):
+        if self.month_start:
+            self.month_start = self.month_start.replace(day=1)
+        self.full_clean()
+        return super().save(*args, **kwargs)

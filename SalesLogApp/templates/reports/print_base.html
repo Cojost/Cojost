@@ -1,0 +1,29 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}StewLog Report{% endblock %}</title>
+  <link rel="stylesheet" href="{% static 'print-reports.css' %}">
+  {% block page_style %}{% endblock %}
+</head>
+<body>
+  <div class="report-controls no-print">
+    <button type="button" onclick="window.print()">Print</button>
+    <a href="{{ back_url }}">Back</a>
+  </div>
+  <main class="report">
+    <header class="report-heading">
+      <img src="{% static 'SalesLogApp/images/stewlog-logo.png' %}" alt="StewLog" class="report-logo" width="52" height="52">
+      <h1>{% block report_title %}{% endblock %}</h1>
+    </header>
+    <div class="report-meta">
+      <p><strong>User:</strong> {{ report_user.get_full_name|default:report_user.username }}</p>
+      <p><strong>Printed:</strong> {{ printed_on|date:"F j, Y" }}</p>
+      {% block report_period %}{% endblock %}
+    </div>
+    {% block report_content %}{% endblock %}
+  </main>
+</body>
+</html>

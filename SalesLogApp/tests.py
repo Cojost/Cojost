@@ -184,6 +184,73 @@ class CommissionBonusTests(TestCase):
         commission = form.save()
         self.assertEqual(commission.total_calculated_back_end, Decimal('0'))
 
+    def test_backend_percentage_displays_two_places_and_preserves_rate(self):
+        self.commission.total_calculated_back_end = Decimal('0.000')
+        self.commission.save(update_fields=['total_calculated_back_end'])
+        zero_form = CommissionAdjustmentForm(instance=self.commission)
+        self.assertEqual(
+            zero_form['total_calculated_back_end'].value(),
+            Decimal('0.00'),
+        )
+        self.assertEqual(
+            zero_form.fields['total_calculated_back_end'].widget.attrs['step'],
+            '0.01',
+        )
+
+        self.commission.total_calculated_back_end = Decimal('0.003')
+        self.commission.save(update_fields=['total_calculated_back_end'])
+        rate_form = CommissionAdjustmentForm(instance=self.commission)
+        self.assertEqual(
+            rate_form['total_calculated_back_end'].value(),
+            Decimal('0.30'),
+        )
+        self.assertEqual(
+            rate_form['total_calculated_back_end'].as_widget().count('step="0.01"'),
+            1,
+        )
+
+    def test_backend_percentage_round_trip_and_calculation_are_unchanged(self):
+        form = CommissionAdjustmentForm(
+            data={
+                'total_calculated_front_end': '10.00',
+                'frontend_minimum': '',
+                'frontend_maximum': '',
+                'total_calculated_back_end': '0.30',
+                'backend_minimum': '',
+                'backend_maximum': '',
+            },
+            instance=self.commission,
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        commission = form.save()
+        self.assertEqual(
+            commission.total_calculated_back_end,
+            Decimal('0.003'),
+        )
+        self.assertEqual(
+            commission.calculate_backend(Decimal('1000')),
+            Decimal('3.000'),
+        )
+
+        unchanged = CommissionAdjustmentForm(
+            data={
+                'total_calculated_front_end': '10.00',
+                'frontend_minimum': '',
+                'frontend_maximum': '',
+                'total_calculated_back_end': '0.30',
+                'backend_minimum': '',
+                'backend_maximum': '',
+            },
+            instance=commission,
+        )
+        self.assertTrue(unchanged.is_valid(), unchanged.errors)
+        unchanged.save()
+        commission.refresh_from_db()
+        self.assertEqual(
+            commission.total_calculated_back_end,
+            Decimal('0.003'),
+        )
+
     def test_sale_backend_accepts_whole_dollars_only(self):
         valid_form = SaleForm(
             data={

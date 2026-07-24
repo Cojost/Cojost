@@ -1,0 +1,8 @@
+{% extends 'reports/print_base.html' %}
+{% block title %}Activity &amp; Goals Month History{% endblock %}
+{% block page_style %}<style>@page { size: landscape; }</style>{% endblock %}
+{% block report_title %}Activity &amp; Goals &mdash; Month History{% endblock %}
+{% block report_period %}<p><strong>Range:</strong> {{ history_start|date:"F Y" }} through {{ history_end|date:"F Y" }}</p>{% endblock %}
+{% block report_content %}
+<table><thead><tr><th>Month</th><th>Leads</th><th>Phone calls</th><th>Units</th><th>Total commission</th><th>Lead-to-unit conversion</th><th>Calls / lead</th><th>Calls / sold unit</th><th>Unit goal</th><th>Financial goal</th></tr></thead><tbody>{% for row in history %}<tr><td>{{ row.month|date:"F Y" }}</td><td>{{ row.leads }}</td><td>{{ row.calls }}</td><td>{{ row.units|floatformat:1 }}</td><td>${{ row.commission|floatformat:2 }}</td><td>{% if row.lead_to_unit_rate is not None %}{{ row.lead_to_unit_rate|floatformat:2 }}{% else %}&mdash;{% endif %}</td><td>{% if row.calls_per_lead is not None %}{{ row.calls_per_lead|floatformat:2 }}{% else %}&mdash;{% endif %}</td><td>{% if row.calls_per_unit is not None %}{{ row.calls_per_unit|floatformat:2 }}{% else %}&mdash;{% endif %}</td><td>{% if row.goal %}{{ row.goal.target_units|floatformat:1 }} — {{ row.unit_reached|yesno:"Reached,Not reached" }}{% else %}&mdash;{% endif %}</td><td>{% if row.goal %}${{ row.goal.target_commission|floatformat:2 }} — {{ row.financial_reached|yesno:"Reached,Not reached" }}{% else %}&mdash;{% endif %}</td></tr>{% empty %}<tr><td colspan="10">No history for this range.</td></tr>{% endfor %}</tbody></table>
+{% endblock %}

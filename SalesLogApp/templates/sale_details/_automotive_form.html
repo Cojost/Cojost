@@ -1,0 +1,92 @@
+<fieldset class="vehicle-information">
+  <legend>Vehicle Information</legend>
+  {% if not sale.vehicle and not vehicle_form.is_bound %}
+    <p class="notice">Vehicle details not recorded. Complete this section to add them.</p>
+  {% endif %}
+  {{ vehicle_form.make_id }}{{ vehicle_form.add_make }}
+  {{ vehicle_form.model_id }}{{ vehicle_form.add_model }}
+  <p>{{ vehicle_form.year.errors }}{{ vehicle_form.year.label_tag }}{{ vehicle_form.year }}</p>
+  <div class="vehicle-combobox" data-search-url="{% url 'vehicle_make_search' %}">
+    <p>{{ vehicle_form.make.errors }}{{ vehicle_form.make.label_tag }}{{ vehicle_form.make }}</p>
+    <div class="autocomplete-results" role="listbox" aria-label="Matching makes" hidden></div>
+    <button type="button" class="add-catalog-value button button-secondary" hidden></button>
+  </div>
+  <div class="vehicle-combobox" data-search-url="{% url 'vehicle_model_search' %}" data-model-field>
+    <p>{{ vehicle_form.model.errors }}{{ vehicle_form.model.label_tag }}{{ vehicle_form.model }}</p>
+    <div class="autocomplete-results" role="listbox" aria-label="Matching models" hidden></div>
+    <button type="button" class="add-catalog-value button button-secondary" hidden></button>
+  </div>
+  <p>{{ vehicle_form.mileage.errors }}{{ vehicle_form.mileage.label_tag }}{{ vehicle_form.mileage }}<span class="helptext">Whole miles, up to 10,000,000.</span></p>
+  <p>{{ vehicle_form.stock_number.errors }}{{ vehicle_form.stock_number.label_tag }}{{ vehicle_form.stock_number }}</p>
+  <p>{{ vehicle_form.vin.errors }}{{ vehicle_form.vin.label_tag }}{{ vehicle_form.vin }}<span class="helptext">17 characters; the letters I, O, and Q are not permitted.</span></p>
+</fieldset>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const makeInput = document.getElementById('{{ vehicle_form.make.id_for_label|escapejs }}');
+  const makeId = document.getElementById('{{ vehicle_form.make_id.id_for_label|escapejs }}');
+  const addMake = document.getElementById('{{ vehicle_form.add_make.id_for_label|escapejs }}');
+  const modelInput = document.getElementById('{{ vehicle_form.model.id_for_label|escapejs }}');
+  const modelId = document.getElementById('{{ vehicle_form.model_id.id_for_label|escapejs }}');
+  const addModel = document.getElementById('{{ vehicle_form.add_model.id_for_label|escapejs }}');
+  const fields = [
+    {input: makeInput, id: makeId, add: addMake, box: makeInput.closest('.vehicle-combobox'), kind: 'make'},
+    {input: modelInput, id: modelId, add: addModel, box: modelInput.closest('.vehicle-combobox'), kind: 'model'}
+  ];
+  function enableModel() { modelInput.disabled = !(makeId.value || addMake.value === 'on'); }
+  fields.forEach(function (field) {
+    const results = field.box.querySelector('.autocomplete-results');
+    const addButton = field.box.querySelector('.add-catalog-value');
+    let timer;
+    field.input.setAttribute('aria-expanded', 'false');
+    field.input.addEventListener('input', function () {
+      field.id.value = ''; field.add.value = '';
+      if (field.kind === 'make') { modelId.value = ''; addModel.value = ''; modelInput.value = ''; }
+      enableModel();
+      clearTimeout(timer);
+      const value = field.input.value.trim();
+      if (!value) {
+        results.hidden = true; addButton.hidden = true; return;
+      }
+      if (field.kind === 'model' && !makeId.value) {
+        results.hidden = true;
+        if (addMake.value === 'on') {
+          addButton.textContent = `Add “${value}” as a new model`;
+          addButton.hidden = false;
+        } else {
+          addButton.hidden = true;
+        }
+        return;
+      }
+      timer = setTimeout(async function () {
+        const url = new URL(field.box.dataset.searchUrl, window.location.origin);
+        url.searchParams.set('q', value);
+        if (field.kind === 'model') url.searchParams.set('make_id', makeId.value);
+        const response = await fetch(url, {headers: {'Accept': 'application/json'}});
+        if (!response.ok) return;
+        const payload = await response.json();
+        results.replaceChildren();
+        payload.results.forEach(function (item) {
+          const option = document.createElement('button');
+          option.type = 'button'; option.setAttribute('role', 'option');
+          option.textContent = item.name;
+          option.addEventListener('click', function () {
+            field.input.value = item.name; field.id.value = item.id; field.add.value = '';
+            results.hidden = true; addButton.hidden = true;
+            field.input.setAttribute('aria-expanded', 'false'); enableModel(); field.input.focus();
+          });
+          results.appendChild(option);
+        });
+        results.hidden = payload.results.length === 0;
+        addButton.textContent = `Add “${value}” as a new ${field.kind}`;
+        addButton.hidden = payload.results.some(item => item.name.toLowerCase() === value.toLowerCase());
+        field.input.setAttribute('aria-expanded', 'true');
+      }, 180);
+    });
+    addButton.addEventListener('click', function () {
+      field.add.value = 'on'; field.id.value = ''; results.hidden = true; addButton.hidden = true;
+      field.input.setAttribute('aria-expanded', 'false'); enableModel(); field.input.focus();
+    });
+  });
+  enableModel();
+});
+</script>

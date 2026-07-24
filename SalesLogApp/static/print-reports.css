@@ -1,0 +1,40 @@
+:root { --ink: #17212b; --blue: #194f85; --line: #64717d; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #eef2f6; color: var(--ink); font-family: Arial, sans-serif; }
+.report { width: min(1100px, calc(100% - 32px)); margin: 20px auto; padding: 28px; background: white; }
+.report-heading { display: flex; align-items: center; gap: 14px; padding-bottom: 14px; border-bottom: 3px solid var(--blue); }
+.report-logo { width: auto; height: 52px; object-fit: contain; }
+.report-heading h1 { margin: 0; color: var(--blue); font-size: 1.65rem; }
+.report-meta { display: flex; flex-wrap: wrap; gap: 8px 24px; margin: 14px 0 20px; }
+.report-meta p { margin: 0; }
+.report-controls { display: flex; gap: 10px; width: min(1100px, calc(100% - 32px)); margin: 16px auto; }
+.report-controls a, .report-controls button { padding: 9px 15px; border: 1px solid #7b8792; border-radius: 5px; background: white; color: var(--ink); font: inherit; text-decoration: none; cursor: pointer; }
+.report-controls button { border-color: var(--blue); background: var(--blue); color: white; }
+.report table { width: 100%; border-collapse: collapse; }
+.report th, .report td { padding: 7px 6px; border: 1px solid var(--line); text-align: left; vertical-align: top; }
+.report th { background: #e8edf2; }
+.report-summary, .report-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin: 16px 0; }
+.report-summary div, .report-metrics div { padding: 10px; border: 1px solid var(--line); break-inside: avoid; }
+.report-summary span, .report-summary strong, .report-metrics span, .report-metrics strong { display: block; }
+.report-summary strong, .report-metrics strong { margin-top: 5px; font-size: 1.1rem; }
+.report-section { margin-top: 22px; }
+.report-section h2 { color: var(--blue); font-size: 1.15rem; }
+@media (max-width: 600px) {
+  .report { width: 100%; margin: 0; padding: 14px; overflow-x: auto; }
+  .report-controls { width: calc(100% - 20px); margin-top: 10px; }
+  .report-heading h1 { font-size: 1.25rem; }
+  .report-logo { height: 40px; }
+  .report table { font-size: .82rem; }
+}
+@page { margin: .5in; }
+@media print {
+  .no-print { display: none !important; }
+  body { background: white; color: black; font-size: 10pt; }
+  .report { width: 100%; margin: 0; padding: 0; }
+  .report-heading h1, .report-section h2 { color: black; }
+  .report th { background: white; }
+  .report th, .report td { border-color: #555; }
+  .report tr, .report-summary div, .report-metrics div { break-inside: avoid; }
+  .report thead { display: table-header-group; }
+  a { color: black; text-decoration: none; }
+}

@@ -1,0 +1,1 @@
+{% if sale.vehicle %}<button type="button" class="vehicle-details-trigger text-link" data-dialog="vehicle-{{ sale.pk }}">{{ sale.vehicle.year }} {{ sale.vehicle.model.name }}</button>{% else %}Vehicle details not recorded{% endif %}

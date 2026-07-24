@@ -1,0 +1,17 @@
+{% extends 'SalesLogApp/base.html' %}
+{% block title %}Profile{% endblock %}
+{% block content %}
+<div class="intro"><h2>Your private profile</h2><p>Manage your picture, appearance, and password.</p></div>
+<section class="card profile-summary">
+  <div class="profile-avatar-wrap">
+    {% if profile.avatar %}<img src="{{ profile.avatar.url }}" alt="" class="profile-avatar profile-avatar-large">{% else %}<span class="profile-avatar profile-avatar-large profile-initials" aria-label="Default profile picture">{{ user.username|slice:":1"|upper }}</span>{% endif %}
+  </div>
+  <dl><div><dt>Username</dt><dd>{{ user.username }}</dd></div><div><dt>Email</dt><dd>{{ user.email|default:"No email address" }}</dd></div><div><dt>Password</dt><dd>{% if password_is_set %}Password is set{% else %}Password is managed through a connected account{% endif %}</dd></div></dl>
+</section>
+<div class="profile-grid">
+  <form method="post" class="card form-card"><h3>Appearance settings</h3>{% csrf_token %}<input type="hidden" name="form_type" value="appearance">{{ appearance_form.non_field_errors }}<p>{{ appearance_form.theme_mode.errors }}{{ appearance_form.theme_mode.label_tag }}{{ appearance_form.theme_mode }}</p><fieldset><legend>Header Color</legend>{{ appearance_form.header_color.errors }}<div class="header-color-options">{% for radio in appearance_form.header_color %}<label class="header-color-option">{{ radio.tag }}<span class="header-color-swatch swatch-{{ radio.data.value }}" aria-hidden="true"></span><span>{{ radio.choice_label }}</span></label>{% endfor %}</div></fieldset><div class="actions"><button class="button button-primary" type="submit">Save appearance</button></div></form>
+  <section class="card form-card"><h3>Profile picture</h3><form method="post" enctype="multipart/form-data">{% csrf_token %}<input type="hidden" name="form_type" value="avatar">{{ avatar_form.as_p }}<button class="button button-primary" type="submit">Upload picture</button></form>{% if profile.avatar %}<form method="post" class="inline-form">{% csrf_token %}<input type="hidden" name="form_type" value="remove_avatar"><button class="button button-secondary" type="submit">Remove picture</button></form>{% endif %}</section>
+</div>
+<form method="post" class="card form-card"><h3>{% if password_is_set %}Change password{% else %}Set a password{% endif %}</h3><p class="card-description">{% if password_is_set %}Your current password is required. Passwords are never displayed.{% else %}Add a password without disconnecting your social account.{% endif %}</p>{% csrf_token %}<input type="hidden" name="form_type" value="password">{{ password_form.as_p }}<button class="button button-primary" type="submit">{% if password_is_set %}Change Password{% else %}Set Password{% endif %}</button></form>
+<form method="post" class="card compact-form">{% csrf_token %}<input type="hidden" name="form_type" value="reset_header_color"><div><strong>Reset Header Color</strong><p class="card-description">Restore the standard blue header without changing Display Mode.</p></div><button class="button button-secondary" type="submit">Reset Header Color</button></form>
+{% endblock %}
