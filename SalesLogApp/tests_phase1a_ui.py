@@ -59,11 +59,11 @@ class Phase1AUserInterfaceTests(TestCase):
         )
         self.client.force_login(self.user)
 
-    def make_sale(self, user=None):
+    def make_sale(self, user=None, deal_number=910001):
         return Sale.objects.create(
             user=user or self.user,
             customer='Visible Customer',
-            dealNumber=910001,
+            dealNumber=deal_number,
             count=Decimal('1.0'),
             frontEnd=Decimal('1000.00'),
             backend=Decimal('200.00'),
@@ -93,11 +93,12 @@ class Phase1AUserInterfaceTests(TestCase):
     def test_primary_sales_actions_remain_reachable(self):
         self.make_sale()
         response = self.client.get(reverse('view_sales'))
-        for name in ('add_sale', 'view_commission'):
-            self.assertContains(response, reverse(name))
+        self.assertContains(response, reverse('add_sale'))
+        self.assertContains(response, reverse('view_commission'))
+        self.assertNotContains(response, 'View commission summary')
         self.assertContains(response, 'Edit')
         self.assertContains(response, 'Delete')
-        self.assertContains(response, 'View calculation')
+        self.assertNotContains(response, '>View calculation<')
 
     def test_sales_shows_per_deal_commission_without_full_breakdown(self):
         self.make_sale()
@@ -128,16 +129,46 @@ class Phase1AUserInterfaceTests(TestCase):
         self.assertEqual(components, response.context['total_commission'])
         self.assertEqual(response.context['total_commission'], expected['total_commission'])
 
-    def test_dashboard_graph_has_no_visible_calculation_action_but_popup_remains(self):
-        self.make_sale()
+    def test_commission_amount_is_accessible_trigger_for_existing_dialog(self):
+        sale = self.make_sale()
         response = self.client.get(reverse('view_sales'))
         content = response.content.decode()
-        self.assertNotIn('class="graph-action"', content)
-        self.assertNotIn('class="chart-action"', content)
-        self.assertContains(response, '— View calculation')
+        self.assertNotIn('View calculation', content)
+        self.assertContains(
+            response,
+            f'data-dialog="commission-dialog-{sale.id}"',
+        )
+        self.assertContains(
+            response,
+            f'aria-controls="commission-dialog-{sale.id}"',
+        )
+        self.assertContains(
+            response,
+            'aria-label="View commission calculation for Visible Customer"',
+        )
+        self.assertContains(response, '$0.00')
         self.assertContains(response, 'commission-details-trigger')
-        self.assertContains(response, 'commission-dialog-')
+        self.assertContains(response, f'id="commission-dialog-{sale.id}"')
         self.assertContains(response, 'dialog.showModal()')
+
+    def test_print_action_uses_accessible_printer_icon_and_same_destination(self):
+        response = self.client.get(reverse('view_sales'))
+        expected_href = (
+            f'{reverse("print_sales")}'
+            f'?month={timezone.localdate():%Y-%m}'
+        )
+        content = response.content.decode()
+        start = content.index('class="button button-secondary dashboard-icon-button"')
+        end = content.index('</a>', start)
+        print_control = content[start:end]
+        self.assertIn(f'href="{expected_href}"', content)
+        self.assertIn('aria-label="Print sales"', print_control)
+        self.assertIn('title="Print sales"', print_control)
+        self.assertIn('<svg aria-hidden="true"', print_control)
+        self.assertNotIn('>Print sales<', print_control)
+        print_response = self.client.get(expected_href)
+        self.assertEqual(print_response.status_code, 200)
+        self.assertEqual(print_response.resolver_match.url_name, 'print_sales')
 
     def test_commission_totals_match_authoritative_engine(self):
         sale = self.make_sale()
@@ -149,6 +180,59 @@ class Phase1AUserInterfaceTests(TestCase):
         self.assertContains(response, 'Front-end commission')
         self.assertContains(response, 'Back-end commission')
         self.assertContains(response, 'Adjustments')
+
+    def test_commission_page_omits_per_sale_rows_without_changing_totals(self):
+        sale = self.make_sale()
+        expected = CommissionEngineService.calculate_sales(self.user, [sale])
+
+        commission = self.client.get(reverse('view_commission'))
+        self.assertNotContains(commission, 'Commission by Sale')
+        self.assertNotContains(commission, f'Sale {sale.id} —')
+        self.assertNotContains(commission, sale.customer)
+        self.assertEqual(
+            commission.context['total_front_end'],
+            expected['total_front'],
+        )
+        self.assertEqual(
+            commission.context['total_back_end'],
+            expected['total_back'],
+        )
+        self.assertEqual(
+            commission.context['total_bonus'],
+            expected['total_bonus'],
+        )
+        self.assertEqual(
+            commission.context['total_commission'],
+            expected['total_commission'],
+        )
+        self.assertContains(commission, 'Adjustments')
+        self.assertContains(commission, 'Unit credit')
+        self.assertContains(commission, 'Total commission')
+
+        dashboard = self.client.get(reverse('view_sales'))
+        self.assertContains(dashboard, sale.customer)
+        self.assertContains(
+            dashboard,
+            f'data-dialog="commission-dialog-{sale.id}"',
+        )
+        self.assertContains(dashboard, f'id="commission-dialog-{sale.id}"')
+
+        report = self.client.get(reverse('print_sales'))
+        self.assertContains(report, sale.customer)
+        self.assertContains(report, 'Adjustments')
+        self.assertEqual(
+            report.context['total_commission'],
+            expected['total_commission'],
+        )
+
+        other_sale = self.make_sale(user=self.other, deal_number=910002)
+        other_sale.customer = 'Other User Customer'
+        other_sale.save(update_fields=['customer'])
+        commission = self.client.get(reverse('view_commission'))
+        dashboard = self.client.get(reverse('view_sales'))
+        report = self.client.get(reverse('print_sales'))
+        for response in (commission, dashboard, report):
+            self.assertNotContains(response, other_sale.customer)
 
     def test_rule_page_leads_with_human_readable_summary(self):
         response = self.client.get(

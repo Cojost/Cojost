@@ -78,27 +78,4 @@
   {% endwith %}
 </section>
 {% endif %}
-
-<section class="card">
-  <h3>Commission by Sale</h3>
-  {% if commission_diagnostics.results %}
-    <ul>
-      {% for item in commission_diagnostics.results %}
-      <li>
-        <strong>Sale {{ item.sale_id }} — ${{ item.total_commission|floatformat:2 }}</strong>
-        <div>Front-end commission: ${{ item.frontend_commission|floatformat:2 }} · Back-end commission: ${{ item.backend_commission|floatformat:2 }} · Bonuses: ${{ item.bonus_commission|floatformat:2 }}</div>
-        {% if item.explanation %}
-        <details>
-          <summary>How this was calculated</summary>
-          <ul>{% for line in item.explanation %}<li>{{ line }}</li>{% endfor %}</ul>
-        </details>
-        {% endif %}
-        {% if item.errors %}<div class="notice notice-warning"><strong>Needs attention:</strong> This sale has missing or invalid commission information.</div>{% endif %}
-      </li>
-      {% endfor %}
-    </ul>
-  {% else %}
-    <p class="card-description">No sales in the selected period.</p>
-  {% endif %}
-</section>
 {% endblock %}
