@@ -248,7 +248,7 @@ class CommissionBonusTests(TestCase):
         response = self.client.get(reverse('view_sales'))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'Commission Total')
+        self.assertContains(response, 'Per-deal commission')
         self.assertContains(response, '$15.00')
         self.assertNotContains(response, '<th>Front End</th>', html=True)
         self.assertNotContains(response, '<th>Back End</th>', html=True)
@@ -265,8 +265,8 @@ class CommissionBonusTests(TestCase):
 
         self.assertEqual(response.context['total_count'], Decimal('2.0'))
         self.assertEqual(response.context['total_commission'], Decimal('265.0000'))
-        self.assertContains(response, 'Total Count')
-        self.assertContains(response, 'Total Commission')
+        self.assertContains(response, '2.0 unit credit')
+        self.assertContains(response, 'Estimated total commission $265.00')
         self.assertNotContains(response, 'id="totalCount"')
 
     def test_legacy_user_without_commission_can_access_sales_without_forced_migration(self):

@@ -1,14 +1,14 @@
 {% extends 'SalesLogApp/base.html' %}
 {% block title %}Pay Plan Assistant{% endblock %}
 {% block content %}
-<div class="intro">
-  <h2>Ask to Change Your Pay Plan</h2>
-  <p>Describe one change in plain language. The assistant creates a draft and never changes your active plan until you approve it.</p>
-</div>
+{% include "components/_page_header.html" with heading="Pay Plan Assistant" description="Request a draft change in plain language. Your active plan stays unchanged until you review and confirm the draft." %}
 <form method="post" class="card form-card" novalidate>
   {% csrf_token %}
   {{ form.non_field_errors }}
   {{ form.as_p }}
+  <div class="notice">
+    <strong>Effective date:</strong> Changes may recalculate earlier sales when the selected date is in a prior period.
+  </div>
   <div class="notice">
     <strong>Helpful examples:</strong>
     “Change the standard bonus at 12 units to $1,000.”
@@ -25,11 +25,11 @@
   <ul>
     {% for item in history %}
     <li>
-      <strong>{{ item.get_status_display }}</strong> — {{ item.request_text }}
+      {% include "components/_status_badge.html" with label=item.get_status_display status=item.status %} — {{ item.request_text }}
       <a href="{% url 'replacement_pay_plan_review' item.draft_version_id %}">View draft</a>
     </li>
     {% empty %}
-    <li>No plain-language requests yet.</li>
+    <li>No draft-change requests yet.</li>
     {% endfor %}
   </ul>
 </section>

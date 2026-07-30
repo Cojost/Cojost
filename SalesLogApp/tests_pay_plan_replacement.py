@@ -270,7 +270,7 @@ class PayPlanReplacementWorkflowTests(TestCase):
 
     def test_commission_page_shows_user_friendly_plan_summary(self):
         response = self.client.get(reverse('view_commission'))
-        self.assertContains(response, 'Your Pay Plan')
+        self.assertContains(response, 'Active plan')
         self.assertContains(response, 'Upload replacement plan')
         self.assertContains(response, 'Sales included')
         self.assertNotContains(response, 'Pay Plan Management')

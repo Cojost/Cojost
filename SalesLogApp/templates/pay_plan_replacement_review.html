@@ -62,9 +62,10 @@
   {% for rule in rules %}
     <article>
       <strong>{{ rule.name }}</strong>
-      <div>Type: {{ rule.rule_type }} | Scope: {{ rule.calculation_scope }} | Priority: {{ rule.sort_order }} | Active: {{ rule.is_active|yesno:"Yes,No" }}</div>
-      <div>Configuration: <code>{{ rule.configuration }}</code></div>
+      {% load pay_plan_display %}
+      <div>{{ rule|rule_summary }}</div>
       {% if rule.conditions.all %}<div>Conditions: {% for condition in rule.conditions.all %}{{ condition.field_name }} {{ condition.operator }} {{ condition.value }}{% if not forloop.last %}; {% endif %}{% endfor %}</div>{% endif %}
+      <details class="advanced-details"><summary>Advanced details</summary><div>Type: <code>{{ rule.rule_type }}</code> | Scope: <code>{{ rule.calculation_scope }}</code> | Priority: {{ rule.sort_order }}</div><div>Configuration: <code>{{ rule.configuration }}</code></div></details>
       <div><a class="text-link" href="{% url 'edit_pay_plan_rule' version.id rule.id %}">Edit Conditions</a></div>
     </article>
   {% empty %}

@@ -128,9 +128,9 @@ class SplitDealTests(TestCase):
         )
         self.client.force_login(self.user)
         response = self.client.get(reverse('view_sales'))
-        self.assertContains(response, 'Split With')
+        self.assertContains(response, 'Split with')
         self.assertContains(response, 'Alex Smith')
-        self.assertContains(response, '&mdash;', html=False)
+        self.assertContains(response, 'Not applicable')
 
     def test_other_user_cannot_view_or_edit_split_name(self):
         private_sale = self.make_sale(user=self.other, dealNumber=72003, split_with_name='Private Name')

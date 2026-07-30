@@ -1,6 +1,7 @@
 {% extends 'SalesLogApp/base.html' %}
 {% block title %}{% if rule %}Edit{% else %}Add{% endif %} Sandbox Rule{% endblock %}
 {% block content %}
+{% include "components/_sandbox_banner.html" %}
 <div class="intro"><h2>{% if rule %}Edit {{ rule.name }}{% else %}Add sandbox rule{% endif %}</h2><p>This changes only {{ sandbox.scenario_name }}.</p></div>
 <section class="card">
   <form method="post">{% csrf_token %}{{ form.as_p }}

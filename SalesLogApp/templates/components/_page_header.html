@@ -1,0 +1,9 @@
+<div class="intro page-header">
+  <div>
+    <h2>{{ heading }}</h2>
+    {% if description %}<p>{{ description }}</p>{% endif %}
+  </div>
+  {% if status_label %}
+    {% include "components/_status_badge.html" with label=status_label status=status %}
+  {% endif %}
+</div>

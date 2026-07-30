@@ -1,0 +1,5 @@
+<div class="empty-state-panel" role="status">
+  <h3>{{ heading }}</h3>
+  {% if description %}<p>{{ description }}</p>{% endif %}
+  {% if action_url and action_label %}<a class="button button-primary" href="{{ action_url }}">{{ action_label }}</a>{% endif %}
+</div>
