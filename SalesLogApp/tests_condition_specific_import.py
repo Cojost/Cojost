@@ -85,15 +85,43 @@ class ConditionSpecificAutomotiveImportTests(TestCase):
 
     def test_used_tiers_are_non_retroactive_and_pack_applies(self):
         sales = [
-            self.sale(81300 + i, 'pre-owned', front='2000', back='0', days=i)
+            self.sale(81300 + i, 'pre-owned', front='2000', back='0')
             for i in range(5)
         ]
         result = calculate_period_commission(
-            self.user, sales, self.start, self.start + timedelta(days=4),
+            self.user, sales, self.start, self.start,
         )
         amounts = [item.base_commission for item in result.sale_results]
         self.assertEqual(amounts[:4], [Decimal('425.00')] * 4)
         self.assertEqual(amounts[4], Decimal('510.00'))
+
+    def test_used_non_retroactive_position_resets_each_calendar_month(self):
+        july_sales = [
+            self.sale(81310 + i, 'pre-owned', front='2000', back='0')
+            for i in range(4)
+        ]
+        next_month = (self.start.replace(day=28) + timedelta(days=4)).replace(day=1)
+        august_sale = self.sale(81320, 'pre-owned', front='2000', back='0')
+        august_sale.date = next_month
+        august_sale.save(update_fields=['date'])
+
+        result = calculate_period_commission(
+            self.user,
+            july_sales + [august_sale],
+            self.start,
+            next_month,
+        )
+
+        self.assertEqual(
+            [item.base_commission for item in result.sale_results],
+            [Decimal('425.00')] * 5,
+        )
+        used_item = next(
+            item for item in result.sale_results[-1].line_items
+            if item.rule_type == 'progressive_unit_position_percentage'
+        )
+        self.assertEqual(used_item.metadata['unit_position'], '1')
+        self.assertEqual(used_item.metadata['pack'], '300.00')
 
     def test_missing_condition_does_not_select_new_or_used(self):
         sale = self.sale(81400, '', front='2000', back='0')
