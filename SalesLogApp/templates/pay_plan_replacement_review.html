@@ -46,6 +46,9 @@
     {% for action in plain_text_change.parsed_actions %}
     <li>
       {{ action.rule_name }}
+      {% if action.action_type == "add_volume_tier" %}:
+        {{ action.minimum_units }}{% if action.maximum_units %}–{{ action.maximum_units }}{% else %}+{% endif %} units pays ${{ action.new_value }}
+      {% endif %}
       {% if action.old_value %}: {{ action.old_value }} → {{ action.new_value }}{% endif %}
       {% if action.field_name %}: {{ action.action_type }} {{ action.field_name }}{% endif %}
     </li>
