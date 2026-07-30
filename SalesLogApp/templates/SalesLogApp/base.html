@@ -134,7 +134,7 @@
             html[data-theme="system"] input, html[data-theme="system"] select, html[data-theme="system"] textarea { background: #18232d; color: #fff; border-color: #718096; }
             html[data-theme="system"] .button-secondary { background: #273746; color: #fff; border-color: #91a2b2; }
         }
-        .summary { position: fixed; right: 16px; bottom: 14px; min-width: 290px; padding: 16px 20px; border: 1px solid var(--border); border-radius: 10px; background: white; box-shadow: 0 5px 18px rgba(20,35,50,.16); }
+        .summary { position: fixed; z-index: 20; right: 16px; bottom: 14px; min-width: 290px; padding: 16px 20px; border: 1px solid var(--border); border-radius: 10px; background: var(--card-background); color: var(--card-text); box-shadow: 0 5px 18px rgba(20,35,50,.16); }
         .summary h3 { margin: 0 0 9px; }
         .summary-row { display: flex; justify-content: space-between; gap: 28px; margin: 7px 0; }
         .summary-row strong { color: #1769aa; }
@@ -153,6 +153,8 @@
             .card { padding: 16px 12px; }
             .card, .form-card, fieldset { max-width: 100%; }
             .summary { right: 8px; bottom: 8px; left: 8px; min-width: 0; }
+            .dashboard-page { padding-bottom: 0; }
+            .dashboard-summary { position: static; width: 100%; margin: 18px 0; }
             .toolbar, .actions { flex-wrap: wrap; }
             .compact-form { align-items: stretch; flex-direction: column; overflow: hidden; }
             .compact-form > * { width: 100%; max-width: 100%; }
@@ -228,7 +230,7 @@
     </header>
     {% if user.is_authenticated %}
     <nav class="menu" aria-label="Main navigation">
-        <a href="{% url 'view_sales' %}"{% if request.resolver_match.url_name == 'view_sales' %} class="active" aria-current="page"{% endif %}>View Sales</a>
+        <a href="{% url 'view_sales' %}"{% if request.resolver_match.url_name == 'view_sales' %} class="active" aria-current="page"{% endif %}>Dashboard</a>
         <a href="{% url 'view_commission' %}"{% if request.resolver_match.url_name == 'view_commission' %} class="active" aria-current="page"{% endif %}>View Commission</a>
         <a href="{% url 'activity_goals' %}"{% if request.resolver_match.url_name == 'activity_goals' or request.resolver_match.url_name == 'edit_activity' %} class="active" aria-current="page"{% endif %}>Activity &amp; Goals</a>
     </nav>

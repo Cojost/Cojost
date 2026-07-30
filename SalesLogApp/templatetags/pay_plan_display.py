@@ -1,3 +1,4 @@
+import ast
 from decimal import Decimal, InvalidOperation
 
 from django import template
@@ -13,13 +14,16 @@ def _money(value):
 
 
 def _percent(value):
+    if value is None:
+        return 'Not available'
     try:
         rate = Decimal(str(value))
     except (InvalidOperation, TypeError):
         return 'Not available'
     if rate <= 1:
         rate *= 100
-    return f'{rate.normalize()}%'
+    formatted = format(rate, 'f').rstrip('0').rstrip('.')
+    return f'{formatted or "0"}%'
 
 
 def _units(value):
@@ -70,6 +74,48 @@ def rule_summary(rule):
 
 
 @register.filter
+def rule_heading(rule):
+    headings = {
+        'front_gross_percentage': 'Front-end commission',
+        'back_gross_percentage': 'Back-end commission',
+    }
+    return headings.get(rule.rule_type, rule.name)
+
+
+@register.filter
+def rule_explanation(rule):
+    config = rule.configuration or {}
+    if rule.rule_type == 'front_gross_percentage':
+        return (
+            f'You earn {_percent(config.get("rate"))} of the front-end gross '
+            'on qualifying sales.'
+        )
+    if rule.rule_type == 'back_gross_percentage':
+        return (
+            f'You earn {_percent(config.get("rate"))} of the back-end gross '
+            'on qualifying sales.'
+        )
+    return rule_summary(rule)
+
+
+def _readable_value(value):
+    parsed = value
+    if isinstance(value, str):
+        try:
+            parsed = ast.literal_eval(value)
+        except (ValueError, SyntaxError):
+            parsed = value
+    if isinstance(parsed, (list, tuple)):
+        values = [str(item).replace('_', ' ').title() for item in parsed]
+        if len(values) > 1:
+            return f'{", ".join(values[:-1])} or {values[-1]}'
+        return values[0] if values else 'no values'
+    if isinstance(parsed, bool):
+        return 'yes' if parsed else 'no'
+    return str(parsed).replace('_', ' ').title()
+
+
+@register.filter
 def condition_summary(condition):
     labels = {
         'vehicle_condition': 'vehicle type',
@@ -80,6 +126,7 @@ def condition_summary(condition):
         'make': 'vehicle make',
         'model': 'vehicle model',
         'mileage': 'vehicle mileage',
+        'acquisition_source': 'acquisition source',
     }
     operators = {
         'equals': 'is',
@@ -90,9 +137,16 @@ def condition_summary(condition):
         'less_than_or_equal': 'is no more than',
         'is_true': 'is required',
         'is_false': 'is not required',
+        'in': 'is',
+        'not_in': 'is not',
     }
     field = labels.get(condition.field_name, condition.field_name.replace('_', ' '))
     operator = operators.get(condition.operator, condition.operator.replace('_', ' '))
     if condition.operator in {'is_true', 'is_false'}:
         return f'{field.title()} {operator}'
-    return f'{field.title()} {operator} {condition.value}'
+    value = _readable_value(condition.value)
+    if condition.operator == 'not_in':
+        return f'Does not apply when the {field} is {value}.'
+    if condition.operator == 'in':
+        return f'Applies when the {field} is {value}.'
+    return f'{field.title()} {operator} {value}.'

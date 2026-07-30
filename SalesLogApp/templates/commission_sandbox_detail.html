@@ -119,7 +119,7 @@
 
 <section class="card">
   <h3>Hypothetical deals</h3>
-  <p class="card-description">Scenario deals are never added to View Sales, dashboards, reports, exports, or production totals.</p>
+  <p class="card-description">Scenario deals are never added to the Dashboard, reports, exports, or production totals.</p>
   {% if sandbox.status == "draft" %}
   <form method="post" action="{% url 'commission_sandbox_hypothetical' sandbox.public_id %}" data-scenario-state-form>
     {% csrf_token %}{{ hypothetical_form.as_p }}

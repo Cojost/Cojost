@@ -1,10 +1,10 @@
 {% load pay_plan_display %}
 <article class="rule-summary">
   <div class="rule-summary-heading">
-    <h3>{{ rule.name }}</h3>
+    <h3>{{ rule|rule_heading }}</h3>
     {% include "components/_status_badge.html" with label=rule.is_active|yesno:"Active,Inactive" status=rule.is_active|yesno:"active,inactive" %}
   </div>
-  <p class="rule-summary-text">{{ rule|rule_summary }}</p>
+  <p class="rule-summary-text">{{ rule|rule_explanation }}</p>
   {% if rule.description %}<p>{{ rule.description }}</p>{% endif %}
   {% if rule.conditions.all %}
     <p><strong>Applies when:</strong></p>
@@ -18,6 +18,9 @@
       <div><dt>Rule type</dt><dd><code>{{ rule.rule_type }}</code></dd></div>
       <div><dt>Calculation scope</dt><dd><code>{{ rule.calculation_scope }}</code></dd></div>
       <div><dt>Configuration</dt><dd><code>{{ rule.configuration }}</code></dd></div>
+      {% for condition in rule.conditions.all %}
+      <div><dt>Condition {{ forloop.counter }}</dt><dd><code>{{ condition.field_name }} {{ condition.operator }} {{ condition.value }}</code></dd></div>
+      {% endfor %}
     </dl>
   </details>
 </article>

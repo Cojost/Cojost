@@ -7,7 +7,11 @@ from django.urls import reverse
 from django.utils import timezone
 
 from .commission_service import CommissionEngineService
-from .models import PayPlanChangeRequest, PayPlanRule, PayPlanVersion, Sale, UserProfile
+from .models import (
+    PayPlanChangeRequest, PayPlanRule, PayPlanRuleCondition, PayPlanVersion,
+    Sale, UserProfile,
+)
+from .templatetags.pay_plan_display import _percent
 
 
 class Phase1AUserInterfaceTests(TestCase):
@@ -76,6 +80,15 @@ class Phase1AUserInterfaceTests(TestCase):
         ]
         for name in ('view_sales', 'view_commission', 'activity_goals'):
             self.assertEqual(navigation.count(f'href="{reverse(name)}"'), 1)
+        self.assertIn('>Dashboard</a>', navigation)
+        self.assertNotIn('>View Sales</a>', navigation)
+
+    def test_dashboard_name_does_not_change_sales_route(self):
+        response = self.client.get(reverse('view_sales'))
+        self.assertEqual(reverse('view_sales'), '/SalesLogApp/view_sales/')
+        self.assertEqual(response.resolver_match.url_name, 'view_sales')
+        self.assertContains(response, '<title>Dashboard</title>', html=True)
+        self.assertContains(response, '<h2>Dashboard</h2>', html=True)
 
     def test_primary_sales_actions_remain_reachable(self):
         self.make_sale()
@@ -91,9 +104,40 @@ class Phase1AUserInterfaceTests(TestCase):
         response = self.client.get(reverse('view_sales'))
         self.assertContains(response, 'Per-deal commission')
         self.assertContains(response, 'Estimated total commission')
-        self.assertNotContains(response, 'Front-end commission</span>')
-        self.assertNotContains(response, 'Back-end commission</span>')
-        self.assertNotContains(response, 'Period Bonuses')
+        self.assertContains(response, 'Front-end commission')
+        self.assertContains(response, 'Back-end commission')
+        self.assertContains(response, 'Bonuses')
+        self.assertNotContains(response, 'How this was calculated')
+
+    def test_dashboard_restores_authoritative_reconciling_totals_box(self):
+        sale = self.make_sale()
+        expected = CommissionEngineService.calculate_sales(self.user, [sale])
+        response = self.client.get(reverse('view_sales'))
+        self.assertContains(response, 'class="summary dashboard-summary"')
+        self.assertEqual(response.context['total_count'], sale.unit_credit)
+        self.assertEqual(response.context['total_front_end'], expected['total_front'])
+        self.assertEqual(response.context['total_back_end'], expected['total_back'])
+        self.assertEqual(response.context['total_bonus'], expected['total_bonus'])
+        self.assertEqual(response.context['total_adjustments'], Decimal('0'))
+        components = (
+            response.context['total_front_end']
+            + response.context['total_back_end']
+            + response.context['total_bonus']
+            + response.context['total_adjustments']
+        )
+        self.assertEqual(components, response.context['total_commission'])
+        self.assertEqual(response.context['total_commission'], expected['total_commission'])
+
+    def test_dashboard_graph_has_no_visible_calculation_action_but_popup_remains(self):
+        self.make_sale()
+        response = self.client.get(reverse('view_sales'))
+        content = response.content.decode()
+        self.assertNotIn('class="graph-action"', content)
+        self.assertNotIn('class="chart-action"', content)
+        self.assertContains(response, '— View calculation')
+        self.assertContains(response, 'commission-details-trigger')
+        self.assertContains(response, 'commission-dialog-')
+        self.assertContains(response, 'dialog.showModal()')
 
     def test_commission_totals_match_authoritative_engine(self):
         sale = self.make_sale()
@@ -112,6 +156,61 @@ class Phase1AUserInterfaceTests(TestCase):
         )
         self.assertContains(response, '$500.00 bonus at 10 units')
         self.assertContains(response, 'Active plan')
+        self.assertContains(
+            response,
+            'See how your commission is calculated and when each rule applies.',
+        )
+        self.assertNotContains(response, 'Human-readable')
+
+    def test_percent_formatter_preserves_decimal_precision_without_exponents(self):
+        examples = {
+            Decimal('0.25'): '25%',
+            '0.275': '27.5%',
+            Decimal('0.003'): '0.3%',
+            0: '0%',
+            None: 'Not available',
+        }
+        for value, expected in examples.items():
+            with self.subTest(value=value):
+                formatted = _percent(value)
+                self.assertEqual(formatted, expected)
+                if value is not None:
+                    self.assertNotIn('E', formatted)
+                    self.assertNotIn('e', formatted)
+
+    def test_front_rule_and_acquisition_exclusion_use_natural_language(self):
+        front_rule = PayPlanRule.objects.create(
+            pay_plan_version=self.version,
+            name='standard_front_end_percentage_rule',
+            rule_type='front_gross_percentage',
+            calculation_scope='per_sale',
+            configuration={'rate': '0.25'},
+        )
+        PayPlanRuleCondition.objects.create(
+            rule=front_rule,
+            field_name='acquisition_source',
+            operator='not_in',
+            value=['street_curb', 'current_service_customer'],
+        )
+        response = self.client.get(
+            reverse('pay_plan_rules', args=[self.version.id]),
+        )
+        self.assertContains(response, 'Front-end commission')
+        self.assertContains(
+            response,
+            'You earn 25% of the front-end gross on qualifying sales.',
+        )
+        self.assertContains(
+            response,
+            'Does not apply when the acquisition source is Street Curb or '
+            'Current Service Customer.',
+        )
+        content = response.content.decode()
+        advanced = content.index('<summary>Advanced details</summary>')
+        raw = content.index(
+            'acquisition_source not_in', advanced,
+        )
+        self.assertLess(advanced, raw)
 
     def test_raw_rule_configuration_is_only_in_advanced_details(self):
         response = self.client.get(

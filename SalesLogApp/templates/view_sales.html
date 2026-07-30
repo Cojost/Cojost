@@ -1,11 +1,12 @@
 {% extends 'SalesLogApp/base.html' %}
-{% block title %}View Sales{% endblock %}
+{% block title %}Dashboard{% endblock %}
+{% block page_class %}with-summary dashboard-page{% endblock %}
 {% block content %}
-{% include "components/_page_header.html" with heading="View Sales" description="Manage deals and review each deal’s estimated commission." %}
+{% include "components/_page_header.html" with heading="Dashboard" description="Manage deals and review each deal’s estimated commission." %}
 <form method="get" class="card compact-form"><label for="sales-month">Sales month</label><input id="sales-month" type="month" name="month" value="{{ selected_month|date:'Y-m' }}"><button class="button button-secondary" type="submit">View month</button></form>
 <section class="card">
   <div class="toolbar">
-    <div><h3>{{ selected_month|date:"F Y" }}</h3>{% if sales %}<p class="card-description">{{ total_count|floatformat:1 }} unit credit · Estimated total commission ${{ total_commission|floatformat:2 }}</p>{% endif %}</div>
+    <div><h3>{{ selected_month|date:"F Y" }}</h3></div>
     <div class="actions"><a href="{% url 'print_sales' %}?month={{ selected_month|date:'Y-m' }}" target="_blank" rel="noopener" class="button button-secondary">Print sales</a><a href="{% url 'view_commission' %}" class="button button-secondary">View commission summary</a><a href="{% url 'add_sale' %}" class="button button-primary">Add sale</a></div>
   </div>
   {% if sales %}
@@ -23,6 +24,17 @@
   </table></div>
   {% else %}{% url 'add_sale' as add_sale_url %}{% include "components/_empty_state.html" with heading="No sales recorded" description="Add the first deal for this month to begin calculating commission." action_url=add_sale_url action_label="Add sale" %}{% endif %}
 </section>
+{% if sales %}
+<aside class="summary dashboard-summary" aria-label="Estimated commission totals">
+  <h3>{{ selected_month|date:"F Y" }}</h3>
+  <div class="summary-row"><span>Unit credit</span><strong>{{ total_count|floatformat:1 }}</strong></div>
+  <div class="summary-row"><span>Front-end commission</span><strong>${{ total_front_end|floatformat:2 }}</strong></div>
+  <div class="summary-row"><span>Back-end commission</span><strong>${{ total_back_end|floatformat:2 }}</strong></div>
+  <div class="summary-row"><span>Bonuses</span><strong>${{ total_bonus|floatformat:2 }}</strong></div>
+  {% if total_adjustments %}<div class="summary-row"><span>Adjustments</span><strong>${{ total_adjustments|floatformat:2 }}</strong></div>{% endif %}
+  <div class="summary-row summary-total"><span>Estimated total commission</span><strong>${{ total_commission|floatformat:2 }}</strong></div>
+</aside>
+{% endif %}
 {% endblock %}
 {% block page_scripts %}<script>
 document.querySelectorAll('.vehicle-details-trigger').forEach(function (trigger) {

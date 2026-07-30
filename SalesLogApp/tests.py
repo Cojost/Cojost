@@ -265,8 +265,12 @@ class CommissionBonusTests(TestCase):
 
         self.assertEqual(response.context['total_count'], Decimal('2.0'))
         self.assertEqual(response.context['total_commission'], Decimal('265.0000'))
-        self.assertContains(response, '2.0 unit credit')
-        self.assertContains(response, 'Estimated total commission $265.00')
+        self.assertContains(response, '<span>Unit credit</span><strong>2.0</strong>', html=True)
+        self.assertContains(
+            response,
+            '<span>Estimated total commission</span><strong>$265.00</strong>',
+            html=True,
+        )
         self.assertNotContains(response, 'id="totalCount"')
 
     def test_legacy_user_without_commission_can_access_sales_without_forced_migration(self):

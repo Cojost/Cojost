@@ -2,9 +2,9 @@
 {% block title %}Pay Plan Rules{% endblock %}
 {% block content %}
 {% if version.status == "active" %}
-  {% include "components/_page_header.html" with heading=version.pay_plan.name description="Human-readable commission rules for this pay-plan version." status_label="Active plan" status=version.status %}
+  {% include "components/_page_header.html" with heading=version.pay_plan.name description="See how your commission is calculated and when each rule applies." status_label="Active plan" status=version.status %}
 {% else %}
-  {% include "components/_page_header.html" with heading=version.pay_plan.name description="Human-readable commission rules for this pay-plan version." status_label=version.get_status_display status=version.status %}
+  {% include "components/_page_header.html" with heading=version.pay_plan.name description="See how your commission is calculated and when each rule applies." status_label=version.get_status_display status=version.status %}
 {% endif %}
 {% for rule in rules %}
 <section class="card">
