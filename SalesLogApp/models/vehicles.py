@@ -49,6 +49,7 @@ class VehicleMake(models.Model):
             raise ValidationError({'name': 'Enter a make.'})
 
     def save(self, *args, **kwargs):
+        self.clean()
         self.full_clean()
         return super().save(*args, **kwargs)
 
@@ -83,6 +84,7 @@ class VehicleModel(models.Model):
             raise ValidationError({'name': 'Enter a model.'})
 
     def save(self, *args, **kwargs):
+        self.clean()
         self.full_clean()
         return super().save(*args, **kwargs)
 
@@ -103,7 +105,12 @@ class Vehicle(models.Model):
     stock_number = models.CharField(
         max_length=50, db_index=True, validators=[STOCK_VALIDATOR]
     )
-    vin = models.CharField(max_length=17, db_index=True, validators=[VIN_VALIDATOR])
+    vin = models.CharField(
+        max_length=17,
+        db_index=True,
+        validators=[VIN_VALIDATOR],
+        blank=True,
+    )
 
     class Meta:
         indexes = [

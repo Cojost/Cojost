@@ -1,0 +1,6 @@
+{% extends 'SalesLogApp/base.html' %}
+{% block title %}Imported Pay Plan Rules{% endblock %}
+{% block content %}
+<div class="intro"><h2>{{ version.pay_plan.name }} — {{ version.version_name }}</h2><p>Status: {{ version.get_status_display }}</p></div>
+{% for rule in rules %}<section class="card"><h3>{{ rule.name }}</h3><p>Type: {{ rule.rule_type }} | Scope: {{ rule.calculation_scope }} | Priority: {{ rule.sort_order }} | Active: {{ rule.is_active|yesno:"Yes,No" }}</p><p>Configuration: <code>{{ rule.configuration }}</code></p>{% if rule.description %}<p>{{ rule.description }}</p>{% endif %}<ul>{% for condition in rule.conditions.all %}<li>{{ condition.field_name }} {{ condition.operator }} {{ condition.value }}</li>{% empty %}<li>Applies without additional conditions.</li>{% endfor %}</ul>{% if can_edit_rules and rule.calculation_scope == "per_sale" %}<a class="button button-secondary" href="{% url 'edit_pay_plan_rule' version.id rule.id %}">Edit Conditions</a>{% endif %}</section>{% empty %}<section class="card"><p>No rules exist for this version.</p></section>{% endfor %}
+{% endblock %}

@@ -11,7 +11,7 @@
 <body>
   <div class="report-controls no-print">
     <button type="button" onclick="window.print()">Print</button>
-    <a href="{{ back_url }}">Back</a>
+    <button type="button" class="report-exit" onclick="window.close(); setTimeout(function () { window.location.href = '{{ back_url|escapejs }}'; }, 100);">Exit</button>
   </div>
   <main class="report">
     <header class="report-heading">

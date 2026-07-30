@@ -1,0 +1,59 @@
+{% extends 'SalesLogApp/base.html' %}
+{% block title %}Upload Replacement Pay Plan{% endblock %}
+{% block content %}
+<div class="intro">
+  <h2>Upload Replacement Pay Plan</h2>
+  <p>Your current plan will remain active while the replacement is reviewed. After approval, eligible sales will be recalculated and the previous version will remain in plan history.</p>
+</div>
+<section class="card">
+  <h3>Current plan</h3>
+  <p>{{ active_plan_summary.plan.name|default:"No active plan" }} — {{ active_plan_summary.plan_version_name|default:"No version" }}</p>
+</section>
+<form method="post" enctype="multipart/form-data" class="card form-card" novalidate>
+  {% csrf_token %}
+  {{ form.non_field_errors }}
+  {{ form.as_p }}
+  <div class="actions">
+    <button class="button button-secondary" id="paste-plan-text" type="button">Paste Text from Clipboard</button>
+    <span id="pasted-file-message" class="field-help" aria-live="polite"></span>
+  </div>
+  <div class="actions">
+    <a class="button button-secondary" href="{% url 'view_commission' %}">Cancel</a>
+    <button class="button button-primary" type="submit">Upload for Review</button>
+  </div>
+</form>
+{% endblock %}
+{% block page_scripts %}
+<script>
+(function () {
+  const form = document.querySelector('form.form-card');
+  const textInput = document.getElementById('id_pasted_text');
+  const fileInput = document.getElementById('id_documents');
+  const message = document.getElementById('pasted-file-message');
+  const pasteButton = document.getElementById('paste-plan-text');
+
+  pasteButton.addEventListener('click', async function () {
+    try {
+      textInput.value = await navigator.clipboard.readText();
+      textInput.focus();
+      message.textContent = textInput.value.trim()
+        ? 'Pay-plan text pasted. Review it before submitting.'
+        : 'The clipboard did not contain text.';
+    } catch (error) {
+      message.textContent = 'Clipboard access was blocked. Click the text box and press Ctrl+V.';
+      textInput.focus();
+    }
+  });
+
+  form.addEventListener('paste', function (event) {
+    const files = Array.from(event.clipboardData && event.clipboardData.files || []);
+    if (!files.length) return;
+    const transfer = new DataTransfer();
+    files.forEach(function (file) { transfer.items.add(file); });
+    fileInput.files = transfer.files;
+    message.textContent = files.length + ' clipboard file(s) ready to upload.';
+    event.preventDefault();
+  });
+}());
+</script>
+{% endblock %}

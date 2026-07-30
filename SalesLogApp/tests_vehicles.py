@@ -72,6 +72,13 @@ class VehicleFeatureTests(TestCase):
             invalid = VehicleForm({**self.vehicle_data, **changes}, user=self.user)
             self.assertFalse(invalid.is_valid())
 
+    def test_vin_is_optional_when_entering_vehicle_details(self):
+        data = {**self.vehicle_data, 'vin': ''}
+        form = VehicleForm(data, user=self.user)
+        self.assertTrue(form.is_valid(), form.errors)
+        vehicle = form.save(self.create_sale())
+        self.assertEqual(vehicle.vin, '')
+
     def test_model_must_belong_to_make(self):
         other_make = VehicleMake.objects.create(name='Honda')
         other_model = VehicleModel.objects.create(make=other_make, name='Civic')

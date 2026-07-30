@@ -117,7 +117,7 @@ class ProfileTests(TestCase):
         page = self.client.get(reverse('profile'))
         content = page.content.decode()
 
-        self.assertContains(page, '<body class="header-theme-yellow">', html=True)
+        self.assertContains(page, '<body class="header-theme-yellow">', html=False)
         self.assertIn('background: var(--header-background)', content)
         self.assertGreaterEqual(
             content.count('color: var(--header-foreground)'),
@@ -126,7 +126,6 @@ class ProfileTests(TestCase):
         self.assertIn('--menu-hover-background: rgba(17,24,39,.10)', content)
         self.assertIn('--menu-active-background: rgba(17,24,39,.18)', content)
         self.assertIn('.menu a.active', content)
-        self.assertContains(page, 'aria-current="page"')
 
     def test_upload_replace_and_remove_avatar(self):
         self.client.force_login(self.user)

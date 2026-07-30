@@ -1,0 +1,110 @@
+{% extends 'SalesLogApp/base.html' %}
+{% load scenario_format %}
+{% block title %}Commission Scenarios{% endblock %}
+{% block content %}
+<div class="intro">
+  <h2>Commission Sandbox</h2>
+  <p>Save and compare private pay-plan scenarios. Nothing here changes your active plan, sales, reports, or recorded commission.</p>
+</div>
+
+<section class="card">
+  <h3>Start a scenario</h3>
+  <form method="post" data-scenario-state-form>
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button class="button button-primary" type="submit">Create private scenario</button>
+  </form>
+</section>
+
+{% if active_scenarios %}
+<section class="card">
+  <h3>Compare scenarios</h3>
+  <p class="card-description">The live plan is included automatically. Select up to three private scenarios.</p>
+  <form method="post" action="{% url 'commission_sandbox_compare' %}">
+    {% csrf_token %}
+    {{ comparison_form.as_p }}
+    <button class="button button-primary" type="submit">Compare selected scenarios</button>
+  </form>
+</section>
+{% endif %}
+
+<section class="card">
+  <div class="scenario-toolbar">
+    <div>
+      <h3>Your scenarios</h3>
+      <p class="card-description">Archived names may be reused for a new scenario.</p>
+    </div>
+    <form method="get">
+      <label for="scenario-sort">Sort by</label>
+      <select id="scenario-sort" name="sort" onchange="this.form.submit()">
+        <option value="recent" {% if scenario_sort == "recent" %}selected{% endif %}>Recently modified</option>
+        <option value="name" {% if scenario_sort == "name" %}selected{% endif %}>Name</option>
+        <option value="increase" {% if scenario_sort == "increase" %}selected{% endif %}>Largest increase</option>
+        <option value="decrease" {% if scenario_sort == "decrease" %}selected{% endif %}>Largest decrease</option>
+        <option value="warnings" {% if scenario_sort == "warnings" %}selected{% endif %}>Warning count</option>
+      </select>
+    </form>
+  </div>
+
+  <div class="scenario-card-grid">
+    {% for sandbox in active_scenarios %}
+    <article class="scenario-card">
+      <div class="scenario-toolbar">
+        <h4>{{ sandbox.scenario_name }}</h4>
+        <span class="scenario-status scenario-status-{{ sandbox.status }}">{{ sandbox.get_status_display }}</span>
+      </div>
+      <p>{{ sandbox.scenario_notes|default:"No description supplied."|truncatechars:140 }}</p>
+      <dl class="scenario-meta">
+        <dt>Source plan</dt><dd>{{ sandbox.source_version.version_name }}</dd>
+        <dt>Last modified</dt><dd>{{ sandbox.updated_at|date:"M j, Y g:i a" }}</dd>
+        <dt>Last calculated</dt><dd>{% if sandbox.last_calculated_at %}{{ sandbox.last_calculated_at|date:"M j, Y g:i a" }}{% else %}Not calculated{% endif %}</dd>
+        <dt>Replay period</dt><dd>{% if sandbox.replay_start_date or sandbox.replay_end_date %}{{ sandbox.replay_start_date|default:"Beginning" }} through {{ sandbox.replay_end_date|default:"Today" }}{% else %}Not selected{% endif %}</dd>
+        <dt>Scenario total</dt><dd>{{ sandbox.calculation_summary.scenario_total|scenario_currency }}</dd>
+        <dt>Live difference</dt>
+        <dd class="scenario-difference-{{ sandbox.difference_class }}">
+          {{ sandbox.calculation_summary.difference|signed_scenario_currency }}
+          ({{ sandbox.calculation_summary.percentage_change|signed_scenario_percent }})
+        </dd>
+        <dt>Warnings</dt><dd>{{ sandbox.calculation_summary.warning_count|default:0 }}</dd>
+        <dt>Errors</dt><dd>{{ sandbox.calculation_summary.error_count|default:0 }}</dd>
+      </dl>
+      <div class="scenario-actions">
+        <a class="button button-primary" href="{% url 'commission_sandbox_detail' sandbox.public_id %}">Open</a>
+        <form method="post" action="{% url 'commission_sandbox_duplicate' sandbox.public_id %}">{% csrf_token %}<button class="button button-secondary" type="submit">Duplicate</button></form>
+        <a class="button button-secondary" href="{% url 'commission_sandbox_rename' sandbox.public_id %}">Rename</a>
+        <a class="button button-secondary" href="{% url 'commission_sandbox_compare' %}?scenario={{ sandbox.id }}">Compare</a>
+        <form method="post" action="{% url 'commission_sandbox_archive' sandbox.public_id %}">{% csrf_token %}<button class="button button-secondary" type="submit">Archive</button></form>
+        <a class="button button-secondary" href="{% url 'commission_sandbox_delete' sandbox.public_id %}">Delete</a>
+      </div>
+    </article>
+    {% empty %}
+      <p>No active scenarios yet.</p>
+    {% endfor %}
+  </div>
+</section>
+
+{% if archived_scenarios %}
+<section class="card">
+  <h3>Archived scenarios</h3>
+  <p class="card-description">Archived scenarios are read-only, remain available for audit, and can be duplicated or restored.</p>
+  <div class="scenario-card-grid">
+    {% for sandbox in archived_scenarios %}
+    <article class="scenario-card scenario-readonly">
+      <div class="scenario-toolbar">
+        <h4>{{ sandbox.scenario_name }}</h4>
+        <span class="scenario-status scenario-status-archived">Archived</span>
+      </div>
+      <p>{{ sandbox.scenario_notes|default:"No description supplied."|truncatechars:140 }}</p>
+      <div class="scenario-actions">
+        <a class="button button-secondary" href="{% url 'commission_sandbox_detail' sandbox.public_id %}">View</a>
+        <form method="post" action="{% url 'commission_sandbox_restore' sandbox.public_id %}">{% csrf_token %}<button class="button button-secondary" type="submit">Restore</button></form>
+        <form method="post" action="{% url 'commission_sandbox_duplicate' sandbox.public_id %}">{% csrf_token %}<button class="button button-secondary" type="submit">Duplicate</button></form>
+        <a class="button button-secondary" href="{% url 'commission_sandbox_compare' %}?scenario={{ sandbox.id }}">Compare</a>
+        <a class="button button-secondary" href="{% url 'commission_sandbox_delete' sandbox.public_id %}">Delete</a>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+{% endblock %}

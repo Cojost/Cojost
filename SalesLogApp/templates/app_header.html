@@ -5,9 +5,7 @@
         <summary class="shared-menu-btn"><span aria-hidden="true">&#9776;</span> Menu</summary>
         <nav class="shared-menu" aria-label="Main navigation">
             <a href="{% url 'view_sales' %}"><span aria-hidden="true">▤</span> View Sales</a>
-            <a href="{% url 'add_sale' %}"><span aria-hidden="true">＋</span> Add Sale</a>
             <a href="{% url 'view_commission' %}"><span aria-hidden="true">$</span> View Commission</a>
-            {% if commission_instance %}<a href="{% url 'adjust_commission_by_id' commission_instance.id %}"><span aria-hidden="true">⚙</span> Commission Settings</a>{% else %}<a href="{% url 'adjust_commission' %}"><span aria-hidden="true">⚙</span> Commission Settings</a>{% endif %}
         </nav>
     </details>
     {% endif %}

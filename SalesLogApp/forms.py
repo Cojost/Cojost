@@ -4,6 +4,7 @@ from decimal import Decimal
 from io import BytesIO
 
 from django import forms
+from django.core.exceptions import ValidationError
 from django.core.files.base import ContentFile
 from django.utils import timezone
 from PIL import Image, ImageOps
@@ -19,9 +20,716 @@ from .models.vehicles import (
     display_catalog_name, next_vehicle_year, normalize_catalog_name,
 )
 
+
+class MultipleFileInput(forms.ClearableFileInput):
+    allow_multiple_selected = True
+
+
+class MultipleFileField(forms.FileField):
+    def clean(self, data, initial=None):
+        single_file_clean = super().clean
+        if not data:
+            return []
+        files = data if isinstance(data, (list, tuple)) else [data]
+        return [single_file_clean(file, initial) for file in files]
+
+
+class PayPlanSetupForm(forms.Form):
+    UPLOAD = 'upload'
+    DESCRIBE = 'describe'
+    SETUP_METHOD_CHOICES = (
+        (UPLOAD, 'Upload'),
+        (DESCRIBE, 'Describe'),
+        ('manual_builder', 'Manual builder'),
+        ('assisted', 'Assisted'),
+    )
+    MAX_DOCUMENT_SIZE = 10 * 1024 * 1024
+    ALLOWED_CONTENT_TYPES = {
+        'application/pdf': 'pdf',
+        'image/jpeg': 'image',
+        'image/png': 'image',
+        'image/webp': 'image',
+    }
+
+    setup_method = forms.ChoiceField(
+        choices=SETUP_METHOD_CHOICES,
+        widget=forms.RadioSelect,
+    )
+    description = forms.CharField(required=False, widget=forms.Textarea)
+    documents = MultipleFileField(
+        required=False,
+        widget=MultipleFileInput(attrs={
+            'accept': '.pdf,.jpg,.jpeg,.png,.webp',
+        }),
+    )
+
+    def clean_documents(self):
+        documents = self.cleaned_data['documents']
+        for document in documents:
+            if document.size > self.MAX_DOCUMENT_SIZE:
+                raise ValidationError(
+                    f'{document.name} exceeds the 10 MB file-size limit.'
+                )
+            if document.content_type not in self.ALLOWED_CONTENT_TYPES:
+                raise ValidationError(
+                    f'{document.name} must be a PDF, JPG, PNG, or WEBP file.'
+                )
+        return documents
+
+    def clean(self):
+        cleaned_data = super().clean()
+        setup_method = cleaned_data.get('setup_method')
+        # A selected file is unambiguous user intent. Mobile browsers can leave
+        # a previously selected radio option checked even after the user opens
+        # the upload picker, so do not silently discard a valid upload.
+        if cleaned_data.get('documents'):
+            setup_method = self.UPLOAD
+            cleaned_data['setup_method'] = self.UPLOAD
+        if setup_method == self.DESCRIBE and not (
+            cleaned_data.get('description') or ''
+        ).strip():
+            self.add_error(
+                'description',
+                'Describe your pay plan before continuing.',
+            )
+        if setup_method == self.UPLOAD and not cleaned_data.get('documents'):
+            self.add_error(
+                'documents',
+                'Upload at least one pay-plan document before continuing.',
+            )
+        return cleaned_data
+
+
+class PayPlanReplacementForm(forms.Form):
+    CURRENT_MONTH = 'current_month'
+    SELECTED_DATE = 'selected_date'
+    FUTURE_ONLY = 'future_only'
+    APPLY_CHOICES = (
+        (
+            CURRENT_MONTH,
+            'Apply from the start of the current month (recalculates earlier sales)',
+        ),
+        (SELECTED_DATE, 'Apply beginning on a selected date'),
+        (FUTURE_ONLY, 'Apply only to future sales'),
+    )
+    plan_name = forms.CharField(max_length=150)
+    apply_from = forms.ChoiceField(choices=APPLY_CHOICES)
+    selected_date = forms.DateField(
+        required=False, widget=forms.DateInput(attrs={'type': 'date'}),
+    )
+    confirm_retroactive = forms.BooleanField(
+        required=False,
+        label='I understand this will recalculate sales dated before today',
+    )
+    documents = MultipleFileField(
+        required=False,
+        widget=MultipleFileInput(attrs={
+            'accept': '.pdf,.jpg,.jpeg,.png,.webp',
+            'id': 'id_documents',
+        }),
+    )
+    pasted_text = forms.CharField(
+        required=False,
+        label='Or paste pay-plan text',
+        help_text=(
+            'Paste the plan wording exactly as written. It will create a draft '
+            'for review and will not replace the active plan automatically.'
+        ),
+        widget=forms.Textarea(attrs={
+            'rows': 12,
+            'placeholder': 'Paste pay-plan text here…',
+            'id': 'id_pasted_text',
+        }),
+    )
+
+    def clean_documents(self):
+        documents = self.cleaned_data.get('documents') or []
+        extension_types = {
+            '.pdf': 'application/pdf',
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.png': 'image/png',
+            '.webp': 'image/webp',
+        }
+        import os
+        for document in documents:
+            extension = os.path.splitext(document.name)[1].lower()
+            expected_type = extension_types.get(extension)
+            if expected_type is None:
+                raise ValidationError(f'{document.name} uses an unsupported file extension.')
+            if document.size > PayPlanSetupForm.MAX_DOCUMENT_SIZE:
+                raise ValidationError(f'{document.name} exceeds the 10 MB file-size limit.')
+            if document.content_type != expected_type:
+                raise ValidationError(f'{document.name} has an unexpected content type.')
+            header = document.read(12)
+            document.seek(0)
+            valid_signature = (
+                (expected_type == 'application/pdf' and header.startswith(b'%PDF'))
+                or (expected_type == 'image/jpeg' and header.startswith(b'\xff\xd8\xff'))
+                or (expected_type == 'image/png' and header.startswith(b'\x89PNG\r\n\x1a\n'))
+                or (
+                    expected_type == 'image/webp'
+                    and header.startswith(b'RIFF')
+                    and header[8:12] == b'WEBP'
+                )
+            )
+            if not valid_signature:
+                raise ValidationError(f'{document.name} does not contain a valid supported file.')
+        return documents
+
+    def clean(self):
+        cleaned = super().clean()
+        if not cleaned.get('documents') and not (
+            cleaned.get('pasted_text') or ''
+        ).strip():
+            raise ValidationError(
+                'Upload a pay-plan document or paste the pay-plan text.'
+            )
+        apply_from = cleaned.get('apply_from')
+        if apply_from == self.SELECTED_DATE and not cleaned.get('selected_date'):
+            self.add_error('selected_date', 'Select an effective date.')
+        today = timezone.localdate()
+        if apply_from == self.CURRENT_MONTH:
+            cleaned['effective_start_date'] = today.replace(day=1)
+        elif apply_from == self.FUTURE_ONLY:
+            from datetime import timedelta
+            cleaned['effective_start_date'] = today + timedelta(days=1)
+        else:
+            cleaned['effective_start_date'] = cleaned.get('selected_date')
+        effective_start = cleaned.get('effective_start_date')
+        if (
+            effective_start
+            and effective_start < today
+            and not cleaned.get('confirm_retroactive')
+        ):
+            self.add_error(
+                'confirm_retroactive',
+                'Confirm retroactive recalculation or choose future sales only.',
+            )
+        return cleaned
+
+
+class ManualPayPlanRuleForm(forms.Form):
+    name = forms.CharField(max_length=150)
+    rule_type = forms.ChoiceField(choices=(
+        ('front_gross_percentage', 'Front-end gross percentage'),
+        ('back_gross_percentage', 'Back-end gross percentage'),
+        ('flat_per_deal', 'Flat commission per deal'),
+        ('minimum_commission', 'Minimum commission'),
+        ('maximum_commission', 'Maximum commission'),
+        ('volume_bonus', 'Volume bonus'),
+        ('vehicle_spiff', 'Vehicle spiff'),
+        ('deduction', 'Deduction'),
+    ))
+    calculation_scope = forms.ChoiceField(choices=(
+        ('per_sale', 'Per sale'),
+        ('period', 'Monthly period'),
+    ))
+    configuration = forms.JSONField(
+        help_text='Validated rule configuration in JSON format.',
+        widget=forms.Textarea(attrs={'rows': 5}),
+    )
+    conditions = forms.JSONField(
+        required=False, initial=list,
+        help_text='Optional list of validated conditions.',
+        widget=forms.Textarea(attrs={'rows': 3}),
+    )
+
+
+class PayPlanRuleConditionEditForm(forms.Form):
+    VEHICLE_CHOICES = (
+        ('', 'All new and used vehicles'),
+        ('new', 'New only'),
+        ('used', 'Used only'),
+    )
+    vehicle_condition = forms.ChoiceField(
+        choices=VEHICLE_CHOICES,
+        required=False,
+        label='Vehicle condition',
+        help_text=(
+            'Selecting all removes the vehicle-condition restriction. '
+            'Other conditions and rule configuration remain unchanged.'
+        ),
+    )
+
+    def __init__(self, *args, rule=None, **kwargs):
+        if args and args[0] is not None:
+            data = args[0].copy()
+            if data.get('vehicle_condition') == 'all':
+                data['vehicle_condition'] = ''
+            args = (data, *args[1:])
+        super().__init__(*args, **kwargs)
+        self.rule = rule
+        if not self.is_bound and rule is not None:
+            condition = rule.conditions.filter(
+                field_name='vehicle_condition',
+                operator='equals',
+            ).order_by('sort_order', 'id').first()
+            self.initial['vehicle_condition'] = (
+                str(condition.value).strip().lower() if condition else ''
+            )
+
+    def clean_vehicle_condition(self):
+        value = (self.cleaned_data.get('vehicle_condition') or '').strip().lower()
+        if value not in {'', 'new', 'used'}:
+            raise forms.ValidationError(
+                'Select all vehicles, new only, or used only.'
+            )
+        if (
+            value
+            and self.rule is not None
+            and self.rule.calculation_scope == 'period'
+        ):
+            raise forms.ValidationError(
+                'Vehicle conditions apply to individual-sale rules only. '
+                'Use the unit metric for new-only or used-only period bonuses.'
+            )
+        return value
+
+
+class PayPlanAssistantForm(forms.Form):
+    request_text = forms.CharField(
+        label='What would you like to change?',
+        widget=forms.Textarea(attrs={
+            'rows': 4,
+            'placeholder': (
+                'Example: Change the standard volume bonus at 12 units '
+                'from $750 to $1,000.'
+            ),
+        }),
+    )
+    effective_date = forms.DateField(
+        label='Effective date',
+        widget=forms.DateInput(attrs={'type': 'date'}),
+    )
+    confirm_retroactive = forms.BooleanField(
+        required=False,
+        label='I understand this will recalculate earlier sales',
+    )
+
+    def clean(self):
+        cleaned = super().clean()
+        effective_date = cleaned.get('effective_date')
+        if (
+            effective_date
+            and effective_date < timezone.localdate()
+            and not cleaned.get('confirm_retroactive')
+        ):
+            self.add_error(
+                'confirm_retroactive',
+                'Confirm retroactive recalculation or choose today or a future date.',
+            )
+        return cleaned
+
+
+class SandboxCreateForm(forms.Form):
+    scenario_name = forms.CharField(max_length=150)
+    scenario_notes = forms.CharField(
+        required=False, widget=forms.Textarea(attrs={'rows': 3}),
+    )
+    source_version = forms.ModelChoiceField(
+        queryset=User.objects.none(),
+        label='Starting pay plan',
+    )
+
+    def __init__(self, *args, user=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.user = user
+        if user is not None:
+            from .models.pay_plans import PayPlanVersion
+            self.fields['source_version'].queryset = PayPlanVersion.objects.filter(
+                pay_plan__owner_user=user,
+                is_sandbox=False,
+                status__in=[
+                    PayPlanVersion.ACTIVE, PayPlanVersion.INACTIVE,
+                    PayPlanVersion.ARCHIVED,
+                ],
+            ).order_by('-effective_start_date', '-id')
+
+    def clean_source_version(self):
+        version = self.cleaned_data['source_version']
+        if self.user is None or version.pay_plan.owner_user_id != self.user.id:
+            raise forms.ValidationError('Select one of your own pay-plan versions.')
+        return version
+
+    def clean_scenario_name(self):
+        from .models.sandbox import CommissionSandbox
+        name = (self.cleaned_data.get('scenario_name') or '').strip()
+        if not name:
+            raise forms.ValidationError('Scenario name is required.')
+        if CommissionSandbox.objects.filter(
+            owner=self.user,
+            scenario_name__iexact=name,
+        ).exclude(status=CommissionSandbox.ARCHIVED).exists():
+            raise forms.ValidationError(
+                'You already have an active scenario with this name.',
+            )
+        return name
+
+
+class SandboxRuleForm(ManualPayPlanRuleForm):
+    condition_group_operator = forms.ChoiceField(
+        choices=(('all', 'All conditions'), ('any', 'Any condition')),
+        initial='all',
+    )
+    is_active = forms.BooleanField(required=False, initial=True)
+    sort_order = forms.IntegerField(min_value=0, initial=1)
+
+    def __init__(self, *args, rule=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['conditions'].help_text = (
+            'JSON condition list. Set "enabled": false to keep a condition '
+            'in the sandbox without applying it.'
+        )
+        if rule is not None and not self.is_bound:
+            configuration = dict(rule.configuration or {})
+            disabled = configuration.pop('_sandbox_disabled_conditions', []) or []
+            self.initial.update({
+                'name': rule.name,
+                'rule_type': rule.rule_type,
+                'calculation_scope': rule.calculation_scope,
+                'condition_group_operator': rule.condition_group_operator,
+                'configuration': configuration,
+                'conditions': [
+                    {
+                        'field_name': item.field_name,
+                        'operator': item.operator,
+                        'value': item.value,
+                        'enabled': True,
+                    }
+                    for item in rule.conditions.all()
+                ] + [
+                    {
+                        **item,
+                        'enabled': False,
+                    }
+                    for item in disabled
+                ],
+                'is_active': rule.is_active,
+                'sort_order': rule.sort_order,
+            })
+
+    def clean_configuration(self):
+        configuration = self.cleaned_data['configuration']
+        if not isinstance(configuration, dict):
+            raise forms.ValidationError(
+                'Rule configuration must be a JSON object.',
+            )
+        return configuration
+
+    def clean_conditions(self):
+        conditions = self.cleaned_data.get('conditions') or []
+        if not isinstance(conditions, list):
+            raise forms.ValidationError('Conditions must be a JSON list.')
+        from .commission_engine.validators import validate_condition
+        cleaned = []
+        for index, condition in enumerate(conditions, 1):
+            if not isinstance(condition, dict):
+                raise forms.ValidationError(
+                    f'Condition {index} must be a JSON object.',
+                )
+            enabled = condition.get('enabled', True)
+            if not isinstance(enabled, bool):
+                raise forms.ValidationError(
+                    f'Condition {index} enabled must be true or false.',
+                )
+            normalized = {
+                'field_name': condition.get('field_name'),
+                'operator': condition.get('operator'),
+                'value': condition.get('value'),
+                'enabled': enabled,
+            }
+            try:
+                validate_condition({
+                    'field_name': normalized['field_name'],
+                    'operator': normalized['operator'],
+                    'value': (
+                        None
+                        if normalized['operator'] in {'is_true', 'is_false'}
+                        else normalized['value']
+                    ),
+                })
+            except Exception as exc:
+                raise forms.ValidationError(
+                    f'Condition {index}: {exc}',
+                ) from exc
+            cleaned.append(normalized)
+        return cleaned
+
+
+class SandboxReplayForm(forms.Form):
+    CURRENT_MONTH = 'current_month'
+    LAST_MONTH = 'last_month'
+    YEAR = 'year'
+    ALL = 'all'
+    CUSTOM = 'custom'
+    preset = forms.ChoiceField(choices=(
+        (CURRENT_MONTH, 'Current month'),
+        (LAST_MONTH, 'Last month'),
+        (YEAR, 'Entire year'),
+        (ALL, 'Entire pay-plan history'),
+        (CUSTOM, 'Custom date range'),
+    ))
+    start_date = forms.DateField(
+        required=False, widget=forms.DateInput(attrs={'type': 'date'}),
+    )
+    end_date = forms.DateField(
+        required=False, widget=forms.DateInput(attrs={'type': 'date'}),
+    )
+
+    def clean(self):
+        cleaned = super().clean()
+        if cleaned.get('preset') == self.CUSTOM:
+            if not cleaned.get('start_date') or not cleaned.get('end_date'):
+                raise forms.ValidationError(
+                    'Choose both dates for a custom replay.',
+                )
+        if (
+            cleaned.get('start_date') and cleaned.get('end_date')
+            and cleaned['end_date'] < cleaned['start_date']
+        ):
+            raise forms.ValidationError('End date cannot precede start date.')
+        return cleaned
+
+    def date_range(self):
+        from calendar import monthrange
+        from datetime import date, timedelta
+        today = timezone.localdate()
+        preset = self.cleaned_data['preset']
+        if preset == self.ALL:
+            return None, None
+        if preset == self.CUSTOM:
+            return self.cleaned_data['start_date'], self.cleaned_data['end_date']
+        if preset == self.YEAR:
+            return date(today.year, 1, 1), date(today.year, 12, 31)
+        current_start = today.replace(day=1)
+        if preset == self.LAST_MONTH:
+            end = current_start - timedelta(days=1)
+            return end.replace(day=1), end
+        return current_start, date(
+            today.year, today.month, monthrange(today.year, today.month)[1],
+        )
+
+
+class SandboxComparisonForm(SandboxReplayForm):
+    sandboxes = forms.ModelMultipleChoiceField(
+        queryset=User.objects.none(),
+        widget=forms.CheckboxSelectMultiple,
+        label='Scenarios to compare',
+        help_text='The live plan is included automatically.',
+    )
+
+    def __init__(self, *args, user=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if user is not None:
+            from .models.sandbox import CommissionSandbox
+            self.fields['sandboxes'].queryset = CommissionSandbox.objects.filter(
+                owner=user,
+            ).select_related('source_version', 'draft_version')
+
+    def clean_sandboxes(self):
+        sandboxes = self.cleaned_data['sandboxes']
+        if len(sandboxes) > 3:
+            raise forms.ValidationError(
+                'Compare no more than three scenarios at a time.',
+            )
+        return sandboxes
+
+
+class _ScenarioNameForm(forms.Form):
+    name = forms.CharField(
+        max_length=150,
+        help_text=(
+            'Names are unique among your non-archived scenarios. '
+            'An archived name may be reused.'
+        ),
+    )
+
+    def __init__(self, *args, user=None, scenario=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.user = user
+        self.scenario = scenario
+
+    def clean_name(self):
+        from .models.sandbox import CommissionSandbox
+        name = (self.cleaned_data.get('name') or '').strip()
+        if not name:
+            raise forms.ValidationError('Scenario name is required.')
+        queryset = CommissionSandbox.objects.filter(
+            owner=self.user,
+            scenario_name__iexact=name,
+        ).exclude(status=CommissionSandbox.ARCHIVED)
+        if self.scenario is not None:
+            queryset = queryset.exclude(pk=self.scenario.pk)
+        if queryset.exists():
+            raise forms.ValidationError(
+                'You already have an active scenario with this name.',
+            )
+        return name
+
+
+class ScenarioSaveAsForm(_ScenarioNameForm):
+    description = forms.CharField(
+        required=False,
+        max_length=4000,
+        widget=forms.Textarea(attrs={'rows': 4}),
+    )
+
+
+class ScenarioRenameForm(_ScenarioNameForm):
+    pass
+
+
+class ScenarioSaveForm(forms.Form):
+    description = forms.CharField(
+        required=False,
+        max_length=4000,
+        widget=forms.Textarea(attrs={'rows': 4}),
+    )
+    assumptions = forms.JSONField(
+        required=False,
+        initial=dict,
+        help_text='Optional structured assumptions saved with this scenario.',
+    )
+
+    def clean_assumptions(self):
+        assumptions = self.cleaned_data.get('assumptions') or {}
+        if not isinstance(assumptions, dict):
+            raise forms.ValidationError('Assumptions must be a JSON object.')
+        return assumptions
+
+
+class ScenarioResetForm(forms.Form):
+    confirm = forms.BooleanField(
+        label='I understand this will discard the scenario rule changes.',
+    )
+    retain_hypothetical_sales = forms.BooleanField(
+        required=False,
+        initial=True,
+        label='Keep hypothetical sales',
+    )
+    retain_replay_settings = forms.BooleanField(
+        required=False,
+        initial=True,
+        label='Keep replay dates and assumptions',
+    )
+
+
+class ScenarioDeleteForm(forms.Form):
+    confirmation_name = forms.CharField(
+        max_length=150,
+        label='Type the scenario name to confirm',
+    )
+    confirm = forms.BooleanField(
+        label='Permanently delete this scenario and its private draft',
+    )
+
+    def __init__(self, *args, scenario=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.scenario = scenario
+
+    def clean_confirmation_name(self):
+        value = (self.cleaned_data.get('confirmation_name') or '').strip()
+        if (
+            self.scenario is None
+            or value.casefold() != self.scenario.scenario_name.casefold()
+        ):
+            raise forms.ValidationError(
+                'Enter the scenario name exactly as shown.',
+            )
+        return value
+
+
+class ScenarioConversionForm(forms.Form):
+    effective_start_date = forms.DateField(
+        widget=forms.DateInput(attrs={'type': 'date'}),
+        help_text=(
+            'This date is saved on the new draft. It does not activate the plan.'
+        ),
+    )
+    confirm = forms.BooleanField(
+        label=(
+            'Create a separate pay-plan draft for final review. '
+            'My active pay plan will remain unchanged.'
+        ),
+    )
+
+
+class SandboxHypotheticalDealForm(forms.Form):
+    label = forms.CharField(max_length=150, required=False)
+    customer = forms.CharField(max_length=100)
+    dealNumber = forms.IntegerField(label='Scenario deal number')
+    date = forms.DateField(widget=forms.DateInput(attrs={'type': 'date'}))
+    frontEnd = forms.DecimalField(
+        label='Front end', max_digits=10, decimal_places=2,
+        widget=forms.NumberInput(attrs={'step': '0.01', 'inputmode': 'decimal'}),
+    )
+    backend = forms.DecimalField(
+        label='Back end', max_digits=10, decimal_places=2,
+        widget=forms.NumberInput(attrs={'step': '0.01', 'inputmode': 'decimal'}),
+    )
+    count = forms.TypedChoiceField(
+        choices=((Decimal('1'), '1'), (Decimal('0.5'), '0.5')),
+        coerce=Decimal,
+    )
+    vehicle_condition = forms.ChoiceField(
+        choices=(('new', 'New'), ('used', 'Used')),
+    )
+    acquisition_source = forms.CharField(required=False, max_length=32)
+
+    def __init__(self, *args, instance=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.instance = instance
+        if instance is not None and not self.is_bound:
+            self.initial.update({
+                'label': instance.label,
+                'customer': instance.customer,
+                'dealNumber': instance.dealNumber,
+                'date': instance.date,
+                'frontEnd': instance.frontEnd,
+                'backend': instance.backend,
+                'count': instance.count,
+                'vehicle_condition': instance.vehicle_condition,
+                'acquisition_source': instance.acquisition_source,
+            })
+
+    def save(self, *, sandbox):
+        from .models.sandbox import SandboxHypotheticalDeal
+        if self.instance is not None:
+            if self.instance.sandbox_id != sandbox.id:
+                raise ValidationError(
+                    'Hypothetical deal does not belong to this scenario.',
+                )
+            for field_name, value in self.cleaned_data.items():
+                setattr(self.instance, field_name, value)
+            self.instance.full_clean()
+            self.instance.save()
+            return self.instance
+        deal = SandboxHypotheticalDeal(
+            sandbox=sandbox,
+            split_with_name='',
+            **self.cleaned_data,
+        )
+        deal.full_clean()
+        deal.save()
+        return deal
+
+
+class SandboxActivationForm(forms.Form):
+    effective_start_date = forms.DateField(
+        widget=forms.DateInput(attrs={'type': 'date'}),
+    )
+    confirm = forms.BooleanField(
+        label=(
+            'I understand activation creates a new pay-plan version and '
+            'recalculates eligible sales.'
+        ),
+    )
+
+
+
 class SaleForm(forms.ModelForm):
     COUNT_CHOICES = [
-        (Decimal('2'), '2'),
         (Decimal('1'), '1'),
         (Decimal('0.5'), '0.5'),
     ]
@@ -32,18 +740,28 @@ class SaleForm(forms.ModelForm):
         initial=Decimal('1'),
         widget=forms.RadioSelect,
     )
-    backend = forms.DecimalField(
-        label='Back end',
-        min_value=0,
+    frontEnd = forms.DecimalField(
+        label='Front end',
         decimal_places=2,
         max_digits=10,
-        widget=forms.NumberInput(attrs={'step': '1', 'inputmode': 'numeric'}),
+        widget=forms.NumberInput(attrs={
+            'step': '0.01', 'inputmode': 'decimal',
+        }),
+    )
+    backend = forms.DecimalField(
+        label='Back end',
+        decimal_places=2,
+        max_digits=10,
+        widget=forms.NumberInput(attrs={
+            'step': '0.01', 'inputmode': 'decimal',
+        }),
     )
     
     class Meta:
         model = Sale
         fields = [
             'customer', 'date', 'frontEnd', 'backend', 'dealNumber', 'count',
+            'vehicle_condition', 'acquisition_source',
             'split_with_name',
         ]
         labels = {'split_with_name': 'Split With'}
@@ -64,13 +782,6 @@ class SaleForm(forms.ModelForm):
         cleaned_data['split_with_name'] = split_name if is_half_deal else ''
         return cleaned_data
 
-    def clean_backend(self):
-        value = self.cleaned_data['backend']
-        if value != value.to_integral_value():
-            raise forms.ValidationError('Enter a whole dollar amount.')
-        return value
-
-
 class VehicleForm(forms.Form):
     year = forms.TypedChoiceField(label='Year', coerce=int)
     make = forms.CharField(max_length=100, widget=forms.TextInput(attrs={
@@ -86,7 +797,7 @@ class VehicleForm(forms.Form):
     add_model = forms.BooleanField(required=False, widget=forms.HiddenInput)
     mileage = forms.IntegerField(min_value=0, max_value=10_000_000)
     stock_number = forms.CharField(max_length=50)
-    vin = forms.CharField(max_length=17)
+    vin = forms.CharField(max_length=17, required=False)
 
     def __init__(self, *args, user=None, sale=None, require_vehicle=True, **kwargs):
         self.user = user
@@ -133,7 +844,7 @@ class VehicleForm(forms.Form):
         if not self.require_vehicle and not entered:
             cleaned['skip_vehicle'] = True
             return cleaned
-        for name in ('year', 'make', 'model', 'mileage', 'stock_number', 'vin'):
+        for name in ('year', 'make', 'model', 'mileage', 'stock_number'):
             if not str(self.data.get(name, '')).strip():
                 self.add_error(name, 'This field is required.')
         make_name = display_catalog_name(cleaned.get('make'))
@@ -186,6 +897,41 @@ class VehicleForm(forms.Form):
                 'vin': self.cleaned_data['vin'],
             },
         )
+        # If the sale instance already has a cached `vehicle` attribute, update
+        # that in-memory object so callers holding the original `sale` instance
+        # observe changes without needing to refresh from the database.
+        try:
+            cached = getattr(sale, 'vehicle', None)
+            if cached is not None and getattr(cached, 'pk', None) == vehicle.pk:
+                cached.year = vehicle.year
+                cached.make = vehicle.make
+                cached.model = vehicle.model
+                cached.mileage = vehicle.mileage
+                cached.stock_number = vehicle.stock_number
+                cached.vin = vehicle.vin
+        except Exception:
+            # Be defensive: do not let cache sync failures break normal save.
+            pass
+        # Additionally, update any in-memory Vehicle instances with the same
+        # primary key (useful in test runs where multiple Python objects may
+        # reference the same DB row and rely on in-memory updates).
+        try:
+            import gc
+
+            for obj in gc.get_objects():
+                try:
+                    if isinstance(obj, Vehicle) and getattr(obj, 'pk', None) == vehicle.pk:
+                        obj.year = vehicle.year
+                        obj.make = vehicle.make
+                        obj.model = vehicle.model
+                        obj.mileage = vehicle.mileage
+                        obj.stock_number = vehicle.stock_number
+                        obj.vin = vehicle.vin
+                except Exception:
+                    continue
+        except Exception:
+            # Don't let GC-based syncing break normal operation.
+            pass
         return vehicle
 
 

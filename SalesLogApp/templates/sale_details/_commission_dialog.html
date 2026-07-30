@@ -1,0 +1,59 @@
+<dialog id="commission-dialog-{{ sale.id }}" class="vehicle-dialog">
+  <div class="card">
+    <div class="toolbar">
+      <h3>Commission Details — Deal {{ sale.dealNumber }}</h3>
+      <button type="button" class="button button-secondary" onclick="this.closest('dialog').close()">Close</button>
+    </div>
+
+    <dl class="commission-grid">
+      <div><dt>Sale date</dt><dd>{{ sale.date }}</dd></div>
+      {% if result.unit_credit != 1 %}
+        <div><dt>Vehicle credit</dt><dd>{{ result.unit_credit }}</dd></div>
+      {% endif %}
+      {% if result.half_deal_multiplier != 1 %}
+        <div><dt>Deal split</dt><dd>{{ result.half_deal_multiplier }} share</dd></div>
+      {% endif %}
+      {% if result.bonus_commission %}
+        <div><dt>Deal bonus</dt><dd>${{ result.bonus_commission|floatformat:2 }}</dd></div>
+      {% endif %}
+    </dl>
+
+    {% if result.status == "partial" %}
+      <div class="notice"><strong>Needs review:</strong> Part of this commission could not be calculated. See the details below.</div>
+    {% elif not result.calculated %}
+      <div class="notice"><strong>Not calculated:</strong> Review the missing information below.</div>
+    {% endif %}
+
+    {% if result.acquisition_bonus %}
+      <div class="notice">
+        <strong>Vehicle Acquisition Bonus: ${{ result.acquisition_bonus|floatformat:2 }}</strong>
+        <div>This is a standalone bonus. No sales or finance commission applies to this acquisition unit.</div>
+      </div>
+    {% else %}
+      <h4>Sales Commission</h4>
+      <p>Recorded gross: ${{ result.frontend_gross|floatformat:2 }}</p>
+      {% if result.frontend_rule %}<p>Pay-plan rule: {{ result.frontend_rule }}</p>{% endif %}
+      {% for line in result.frontend_explanation %}<p>{{ line }}</p>{% endfor %}
+      <p><strong>Sales commission: ${{ result.frontend_commission|floatformat:2 }}</strong></p>
+
+      <h4>Finance Commission</h4>
+      <p>Recorded finance gross: ${{ result.backend_gross|floatformat:2 }}</p>
+      {% if result.backend_rule %}<p>Pay-plan rule: {{ result.backend_rule }}</p>{% endif %}
+      {% for line in result.backend_explanation %}<p>{{ line }}</p>{% endfor %}
+      {% for error in result.component_errors.backend %}<p class="form-errors">{{ error }}</p>{% endfor %}
+      <p><strong>Finance commission: ${{ result.backend_commission|floatformat:2 }}</strong></p>
+    {% endif %}
+
+    <h4>Total Commission for This Sale</h4>
+    <p><strong>${{ result.total_deal_commission|floatformat:2 }}</strong></p>
+
+    {% if result.warnings %}
+      <h4>Items to Review</h4>
+      <ul>{% for warning in result.warnings %}<li>{{ warning }}</li>{% endfor %}</ul>
+    {% endif %}
+    {% if result.errors %}
+      <h4>Missing Information</h4>
+      <ul>{% for error in result.errors %}<li>{{ error }}</li>{% endfor %}</ul>
+    {% endif %}
+  </div>
+</dialog>

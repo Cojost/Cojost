@@ -1,0 +1,128 @@
+{% extends 'SalesLogApp/base.html' %}
+{% load scenario_format %}
+{% block title %}Compare Commission Scenarios{% endblock %}
+{% block content %}
+<div class="intro">
+  <h2>Compare Scenarios</h2>
+  <p>Compare the live plan with up to three private scenarios. Replays use the same commission engine with each isolated draft version injected.</p>
+</div>
+
+<section class="card">
+  <h3>Choose scenarios and replay period</h3>
+  <form method="post">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <div class="scenario-actions">
+      <button class="button button-primary" type="submit">Run comparison</button>
+      <a class="button button-secondary" href="{% url 'commission_sandbox_index' %}">Back to scenarios</a>
+    </div>
+  </form>
+</section>
+
+{% if comparison %}
+<section class="card">
+  <h3>Summary</h3>
+  <p>
+    {% if period_start or period_end %}
+      {{ period_start|default:"Beginning" }} through {{ period_end|default:"Today" }}
+    {% else %}
+      Saved replay periods
+    {% endif %}
+  </p>
+  <div class="table-wrap">
+    <table class="data-table scenario-comparison-table">
+      <thead>
+        <tr>
+          <th>Plan or scenario</th>
+          <th>Total</th>
+          <th>Difference from live</th>
+          <th>Average per deal</th>
+          <th>Front end</th>
+          <th>Back end</th>
+          <th>Bonuses</th>
+          <th>Minimums</th>
+          <th>Packs</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span class="scenario-mobile-label">Plan</span>Live plan</td>
+          <td><span class="scenario-mobile-label">Total</span>{{ comparison.live.total|scenario_currency }}</td>
+          <td><span class="scenario-mobile-label">Difference</span>{{ 0|signed_scenario_currency }}</td>
+          <td colspan="6"><span class="scenario-mobile-label">Details</span>Live components are shown against each scenario replay below.</td>
+        </tr>
+        {% for entry in comparison.scenarios %}
+        <tr class="{% if entry.run.difference > 0 %}comparison-higher{% elif entry.run.difference < 0 %}comparison-lower{% else %}comparison-unchanged{% endif %}">
+          <td><span class="scenario-mobile-label">Scenario</span><a href="{% url 'commission_sandbox_detail' entry.scenario.public_id %}">{{ entry.scenario.scenario_name }}</a></td>
+          <td><span class="scenario-mobile-label">Total</span>{{ entry.summary.scenario_total|scenario_currency }}</td>
+          <td><span class="scenario-mobile-label">Difference</span>{{ entry.summary.difference|signed_scenario_currency }} ({{ entry.summary.percentage_change|signed_scenario_percent }})</td>
+          <td><span class="scenario-mobile-label">Average</span>{{ entry.summary.average_commission_per_deal|scenario_currency }}</td>
+          <td><span class="scenario-mobile-label">Front end</span>{{ entry.summary.scenario_components.front_end|scenario_currency }}</td>
+          <td><span class="scenario-mobile-label">Back end</span>{{ entry.summary.scenario_components.back_end|scenario_currency }}</td>
+          <td><span class="scenario-mobile-label">Bonuses</span>{{ entry.summary.scenario_components.bonuses|scenario_currency }}</td>
+          <td><span class="scenario-mobile-label">Minimums</span>{{ entry.summary.scenario_components.minimums_applied|scenario_currency }}</td>
+          <td><span class="scenario-mobile-label">Packs</span>{{ entry.summary.scenario_components.packs_deducted|scenario_currency }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="card">
+  <h3>Deal-level comparison</h3>
+  <div class="table-wrap">
+    <table class="data-table scenario-comparison-table">
+      <thead>
+        <tr>
+          <th>Deal</th>
+          <th>Live</th>
+          {% for entry in comparison.scenarios %}<th>{{ entry.scenario.scenario_name }}</th>{% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for deal in comparison.deals %}
+        <tr>
+          <td><span class="scenario-mobile-label">Deal</span>{{ deal.sale.deal_number|default:deal.source_key }}{% if deal.sale.sale_date %}<br><small>{{ deal.sale.sale_date }}</small>{% endif %}</td>
+          <td><span class="scenario-mobile-label">Live</span>{{ deal.live_amount|scenario_currency }}</td>
+          {% for cell in deal.cells %}
+          <td>
+            <span class="scenario-mobile-label">{{ cell.scenario.scenario_name }}</span>
+            {% if cell.result %}
+              {{ cell.result.amount|scenario_currency }}
+              <br><small>{{ cell.result.difference|signed_scenario_currency }}</small>
+              {% if cell.result.primary_rule %}<br><small>Primary rule: {{ cell.result.primary_rule }}</small>{% endif %}
+            {% else %}
+              Not included
+            {% endif %}
+          </td>
+          {% endfor %}
+        </tr>
+        {% empty %}<tr><td colspan="5">No deals were included in this comparison.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="card">
+  <h3>Rule-level comparison</h3>
+  {% for entry in comparison.scenarios %}
+  <article class="sandbox-rule">
+    <h4>{{ entry.scenario.scenario_name }}</h4>
+    <p><strong>Added:</strong> {{ entry.rules.added|length }} &middot; <strong>Removed:</strong> {{ entry.rules.removed|length }} &middot; <strong>Modified:</strong> {{ entry.rules.modified|length }}</p>
+    {% if entry.rules.added %}
+      <h5>Added rules</h5><ul>{% for item in entry.rules.added %}<li>{{ item.name }} ({{ item.rule_type }})</li>{% endfor %}</ul>
+    {% endif %}
+    {% if entry.rules.removed %}
+      <h5>Removed rules</h5><ul>{% for item in entry.rules.removed %}<li>{{ item.name }} ({{ item.rule_type }})</li>{% endfor %}</ul>
+    {% endif %}
+    {% if entry.rules.modified %}
+      <h5>Modified rules</h5>
+      <ul>{% for item in entry.rules.modified %}<li>{{ item.after.name }}: {{ item.changed_fields|join:", " }}</li>{% endfor %}</ul>
+    {% endif %}
+    {% if not entry.rules.added and not entry.rules.removed and not entry.rules.modified %}<p>No semantic rule changes from the source version.</p>{% endif %}
+  </article>
+  {% endfor %}
+</section>
+{% endif %}
+{% endblock %}

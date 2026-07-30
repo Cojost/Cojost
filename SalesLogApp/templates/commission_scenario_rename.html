@@ -1,0 +1,14 @@
+{% extends 'SalesLogApp/base.html' %}
+{% block title %}Rename Scenario{% endblock %}
+{% block content %}
+<div class="intro"><h2>Rename Scenario</h2><p>Only the scenario label changes. Its pay-plan draft and calculations remain the same.</p></div>
+<section class="card">
+  <form method="post">
+    {% csrf_token %}{{ form.as_p }}
+    <div class="scenario-actions">
+      <button class="button button-primary" type="submit">Rename Scenario</button>
+      <a class="button button-secondary" href="{% url 'commission_sandbox_detail' sandbox.public_id %}">Cancel</a>
+    </div>
+  </form>
+</section>
+{% endblock %}

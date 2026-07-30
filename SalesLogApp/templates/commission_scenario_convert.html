@@ -1,0 +1,37 @@
+{% extends 'SalesLogApp/base.html' %}
+{% load scenario_format %}
+{% block title %}Create Pay Plan Draft{% endblock %}
+{% block content %}
+<div class="intro">
+  <h2>Create Pay Plan Draft</h2>
+  <p>Convert this scenario into a separate draft for the normal review workflow. This action does not activate a pay plan.</p>
+</div>
+<section class="card">
+  <dl class="scenario-summary-grid">
+    <div class="scenario-summary-item"><dt>Scenario</dt><dd>{{ sandbox.scenario_name }}</dd></div>
+    <div class="scenario-summary-item"><dt>Source</dt><dd>{{ sandbox.source_version.version_name }}</dd></div>
+    <div class="scenario-summary-item"><dt>Rules</dt><dd>{{ rule_count }}</dd></div>
+    <div class="scenario-summary-item"><dt>Scenario total</dt><dd>{{ sandbox.calculation_summary.scenario_total|scenario_currency }}</dd></div>
+    <div class="scenario-summary-item"><dt>Warnings</dt><dd>{{ sandbox.calculation_summary.warning_count|default:0 }}</dd></div>
+    <div class="scenario-summary-item"><dt>Errors</dt><dd>{{ sandbox.calculation_summary.error_count|default:0 }}</dd></div>
+  </dl>
+  <p class="scenario-notice">Your active pay-plan version and assignment remain unchanged. After conversion, you will review the new draft and explicitly decide whether to activate it.</p>
+  {% if sandbox.validation_summary.errors %}
+  <div class="scenario-notice scenario-error"><strong>Conversion is blocked by critical validation errors.</strong>
+    <ul>{% for item in sandbox.validation_summary.errors %}<li>{{ item.message|default:item }}</li>{% endfor %}</ul>
+  </div>
+  {% endif %}
+  {% if sandbox.validation_summary.warnings %}
+  <div class="scenario-notice scenario-warning"><strong>Review these warnings before continuing.</strong>
+    <ul>{% for item in sandbox.validation_summary.warnings %}<li>{{ item.message|default:item }}</li>{% endfor %}</ul>
+  </div>
+  {% endif %}
+  <form method="post">
+    {% csrf_token %}{{ form.as_p }}
+    <div class="scenario-actions">
+      <button class="button button-primary" type="submit" {% if sandbox.validation_summary.errors %}disabled aria-disabled="true"{% endif %}>Create Pay Plan Draft</button>
+      <a class="button button-secondary" href="{% url 'commission_sandbox_detail' sandbox.public_id %}">Cancel</a>
+    </div>
+  </form>
+</section>
+{% endblock %}

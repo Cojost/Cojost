@@ -135,9 +135,16 @@ class CommissionAdjustment(models.Model):
         return f"{self.get_kind_display()}: {self.description} (${self.amount})"
 
     
+def get_commission_multiplier(deal_count):
+    count = Decimal(str(deal_count or 1))
+    if count == Decimal('0.5'):
+        return Decimal('0.5')
+    return Decimal('1')
+
+
 def calculate_bonus(sales, bonus_levels):
     """Return the amount from the highest active unit tier reached."""
-    total_count = sum(s.count for s in sales)
+    total_count = sum((s.unit_credit for s in sales), Decimal('0'))
     qualifying_levels = (
         bonus_level for bonus_level in bonus_levels
         if bonus_level.active and total_count >= bonus_level.count_threshold
@@ -155,6 +162,20 @@ class Customer(models.Model):
     dealNumber = models.IntegerField(unique=True)
 
 class BaseSale(models.Model):
+    VEHICLE_CONDITION_CHOICES = [
+        ('new', 'New'),
+        ('used', 'Used'),
+        ('retired_sslp', 'Retired SSLP'),
+    ]
+    ACQUISITION_SOURCE_CHOICES = [
+        ('', 'Not applicable'),
+        ('street_curb', 'Street / Curb'),
+        ('current_service_customer', 'Current Service Customer'),
+        ('trade_in', 'Trade-in'),
+        ('auction', 'Auction'),
+        ('dealer_purchase', 'Dealer purchase'),
+        ('other', 'Other'),
+    ]
     customer = models.CharField(max_length=100)
     dealNumber = models.IntegerField(unique=True)
     count = models.DecimalField(default=1, max_digits=2, decimal_places=1)
@@ -162,6 +183,25 @@ class BaseSale(models.Model):
     frontEnd = models.DecimalField(max_digits=10, decimal_places=2)
     backend = models.DecimalField(max_digits=10, decimal_places=2)
     date = models.DateField()
+    vehicle_condition = models.CharField(
+        max_length=16,
+        choices=VEHICLE_CONDITION_CHOICES,
+        blank=True,
+        default='',
+        help_text='Required when the pay plan has different new and used rules.',
+    )
+    acquisition_source = models.CharField(
+        max_length=32,
+        choices=ACQUISITION_SOURCE_CHOICES,
+        blank=True,
+        default='',
+        help_text='Select how the dealership acquired this vehicle, when applicable.',
+    )
+    custom_pay_plan_fields = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text='Additional sale-level facts requested by an imported pay plan.',
+    )
     sale_type = models.CharField(
         max_length=32,
         choices=SaleType.choices,
@@ -215,25 +255,34 @@ class Sale(BaseSale):
         commission_settings = Commission.objects.filter(user=self.user).first()
         if not commission_settings:
             return Decimal('0')  # Handle the case where no commission settings exist
-        return commission_settings.calculate_front_end(self.frontEnd)
+        # Calculate commission and apply sale-level commission multiplier
+        # (half-deals pay half; double-count deals count as 2 units but pay 100%).
+        commission = commission_settings.calculate_front_end(self.frontEnd)
+        return commission * self.commission_credit_multiplier
 
     @property
     def calculate_backend(self):
         commission_settings = Commission.objects.filter(user=self.user).first()
         if not commission_settings:
             return Decimal('0')  # Handle the case where no commission settings exist
-        return commission_settings.calculate_backend(self.backend)
+        commission = commission_settings.calculate_backend(self.backend)
+        return commission * self.commission_credit_multiplier
+
+    @property
+    def unit_credit(self):
+        return Decimal(str(self.count or 0))
+
+    @property
+    def commission_credit_multiplier(self):
+        count = Decimal(str(self.count or 0))
+        if count == Decimal('0.5'):
+            return Decimal('0.5')
+        return Decimal('1.0')
 
     @property
     def commission_total(self):
         """Return this sale's front-end and back-end commission combined."""
-        commission_settings = Commission.objects.filter(user=self.user).first()
-        if not commission_settings:
-            return Decimal('0')
-        return (
-            commission_settings.calculate_front_end(self.frontEnd)
-            + commission_settings.calculate_backend(self.backend)
-        )
+        return self.calculate_frontEnd + self.calculate_backend
 
 class ArchivedSale(BaseSale):
     user = models.ForeignKey(

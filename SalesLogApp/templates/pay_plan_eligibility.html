@@ -1,0 +1,48 @@
+{% extends 'SalesLogApp/base.html' %}
+{% block title %}Monthly Pay Plan Eligibility{% endblock %}
+{% block content %}
+<div class="intro">
+  <h2>Monthly Eligibility</h2>
+  <p>Set qualification facts for a specific month. These settings do not alter another month or delete historical eligibility.</p>
+</div>
+<form method="post" class="card form-card" novalidate>
+  {% csrf_token %}
+  {{ form.non_field_errors }}
+  {{ form.as_p }}
+  {% if plan_requirements.nps %}<div class="notice">
+    <strong>How NPS works:</strong> Eligible and Exempt allow rules conditioned on NPS finance eligibility. Not eligible skips those rules. Pending or unknown does not assume eligibility.
+  </div>{% endif %}
+  {% if plan_requirements.nps_bonus %}<div class="notice">
+    <strong>NPS survey bonus:</strong> Select Eligible under NPS and enter the qualifying and low-score survey counts. Exempt permits finance commission but does not create a survey-count bonus.
+  </div>{% endif %}
+  {% if plan_requirements.holiday %}<div class="notice">
+    <strong>Holiday Bonus Fund:</strong> Eligibility and forfeiture are recorded here. Accrual is informational until the annual December payout workflow is activated.
+  </div>{% endif %}
+  <div class="actions">
+    <a class="button button-secondary" href="{% url 'view_commission' %}">Cancel</a>
+    <button class="button button-primary" type="submit">Save Monthly Eligibility</button>
+  </div>
+</form>
+<section class="card">
+  <h3>Recent eligibility history</h3>
+  <table class="data-table">
+    <thead><tr><th>Month</th>{% if plan_requirements.green_pea %}<th>Green Pea</th>{% endif %}{% if plan_requirements.nps %}<th>NPS</th>{% endif %}{% if plan_requirements.nps_bonus %}<th>NPS surveys</th>{% endif %}{% if plan_requirements.ar %}<th>AR</th>{% endif %}{% if plan_requirements.training %}<th>Training</th>{% endif %}{% if plan_requirements.calls %}<th>Calls</th>{% endif %}{% if plan_requirements.video %}<th>Co-Video</th>{% endif %}{% if plan_requirements.holiday %}<th>Holiday Fund</th>{% endif %}<th></th></tr></thead>
+    <tbody>
+    {% for item in history %}
+      <tr>
+        <td>{{ item.month_start|date:"F Y" }}</td>
+        {% if plan_requirements.green_pea %}<td>{{ item.green_pea|yesno:"Yes,No,Unknown" }}</td>{% endif %}
+        {% if plan_requirements.nps %}<td>{{ item.get_nps_status_display }}</td>{% endif %}
+        {% if plan_requirements.nps_bonus %}<td>{{ item.nps_qualifying_surveys }} qualifying / {{ item.nps_low_score_surveys }} low</td>{% endif %}
+        {% if plan_requirements.ar %}<td>{{ item.ar_requirement_met|yesno:"Met,Not met,Unknown" }}</td>{% endif %}
+        {% if plan_requirements.training %}<td>{{ item.training_requirements_met|yesno:"Met,Not met,Unknown" }}</td>{% endif %}
+        {% if plan_requirements.calls %}<td>{{ item.call_requirement_met|yesno:"Met,Not met,Unknown" }}</td>{% endif %}
+        {% if plan_requirements.video %}<td>{{ item.video_requirement_met|yesno:"Met,Not met,Unknown" }}</td>{% endif %}
+        {% if plan_requirements.holiday %}<td>{% if item.holiday_bonus_forfeited %}Forfeited{% else %}{{ item.holiday_bonus_eligible|yesno:"Eligible,Not eligible,Pending" }}{% endif %}</td>{% endif %}
+        <td><a href="{% url 'pay_plan_eligibility' %}?month={{ item.month_start|date:'Y-m' }}">Edit</a></td>
+      </tr>
+    {% empty %}<tr><td colspan="7">No monthly eligibility has been recorded.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

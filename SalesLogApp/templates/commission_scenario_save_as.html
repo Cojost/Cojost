@@ -1,0 +1,44 @@
+{% extends 'SalesLogApp/base.html' %}
+{% load scenario_format %}
+{% block title %}Save as Scenario{% endblock %}
+{% block content %}
+<div class="intro">
+  <h2>Save as Scenario</h2>
+  <p>Create an independent snapshot. The current scenario and active pay plan will not be overwritten.</p>
+</div>
+<section class="card">
+  <h3>Snapshot preview</h3>
+  <dl class="scenario-summary-grid">
+    <div class="scenario-summary-item"><dt>Source plan</dt><dd>{{ sandbox.source_version.version_name }}</dd></div>
+    <div class="scenario-summary-item"><dt>Rules</dt><dd>{{ rule_count }}</dd></div>
+    <div class="scenario-summary-item"><dt>Modified rules</dt><dd>{{ modified_rule_count }}</dd></div>
+    <div class="scenario-summary-item"><dt>Hypothetical sales</dt><dd>{{ hypothetical_count }}</dd></div>
+    <div class="scenario-summary-item"><dt>Replay range</dt><dd>{{ sandbox.replay_start_date|default:"Beginning" }} through {{ sandbox.replay_end_date|default:"Today" }}</dd></div>
+    <div class="scenario-summary-item"><dt>Live total</dt><dd>{{ sandbox.calculation_summary.live_total|scenario_currency }}</dd></div>
+    <div class="scenario-summary-item"><dt>Scenario total</dt><dd>{{ sandbox.calculation_summary.scenario_total|scenario_currency }}</dd></div>
+    <div class="scenario-summary-item"><dt>Difference</dt><dd>{{ sandbox.calculation_summary.difference|signed_scenario_currency }}</dd></div>
+    <div class="scenario-summary-item"><dt>Warnings</dt><dd>{{ sandbox.calculation_summary.warning_count|default:0 }}</dd></div>
+    <div class="scenario-summary-item"><dt>Errors</dt><dd>{{ sandbox.calculation_summary.error_count|default:0 }}</dd></div>
+  </dl>
+  {% if sandbox.validation_summary.errors %}
+  <div class="scenario-notice scenario-error">
+    <strong>Structural errors</strong>
+    <ul>{% for item in sandbox.validation_summary.errors %}<li>{{ item.message|default:item }}</li>{% endfor %}</ul>
+  </div>
+  {% endif %}
+  {% if sandbox.validation_summary.warnings %}
+  <div class="scenario-notice scenario-warning">
+    <strong>Warnings will be saved with the scenario</strong>
+    <ul>{% for item in sandbox.validation_summary.warnings %}<li>{{ item.message|default:item }}</li>{% endfor %}</ul>
+  </div>
+  {% endif %}
+  <form method="post">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <div class="scenario-actions">
+      <button class="button button-primary" type="submit">Save independent scenario</button>
+      <a class="button button-secondary" href="{% url 'commission_sandbox_detail' sandbox.public_id %}">Cancel</a>
+    </div>
+  </form>
+</section>
+{% endblock %}

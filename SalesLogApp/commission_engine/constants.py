@@ -1,0 +1,15 @@
+from decimal import Decimal
+from decimal import ROUND_HALF_UP
+
+MONETARY_QUANTIZE = Decimal('0.01')
+MONETARY_ROUNDING = ROUND_HALF_UP
+
+RULE_SCOPE_PER_SALE = 'per_sale'
+RULE_SCOPE_PERIOD = 'period'
+RULE_SCOPE_MANUAL = 'manual'
+
+SUPPORTED_RULE_SCOPES = [
+    RULE_SCOPE_PER_SALE,
+    RULE_SCOPE_PERIOD,
+    RULE_SCOPE_MANUAL,
+]

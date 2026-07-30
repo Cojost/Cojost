@@ -1,0 +1,113 @@
+{% extends 'SalesLogApp/base.html' %}
+{% block title %}Review Your Pay Plan{% endblock %}
+{% block content %}
+<section class="card">
+    <h2>Review Your Pay Plan</h2>
+    <p class="card-description">Confirm the draft details before activation.</p>
+    <dl class="profile-summary">
+        <div><dt>Status</dt><dd>{{ onboarding.get_status_display }}</dd></div>
+        <div><dt>Setup Method</dt><dd>{{ onboarding.get_setup_method_display|default:"Assisted Setup" }}</dd></div>
+        <div><dt>Current Plan</dt><dd>{{ onboarding.current_pay_plan|default:"Not selected" }}</dd></div>
+        <div><dt>Current Version</dt><dd>{{ onboarding.current_version|default:"Not selected" }}</dd></div>
+    </dl>
+</section>
+
+<section class="card">
+    <h3>Source Material</h3>
+    {% if documents %}
+        <ul>
+            {% for document in documents %}
+                <li>{{ document.original_filename }} - {{ document.get_status_display }}</li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <p class="card-description">No uploads yet.</p>
+    {% endif %}
+
+    {% if descriptions %}
+        <h3>Latest Description</h3>
+        <p>{{ descriptions.0.description|linebreaksbr }}</p>
+    {% endif %}
+</section>
+
+<section class="card">
+    <h3>Imported Rule Draft</h3>
+    {% if import_draft %}
+        <dl class="profile-summary">
+            <div><dt>Source</dt><dd>{{ import_draft.source|default:'unknown' }}</dd></div>
+            <div><dt>Parser Confidence</dt><dd>{{ import_draft.confidence|default:'0.00' }}</dd></div>
+            <div><dt>Review Required</dt><dd>{% if import_draft.requires_review %}Yes{% else %}No{% endif %}</dd></div>
+            <div><dt>Approved</dt><dd>{% if import_draft.approved %}Yes{% else %}No{% endif %}</dd></div>
+        </dl>
+
+        {% if import_draft.warnings %}
+            <h4>Parser Warnings</h4>
+            <ul>
+                {% for warning in import_draft.warnings %}
+                    <li>{{ warning }}</li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+        {% if import_draft.data_field_requests %}
+        <h4>Fields requested by this pay plan</h4>
+        <ul>
+          {% for field in import_draft.data_field_requests %}
+          <li><strong>{{ field.label }}</strong> — {{ field.scope }} {{ field.input_type }}</li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+
+        <h4>Extracted Rules</h4>
+        {% if import_draft.rules %}
+            <ul>
+                {% for rule in import_draft.rules %}
+                    <li>
+                        <strong>{{ rule.name }}</strong> ({{ rule.rule_type }}, {{ rule.calculation_scope }})
+                        {% if rule.conditions %}
+                            <div>Conditions:
+                                {% for condition in rule.conditions %}
+                                    {{ condition.field_name }} {{ condition.operator }} {{ condition.value }}
+                                {% endfor %}
+                            </div>
+                        {% endif %}
+                    </li>
+                {% endfor %}
+            </ul>
+        {% else %}
+            <p class="card-description">No rules extracted yet.</p>
+        {% endif %}
+
+        {% if import_draft.rules %}
+            <form method="post" style="margin-top:1rem;">
+                {% csrf_token %}
+                <button class="button button-secondary" type="submit" name="action" value="approve_import">Approve Imported Rules</button>
+            </form>
+        {% else %}
+            <div class="notice">
+                No usable rules were extracted. Return to setup to upload a text-based PDF,
+                describe the plan, or build its rules manually. Your source document remains saved.
+            </div>
+            <div class="actions">
+                <a class="button button-primary" href="{% url 'pay_plan_setup' %}">Return to Pay Plan Setup</a>
+            </div>
+        {% endif %}
+    {% else %}
+        <p class="card-description">No import draft available yet. Submit a pay-plan upload or description first.</p>
+    {% endif %}
+</section>
+
+<section class="card">
+    <h3>Next Step</h3>
+    {% if can_activate %}
+    <p class="card-description">Review the active rules carefully before activation.</p>
+    <form method="post">
+        {% csrf_token %}
+        <button class="button button-primary" type="submit" name="action" value="activate">Activate My Pay Plan</button>
+        <button class="button button-secondary" type="submit" name="action" value="save_for_later">Save For Later</button>
+    </form>
+    {% else %}
+    <p class="card-description">Activation will become available after at least one usable commission rule has been reviewed and approved.</p>
+    <a class="button button-primary" href="{% url 'pay_plan_setup' %}">Return to Pay Plan Setup</a>
+    {% endif %}
+</section>
+{% endblock %}

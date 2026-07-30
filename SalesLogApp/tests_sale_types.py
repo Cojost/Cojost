@@ -86,9 +86,9 @@ class AutomotiveSaleTypeTests(TestCase):
 
     def test_commission_math_is_unchanged(self):
         sale = self.make_sale(deal=91005)
-        self.assertEqual(sale.calculate_frontEnd, Decimal('250.00'))
-        self.assertEqual(sale.calculate_backend, Decimal('25.00'))
-        self.assertEqual(sale.commission_total, Decimal('275.00'))
+        self.assertEqual(sale.calculate_frontEnd, Decimal('125.00'))
+        self.assertEqual(sale.calculate_backend, Decimal('12.50'))
+        self.assertEqual(sale.commission_total, Decimal('137.50'))
 
     def test_archive_keeps_type_vehicle_split_and_owner(self):
         sale = self.make_sale(deal=91006)

@@ -1,0 +1,18 @@
+{% extends 'SalesLogApp/base.html' %}
+{% block title %}Reset Scenario{% endblock %}
+{% block content %}
+<div class="intro"><h2>Reset to Source Plan</h2><p>This replaces only this scenario's private rule copy. Production data remains unchanged.</p></div>
+<section class="card">
+  <div class="scenario-notice scenario-warning">
+    <strong>Rule changes in {{ sandbox.scenario_name }} will be discarded.</strong>
+    <p>You can choose whether to retain hypothetical sales and replay settings. The reset is recorded in scenario history.</p>
+  </div>
+  <form method="post">
+    {% csrf_token %}{{ form.as_p }}
+    <div class="scenario-actions">
+      <button class="button button-primary" type="submit">Reset private rules</button>
+      <a class="button button-secondary" href="{% url 'commission_sandbox_detail' sandbox.public_id %}">Cancel</a>
+    </div>
+  </form>
+</section>
+{% endblock %}

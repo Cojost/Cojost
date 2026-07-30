@@ -43,10 +43,19 @@ class UserProfile(models.Model):
     LIGHT = 'light'
     DARK = 'dark'
     SYSTEM = 'system'
+    LEGACY = 'legacy'
+    PAY_PLAN_V2 = 'pay_plan_v2'
+    NEW_ENGINE = 'new_engine'
     THEME_CHOICES = [
         (LIGHT, 'Light'),
         (DARK, 'Dark'),
         (SYSTEM, 'Use device setting'),
+    ]
+    COMMISSION_SYSTEM_CHOICES = [
+        (LEGACY, 'Legacy commission system'),
+        (PAY_PLAN_V2, 'Pay Plan engine'),
+        # Backward-compatible value retained for existing rows.
+        (NEW_ENGINE, 'New pay-plan engine (legacy value)'),
     ]
     HEADER_COLOR_CHOICES = [
         ('red', 'Red'),
@@ -74,6 +83,12 @@ class UserProfile(models.Model):
     )
     header_color = models.CharField(
         max_length=10, choices=HEADER_COLOR_CHOICES, default='blue'
+    )
+    commission_system = models.CharField(
+        max_length=20,
+        choices=COMMISSION_SYSTEM_CHOICES,
+        default=LEGACY,
+        db_index=True,
     )
     updated_at = models.DateTimeField(auto_now=True)
 

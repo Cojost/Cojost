@@ -1,0 +1,50 @@
+{% extends 'SalesLogApp/base.html' %}
+{% block title %}Set Up Your Pay Plan{% endblock %}
+{% block content %}
+<section class="card form-card">
+    <h2>Set Up Your Pay Plan</h2>
+    <p class="card-description">We need your salesperson pay plan before the app can estimate commissions.</p>
+
+    <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        <fieldset class="card" style="margin-top:0;">
+            <legend><strong>Choose a setup method</strong></legend>
+            {{ form.setup_method.errors }}
+            {{ form.setup_method }}
+        </fieldset>
+
+        <div class="card">
+            <h3>Upload My Pay Plan</h3>
+            <p class="card-description">PDF, JPG, JPEG, PNG, or WEBP. You can upload more than one image for the same plan.</p>
+            {{ form.documents.errors }}
+            {{ form.documents }}
+            <span class="helptext">Choosing a file automatically selects Upload as the setup method.</span>
+        </div>
+
+        <div class="card">
+            <h3>Describe My Pay Plan</h3>
+            {{ form.description.errors }}
+            <textarea name="description" rows="8" placeholder="I earn 25% of front-end gross with a $250 minimum.&#10;I earn 5% of back-end gross.&#10;At 10 units I receive $500.">{{ form.description.value|default:'' }}</textarea>
+            <span class="helptext">Describe the plan in plain language. The original text is preserved for review.</span>
+        </div>
+
+        <div class="actions">
+            <button class="button button-primary" type="submit">Save and Continue</button>
+            <a class="button button-secondary" href="{% url 'pay_plan_review' %}">Skip to Review</a>
+        </div>
+    </form>
+</section>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const documents = document.getElementById('id_documents');
+    const uploadMethod = document.querySelector('input[name="setup_method"][value="upload"]');
+    if (documents && uploadMethod) {
+        documents.addEventListener('change', function () {
+            if (documents.files && documents.files.length) {
+                uploadMethod.checked = true;
+            }
+        });
+    }
+});
+</script>
+{% endblock %}

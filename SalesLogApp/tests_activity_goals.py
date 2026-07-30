@@ -67,7 +67,7 @@ class ActivityGoalTests(TestCase):
         )
         metrics = month_metrics(self.user, self.month)
         self.assertEqual(metrics['units'], Decimal('.5'))
-        self.assertEqual(metrics['commission'], Decimal('15.0'))
+        self.assertEqual(metrics['commission'], Decimal('7.5'))
 
     def test_forecast_and_half_rounding(self):
         previous = (self.month - timedelta(days=1)).replace(day=1)

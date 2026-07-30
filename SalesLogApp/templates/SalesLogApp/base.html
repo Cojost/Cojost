@@ -39,6 +39,13 @@
         .card-description { margin: 0 0 18px; color: var(--muted); }
         .toolbar, .actions { display: flex; justify-content: flex-end; align-items: center; gap: 12px; margin-bottom: 16px; }
         .actions { margin: 22px 0 0; }
+        .pay-plan-action-menu { position: relative; }
+        .pay-plan-action-menu summary { list-style: none; cursor: pointer; }
+        .pay-plan-action-menu summary::-webkit-details-marker { display: none; }
+        .pay-plan-action-list { position: absolute; z-index: 25; right: 0; top: calc(100% + 8px); width: min(310px, 82vw); padding: 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--card-background); box-shadow: 0 12px 30px rgba(23,33,43,.18); }
+        .pay-plan-action-list a, .pay-plan-action-list button { display: block; width: 100%; padding: 10px 12px; border: 0; border-radius: 7px; background: transparent; color: var(--card-text); font: inherit; font-weight: 600; text-align: left; text-decoration: none; cursor: pointer; }
+        .pay-plan-action-list a:hover, .pay-plan-action-list button:hover, .pay-plan-action-list a:focus, .pay-plan-action-list button:focus { background: var(--page-background); outline: none; }
+        .pay-plan-action-list form { margin: 0; }
         .button { display: inline-block; padding: 11px 18px; border: 1px solid transparent; border-radius: 6px; font-weight: 700; text-decoration: none; cursor: pointer; }
         .button-primary { background: #1769aa; color: white; }
         .button-secondary { border-color: #9ca7b2; background: white; color: #263442; }
@@ -51,9 +58,10 @@
         .text-link { color: #1769aa; font-weight: 700; text-decoration: none; }
         .danger-link { color: #b42318; }
         .form-card { max-width: 780px; margin-right: auto; margin-left: auto; }
+        .form-card, .form-card p, .field, fieldset, .commission-grid > *, .goal-grid > *, .metric-grid > * { min-width: 0; }
         .form-card p { margin: 0 0 18px; }
         .form-card label, .field label { display: block; margin-bottom: 6px; font-weight: 700; }
-        .form-card input:not([type="checkbox"]):not([type="radio"]), .form-card select, .form-card textarea, .field input[type="number"], .tier-table input[type="number"], .tier-table input[type="text"], .tier-table select { width: 100%; padding: 10px 12px; border: 1px solid #aeb8c2; border-radius: 6px; font: inherit; }
+        .form-card input:not([type="checkbox"]):not([type="radio"]), .form-card select, .form-card textarea, .field input[type="number"], .tier-table input[type="number"], .tier-table input[type="text"], .tier-table select { width: 100%; max-width: 100%; padding: 10px 12px; border: 1px solid #aeb8c2; border-radius: 6px; font: inherit; }
         .form-card input[type="radio"], .form-card input[type="checkbox"], .tier-table input[type="checkbox"] { width: 18px; height: 18px; }
         .form-card ul { color: var(--muted); font-size: .86rem; }
         .helptext { display: block; margin-top: 5px; color: var(--muted); font-size: .86rem; }
@@ -133,18 +141,39 @@
         .summary-total { padding-top: 8px; border-top: 1px solid var(--border); }
         .auth-page { max-width: 520px; }
         @media (max-width: 760px) {
-            .header { min-height: 58px; padding: 8px 12px; }
-            .header-center { gap: 6px; }
-            .header-center h1 { font-size: 1.15rem; }
+            .header { position: relative; grid-template-columns: 1fr 1fr; min-height: 58px; padding: 8px 12px; }
+            .header-center { position: absolute; left: 50%; gap: 0; transform: translateX(-50%); }
+            .header-center h1 { display: none; }
+            .header-left, .header-right { position: relative; z-index: 1; }
             .site-logo { height: 38px; }
             .menu-btn { min-width: 40px; min-height: 40px; padding: 2px 5px; font-size: 1.55rem; }
             .account-links { font-size: .8rem; }
             .account-links a { font-size: .8rem; }
             .page { width: calc(100% - 16px); margin: 16px 8px 50px; }
             .card { padding: 16px 12px; }
+            .card, .form-card, fieldset { max-width: 100%; }
             .summary { right: 8px; bottom: 8px; left: 8px; min-width: 0; }
             .toolbar, .actions { flex-wrap: wrap; }
+            .compact-form { align-items: stretch; flex-direction: column; overflow: hidden; }
+            .compact-form > * { width: 100%; max-width: 100%; }
+            .compact-form input, .compact-form select, .compact-form textarea { min-width: 0; }
+            .compact-form input[type="month"],
+            .form-card input[type="month"],
+            .form-card input[type="date"] {
+                display: block;
+                width: calc(100% - 16px) !important;
+                max-width: calc(100% - 16px) !important;
+                min-width: 0 !important;
+                min-inline-size: 0 !important;
+                margin-right: auto;
+                margin-left: auto;
+            }
+            .button, .actions .button, .compact-form .button { max-width: 100%; white-space: normal; text-align: center; }
+            .vehicle-information { min-width: 0; padding: 14px 10px; }
+            .profile-summary { align-items: flex-start; flex-direction: column; }
+            .pay-plan-action-menu, .pay-plan-action-menu summary { max-width: 100%; }
             .commission-grid { grid-template-columns: 1fr; }
+            .goal-grid { grid-template-columns: minmax(0, 1fr); }
             .tier-table thead { display: none; }
             .tier-table, .tier-table tbody, .tier-table tr, .tier-table td { display: block; width: 100%; }
             .tier-table tr { padding: 12px 0; border-bottom: 2px solid var(--border); }
@@ -174,12 +203,9 @@
     </header>
     {% if user.is_authenticated %}
     <nav class="menu" aria-label="Main navigation">
-        <a href="{% url 'add_sale' %}"{% if request.resolver_match.url_name == 'add_sale' %} class="active" aria-current="page"{% endif %}>Add Sale</a>
         <a href="{% url 'view_sales' %}"{% if request.resolver_match.url_name == 'view_sales' %} class="active" aria-current="page"{% endif %}>View Sales</a>
         <a href="{% url 'view_commission' %}"{% if request.resolver_match.url_name == 'view_commission' %} class="active" aria-current="page"{% endif %}>View Commission</a>
         <a href="{% url 'activity_goals' %}"{% if request.resolver_match.url_name == 'activity_goals' or request.resolver_match.url_name == 'edit_activity' %} class="active" aria-current="page"{% endif %}>Activity &amp; Goals</a>
-        <a href="{% url 'profile' %}"{% if request.resolver_match.url_name == 'profile' %} class="active" aria-current="page"{% endif %}>Profile</a>
-        {% if commission_instance %}<a href="{% url 'adjust_commission_by_id' commission_instance.id %}"{% if request.resolver_match.url_name == 'adjust_commission_by_id' %} class="active" aria-current="page"{% endif %}>Commission Settings</a>{% else %}<a href="{% url 'adjust_commission' %}"{% if request.resolver_match.url_name == 'adjust_commission' %} class="active" aria-current="page"{% endif %}>Commission Settings</a>{% endif %}
     </nav>
     {% endif %}
     <main class="page {% block page_class %}{% endblock %}">

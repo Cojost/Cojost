@@ -1,0 +1,18 @@
+{% extends 'SalesLogApp/base.html' %}
+{% block title %}Delete Scenario{% endblock %}
+{% block content %}
+<div class="intro"><h2>Delete Scenario</h2><p>Archiving is recommended when you want to retain an audit trail.</p></div>
+<section class="card">
+  <div class="scenario-notice scenario-error">
+    <strong>This permanently deletes {{ sandbox.scenario_name }} and its private sandbox data.</strong>
+    <p>It never deletes the source or active pay-plan version, production sales, commission history, reports, or another scenario. Converted scenarios with protected audit references cannot be deleted.</p>
+  </div>
+  <form method="post">
+    {% csrf_token %}{{ form.as_p }}
+    <div class="scenario-actions">
+      <button class="button button-primary" type="submit">Permanently delete scenario</button>
+      <a class="button button-secondary" href="{% url 'commission_sandbox_detail' sandbox.public_id %}">Cancel</a>
+    </div>
+  </form>
+</section>
+{% endblock %}

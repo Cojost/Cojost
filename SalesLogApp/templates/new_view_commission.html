@@ -1,0 +1,107 @@
+{% extends 'SalesLogApp/base.html' %}
+{% block title %}View Commission{% endblock %}
+{% block content %}
+<section class="card">
+  <h2>Commission Summary</h2>
+  <p class="card-description">Your estimated earnings for the selected pay period.</p>
+  <dl class="commission-grid">
+    <div><dt>Pay period</dt><dd>{{ selected_month|date:'F Y' }}</dd></div>
+    <div><dt>Vehicles sold</dt><dd>{{ total_count }}</dd></div>
+    <div><dt>Estimated commission</dt><dd>${{ total_commission|floatformat:2 }}</dd></div>
+    <div><dt>Sales commission</dt><dd>${{ total_front_end|floatformat:2 }}</dd></div>
+    <div><dt>Finance commission</dt><dd>${{ total_back_end|floatformat:2 }}</dd></div>
+    <div><dt>Bonuses</dt><dd>${{ total_bonus|floatformat:2 }}</dd></div>
+  </dl>
+</section>
+
+<section class="card">
+  <h3>Your Pay Plan</h3>
+  <dl class="commission-grid">
+    <div><dt>Plan</dt><dd>{% if active_plan_summary.plan %}{{ active_plan_summary.plan.name }}{% else %}Not available{% endif %}</dd></div>
+    <div><dt>Effective date</dt><dd>{{ active_plan_summary.effective_start_date|default:'Not available' }}</dd></div>
+    <div><dt>Sales included</dt><dd>{{ commission_diagnostics.calculated_count }}</dd></div>
+    {% if commission_diagnostics.excluded_count %}<div><dt>Sales needing review</dt><dd>{{ commission_diagnostics.excluded_count }}</dd></div>{% endif %}
+  </dl>
+  <div class="actions">
+    <details class="pay-plan-action-menu">
+      <summary class="button button-primary">View pay plan options</summary>
+      <div class="pay-plan-action-list">
+        <a href="{% url 'pay_plan_assistant' %}">Ask to change my plan</a>
+        <a href="{% url 'replace_pay_plan' %}">Upload replacement plan</a>
+        {% if active_plan_summary.requirements.has_monthly_requirements %}<a href="{% url 'pay_plan_eligibility' %}">Update monthly eligibility</a>{% endif %}
+        {% if active_plan_summary.pay_plan_version_id %}<a href="{% url 'pay_plan_rules' active_plan_summary.pay_plan_version_id %}">View my commission rules</a>{% endif %}
+        <a href="{% url 'pay_plan_history' %}">View plan history</a>
+        <a href="{% url 'commission_sandbox_index' %}">Commission Sandbox</a>
+        <form method="post" action="{% url 'recalculate_pay_plan_commissions' %}">{% csrf_token %}<button type="submit">Update commission totals</button></form>
+      </div>
+    </details>
+  </div>
+</section>
+
+{% if active_plan_summary.holiday_fund %}
+<section class="card">
+  <h3>Holiday Bonus Fund</h3>
+  {% with fund=active_plan_summary.holiday_fund %}
+  <dl class="commission-grid">
+    <div><dt>Bonus period</dt><dd>{{ fund.period_start }}–{{ fund.period_end }}</dd></div>
+    <div><dt>Qualifying vehicles</dt><dd>{{ fund.units }}</dd></div>
+    <div><dt>Amount per vehicle</dt><dd>${{ fund.rate_per_vehicle|floatformat:2 }}</dd></div>
+    <div><dt>Estimated fund</dt><dd>${{ fund.projected_amount|floatformat:2 }}</dd></div>
+    <div><dt>Status</dt><dd>{% if fund.forfeited %}Not eligible{% elif fund.eligible %}Eligible{% elif fund.eligible == False %}Not eligible{% else %}Pending{% endif %}</dd></div>
+  </dl>
+  <p class="card-description">This bonus is tracked separately and is not included in your monthly commission before the December payout period.</p>
+  {% endwith %}
+</section>
+{% endif %}
+
+{% if commission_diagnostics.unit_bonus %}
+<section class="card">
+  <h3>Vehicle Bonus Progress</h3>
+  <dl class="commission-grid">
+    <div><dt>Vehicles sold</dt><dd>{{ commission_diagnostics.unit_bonus.units }}</dd></div>
+    <div><dt>New vehicles</dt><dd>{{ commission_diagnostics.unit_bonus.new_units }}</dd></div>
+    <div><dt>Used vehicles</dt><dd>{{ commission_diagnostics.unit_bonus.used_units }}</dd></div>
+    <div><dt>Bonus earned</dt><dd>${{ commission_diagnostics.period_unit_bonus|floatformat:2 }}</dd></div>
+    <div><dt>Vehicles to next bonus</dt><dd>{% if commission_diagnostics.unit_bonus.qualification_pending %}Eligibility confirmation required{% elif commission_diagnostics.unit_bonus.units_needed is not None %}{{ commission_diagnostics.unit_bonus.units_needed }}{% else %}Highest bonus reached{% endif %}</dd></div>
+  </dl>
+</section>
+{% endif %}
+
+{% if commission_diagnostics.draw_progress %}
+<section class="card">
+  <h3>Earnings and Draw</h3>
+  {% with draw=commission_diagnostics.draw_progress %}
+  <dl class="commission-grid">
+    <div><dt>Draw amount</dt><dd>${{ draw.amount|floatformat:2 }} {{ draw.frequency }}</dd></div>
+    <div><dt>Earnings applied to draw</dt><dd>${{ draw.eligible_earnings|floatformat:2 }}</dd></div>
+    <div><dt>Amount still needed</dt><dd>${{ draw.amount_needed|floatformat:2 }}</dd></div>
+    <div><dt>Earnings above draw</dt><dd>${{ draw.amount_above|floatformat:2 }}</dd></div>
+    <div><dt>Period</dt><dd>{{ draw.period_start }}–{{ draw.period_end }}</dd></div>
+  </dl>
+  {% endwith %}
+</section>
+{% endif %}
+
+<section class="card">
+  <h3>Commission by Sale</h3>
+  {% if commission_diagnostics.results %}
+    <ul>
+      {% for item in commission_diagnostics.results %}
+      <li>
+        <strong>Sale {{ item.sale_id }} — ${{ item.total_commission|floatformat:2 }}</strong>
+        <div>Sales commission: ${{ item.frontend_commission|floatformat:2 }} · Finance commission: ${{ item.backend_commission|floatformat:2 }} · Bonus: ${{ item.bonus_commission|floatformat:2 }}</div>
+        {% if item.explanation %}
+        <details>
+          <summary>How this was calculated</summary>
+          <ul>{% for line in item.explanation %}<li>{{ line }}</li>{% endfor %}</ul>
+        </details>
+        {% endif %}
+        {% if item.errors %}<div>This sale needs review. Please contact your manager for help.</div>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="card-description">No sales in the selected period.</p>
+  {% endif %}
+</section>
+{% endblock %}

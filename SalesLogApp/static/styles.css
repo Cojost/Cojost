@@ -37,3 +37,50 @@ body form input:not([type=checkbox]):not([type=radio]),body form select,body for
 #totalsBox p { margin: 8px 0; font-weight: bold; }
 #totalDeals { color: #007bff; } #totalFront { color:#28a745; } #totalBack { color:#dc3545; } #bonusAmount { color:#fd7e14; } #totalCommission { color:#6f42c1; font-size:20px; }
 @media(max-width:700px){.site-header{min-height:58px}.site-logo{height:38px;width:auto}.account-links{margin:0;font-size:.8rem}.main-content{width:calc(100% - 16px);margin:12px 8px;padding:14px 10px 150px;overflow-x:auto}body>form,.main-content>form{width:calc(100% - 16px);margin:16px 8px;padding:18px}#totalsBox{right:8px;bottom:8px;left:8px;min-width:0}}
+.sandbox-rule{border-top:1px solid var(--border-color,#8090a0);padding:1rem 0}
+.comparison-higher td{background-color:rgba(35,134,54,.12)}
+.comparison-lower td{background-color:rgba(207,34,46,.12)}
+.comparison-unchanged td{background-color:rgba(110,118,129,.08)}
+.scenario-toolbar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.75rem;margin-bottom:1rem}
+.scenario-actions{display:flex;flex-wrap:wrap;align-items:center;gap:.55rem}
+.scenario-actions form{display:inline;margin:0;padding:0;border:0;background:transparent;box-shadow:none;width:auto}
+.scenario-status{display:inline-flex;align-items:center;gap:.35rem;padding:.25rem .65rem;border:1px solid currentColor;border-radius:999px;font-size:.82rem;font-weight:700}
+.scenario-status-draft{color:#1769aa}.scenario-status-archived{color:#6b7280}.scenario-status-converted{color:#2f7d32}
+.scenario-notice{padding:.75rem 1rem;border-left:4px solid #1769aa;border-radius:6px;background:rgba(23,105,170,.09)}
+.scenario-warning{border-left-color:#a76500;background:rgba(217,142,18,.12)}
+.scenario-error{border-left-color:#b42318;background:rgba(180,35,24,.1)}
+.scenario-summary-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.8rem;margin:1rem 0}
+.scenario-summary-item{min-width:0;padding:.85rem;border:1px solid #dfe5ec;border-radius:9px;background:rgba(255,255,255,.04)}
+.scenario-summary-item dt{font-size:.78rem;font-weight:700;text-transform:uppercase;opacity:.78}
+.scenario-summary-item dd{margin:.3rem 0 0;font-size:1.15rem;font-weight:700;overflow-wrap:anywhere}
+.scenario-card-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:1rem}
+.scenario-card{display:flex;flex-direction:column;gap:.7rem;padding:1rem;border:1px solid #dfe5ec;border-radius:10px}
+.scenario-card h4,.scenario-card p{margin:0}
+.scenario-meta{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.45rem;font-size:.9rem}
+.scenario-meta dt{font-weight:700}.scenario-meta dd{margin:0;overflow-wrap:anywhere}
+.scenario-difference-higher{color:#247a35}.scenario-difference-lower{color:#b42318}.scenario-difference-unchanged{color:inherit}
+.scenario-mobile-label{display:none}
+.scenario-form-errors{color:#b42318}
+.scenario-readonly{opacity:.78}
+.scenario-history{margin:0;padding-left:1.2rem}
+.scenario-history li{margin:.55rem 0}
+.scenario-select{max-width:320px}
+.scenario-unsaved{font-weight:700;color:#a76500}
+.scenario-saved{font-weight:700;color:#247a35}
+.scenario-comparison-table td,.scenario-comparison-table th{vertical-align:top}
+@media(max-width:760px){
+  .scenario-summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .scenario-toolbar{align-items:stretch}
+  .scenario-toolbar>*{max-width:100%}
+  .scenario-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));width:100%}
+  .scenario-actions .button,.scenario-actions form,.scenario-actions form button{width:100%;box-sizing:border-box}
+  .scenario-card-grid{grid-template-columns:1fr}
+  .scenario-comparison-table thead{display:none}
+  .scenario-comparison-table,.scenario-comparison-table tbody,.scenario-comparison-table tr,.scenario-comparison-table td{display:block;width:100%;box-sizing:border-box}
+  .scenario-comparison-table tr{margin-bottom:1rem;padding:.6rem;border:1px solid #dfe5ec;border-radius:9px}
+  .scenario-comparison-table td{display:grid;grid-template-columns:minmax(105px,40%) 1fr;gap:.6rem;border:0;padding:.35rem}
+  .scenario-mobile-label{display:inline;font-weight:700}
+}
+@media(max-width:420px){
+  .scenario-summary-grid,.scenario-actions{grid-template-columns:1fr}
+}

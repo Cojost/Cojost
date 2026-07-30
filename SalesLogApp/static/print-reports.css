@@ -10,6 +10,7 @@ body { margin: 0; background: #eef2f6; color: var(--ink); font-family: Arial, sa
 .report-controls { display: flex; gap: 10px; width: min(1100px, calc(100% - 32px)); margin: 16px auto; }
 .report-controls a, .report-controls button { padding: 9px 15px; border: 1px solid #7b8792; border-radius: 5px; background: white; color: var(--ink); font: inherit; text-decoration: none; cursor: pointer; }
 .report-controls button { border-color: var(--blue); background: var(--blue); color: white; }
+.report-controls button.report-exit { border-color: #7b8792; background: white; color: var(--ink); }
 .report table { width: 100%; border-collapse: collapse; }
 .report th, .report td { padding: 7px 6px; border: 1px solid var(--line); text-align: left; vertical-align: top; }
 .report th { background: #e8edf2; }

@@ -1,0 +1,36 @@
+{% extends 'SalesLogApp/base.html' %}
+{% block title %}Pay Plan Assistant{% endblock %}
+{% block content %}
+<div class="intro">
+  <h2>Ask to Change Your Pay Plan</h2>
+  <p>Describe one change in plain language. The assistant creates a draft and never changes your active plan until you approve it.</p>
+</div>
+<form method="post" class="card form-card" novalidate>
+  {% csrf_token %}
+  {{ form.non_field_errors }}
+  {{ form.as_p }}
+  <div class="notice">
+    <strong>Helpful examples:</strong>
+    “Change the standard bonus at 12 units to $1,000.”
+    “Change front-end commission to 27%.”
+    “Remove the video requirement from the Green Pea volume bonus.”
+  </div>
+  <div class="actions">
+    <a class="button button-secondary" href="{% url 'view_commission' %}">Cancel</a>
+    <button class="button button-primary" type="submit">Create Draft Change</button>
+  </div>
+</form>
+<section class="card">
+  <h3>Recent requests</h3>
+  <ul>
+    {% for item in history %}
+    <li>
+      <strong>{{ item.get_status_display }}</strong> — {{ item.request_text }}
+      <a href="{% url 'replacement_pay_plan_review' item.draft_version_id %}">View draft</a>
+    </li>
+    {% empty %}
+    <li>No plain-language requests yet.</li>
+    {% endfor %}
+  </ul>
+</section>
+{% endblock %}

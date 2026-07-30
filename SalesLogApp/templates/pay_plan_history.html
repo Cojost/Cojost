@@ -1,0 +1,10 @@
+{% extends 'SalesLogApp/base.html' %}
+{% block title %}Pay Plan History{% endblock %}
+{% block content %}
+<div class="intro"><h2>Pay Plan History</h2><p>Previous plans are retained for explanation and rollback safety.</p></div>
+<section class="card">
+  <table class="data-table"><thead><tr><th>Plan</th><th>Version</th><th>Status</th><th>Effective</th><th>Source</th><th>Activated</th><th>Rules</th></tr></thead><tbody>
+  {% for version in versions %}<tr><td>{{ version.pay_plan.name }}</td><td>{{ version.version_name }}</td><td>{{ version.get_status_display }}</td><td>{{ version.effective_start_date }} – {{ version.effective_end_date|default:"Open" }}</td><td>{{ version.get_source_type_display }}{% if version.source_filename %}: {{ version.source_filename }}{% endif %}</td><td>{{ version.activated_at|default:"Not activated" }}</td><td><a href="{% url 'pay_plan_rules' version.id %}">View Rules</a></td></tr>{% empty %}<tr><td colspan="7">No versions found.</td></tr>{% endfor %}
+  </tbody></table>
+</section>
+{% endblock %}

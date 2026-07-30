@@ -84,9 +84,15 @@ class SplitDealTests(TestCase):
 
     def test_full_deal_without_split_name_is_valid(self):
         form = SaleForm(data={
-            **self.base_data, 'count': '2', 'split_with_name': '',
+            **self.base_data, 'count': '1', 'split_with_name': '',
         })
         self.assertTrue(form.is_valid(), form.errors)
+
+    def test_manual_double_count_is_not_an_add_sale_choice(self):
+        form = SaleForm()
+        values = [str(value) for value, _label in form.fields['count'].choices]
+
+        self.assertEqual(values, ['1', '0.5'])
 
     def test_edit_half_deal_displays_saved_name(self):
         sale = self.make_sale()

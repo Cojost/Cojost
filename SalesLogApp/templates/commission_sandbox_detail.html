@@ -1,0 +1,238 @@
+{% extends 'SalesLogApp/base.html' %}
+{% load scenario_format %}
+{% block title %}{{ sandbox.scenario_name }} Scenario{% endblock %}
+{% block content %}
+<div class="intro">
+  <div class="scenario-toolbar">
+    <div>
+      <h2>{{ sandbox.scenario_name }}</h2>
+      <p>{{ sandbox.scenario_notes|default:"Private commission scenario" }}</p>
+    </div>
+    <span class="scenario-status scenario-status-{{ sandbox.status }}">{{ sandbox.get_status_display }}</span>
+  </div>
+</div>
+
+<section class="card">
+  <div class="scenario-toolbar">
+    <div>
+      <label for="scenario-selector"><strong>Open another scenario</strong></label>
+      <select class="scenario-select" id="scenario-selector" onchange="if (this.value) window.location.assign(this.value)">
+        {% for item in scenario_selector %}
+          <option value="{% url 'commission_sandbox_detail' item.public_id %}" {% if item.pk == sandbox.pk %}selected{% endif %}>{{ item.scenario_name }}{% if item.status == "archived" %} (Archived){% endif %}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="scenario-actions">
+      {% if sandbox.status == "draft" %}
+        <button class="button button-primary" type="submit" form="scenario-save-form">Save</button>
+        <a class="button button-secondary" href="{% url 'commission_sandbox_save_as' sandbox.public_id %}">Save as Scenario</a>
+        <form method="post" action="{% url 'commission_sandbox_duplicate' sandbox.public_id %}">{% csrf_token %}<button class="button button-secondary" type="submit">Duplicate</button></form>
+        <a class="button button-secondary" href="{% url 'commission_sandbox_rename' sandbox.public_id %}">Rename</a>
+      {% elif sandbox.status == "archived" %}
+        <form method="post" action="{% url 'commission_sandbox_restore' sandbox.public_id %}">{% csrf_token %}<button class="button button-primary" type="submit">Restore</button></form>
+        <form method="post" action="{% url 'commission_sandbox_duplicate' sandbox.public_id %}">{% csrf_token %}<button class="button button-secondary" type="submit">Duplicate</button></form>
+      {% endif %}
+      <a class="button button-secondary" href="{% url 'commission_sandbox_index' %}">All scenarios</a>
+    </div>
+  </div>
+
+  <dl class="scenario-summary-grid">
+    <div class="scenario-summary-item"><dt>Source version</dt><dd>{{ sandbox.source_version.version_name }}</dd></div>
+    <div class="scenario-summary-item"><dt>Draft version</dt><dd>{{ sandbox.draft_version.version_name }}</dd></div>
+    <div class="scenario-summary-item"><dt>Last saved</dt><dd>{% if sandbox.last_saved_at %}{{ sandbox.last_saved_at|date:"M j, Y g:i a" }}{% else %}Never{% endif %}</dd></div>
+    <div class="scenario-summary-item"><dt>Last calculated</dt><dd>{% if sandbox.last_calculated_at %}{{ sandbox.last_calculated_at|date:"M j, Y g:i a" }}{% else %}Never{% endif %}</dd></div>
+  </dl>
+
+  {% if sandbox.has_unsaved_changes %}
+    <p class="scenario-unsaved" id="scenario-unsaved-state">Unsaved scenario changes</p>
+  {% else %}
+    <p class="scenario-saved" id="scenario-unsaved-state">All scenario changes saved</p>
+  {% endif %}
+  {% if stale_reasons %}
+    <div class="scenario-notice scenario-warning">
+      <strong>Saved results may be stale.</strong>
+      <ul>{% for reason in stale_reasons %}<li>{{ reason }}</li>{% endfor %}</ul>
+      {% if sandbox.status == "draft" %}
+      <form method="post" action="{% url 'commission_sandbox_recalculate' sandbox.public_id %}">{% csrf_token %}<button class="button button-secondary" type="submit">Recalculate Scenario</button></form>
+      {% endif %}
+    </div>
+  {% endif %}
+</section>
+
+{% if sandbox.status == "draft" %}
+<section class="card">
+  <h3>Scenario notes and assumptions</h3>
+  <form id="scenario-save-form" method="post" action="{% url 'commission_sandbox_save' sandbox.public_id %}" data-scenario-state-form>
+    {% csrf_token %}
+    {{ save_form.as_p }}
+  </form>
+</section>
+{% endif %}
+
+<section class="card">
+  <div class="scenario-toolbar">
+    <div>
+      <h3>Sandbox-only rules</h3>
+      <p class="card-description">These are isolated copies. The source and active pay plans remain read-only.</p>
+    </div>
+    {% if sandbox.status == "draft" %}
+      <a class="button button-primary" href="{% url 'commission_sandbox_rule_add' sandbox.public_id %}">Add rule</a>
+    {% endif %}
+  </div>
+  {% for rule in rules %}
+    <article class="sandbox-rule">
+      <strong>{{ rule.name }}</strong>
+      <p>{{ rule.rule_type }} &middot; {{ rule.calculation_scope }} &middot; Priority {{ rule.sort_order }} &middot; {{ rule.is_active|yesno:"Enabled,Disabled" }}</p>
+      <p><code>{{ rule.configuration }}</code></p>
+      {% if rule.conditions.all %}
+        <ul>{% for condition in rule.conditions.all %}<li>{{ condition.field_name }} {{ condition.operator }} {{ condition.value }}</li>{% endfor %}</ul>
+      {% else %}
+        <p>Applies without additional conditions.</p>
+      {% endif %}
+      {% if sandbox.status == "draft" %}
+      <div class="scenario-actions">
+        <a class="button button-secondary" href="{% url 'commission_sandbox_rule_edit' sandbox.public_id rule.id %}">Edit</a>
+        <form method="post" action="{% url 'commission_sandbox_rule_action' sandbox.public_id rule.id 'toggle' %}">{% csrf_token %}<button class="button button-secondary" type="submit">Enable/disable</button></form>
+        <form method="post" action="{% url 'commission_sandbox_rule_action' sandbox.public_id rule.id 'duplicate' %}">{% csrf_token %}<button class="button button-secondary" type="submit">Duplicate rule</button></form>
+        <form method="post" action="{% url 'commission_sandbox_rule_action' sandbox.public_id rule.id 'up' %}">{% csrf_token %}<button class="button button-secondary" type="submit">Move up</button></form>
+        <form method="post" action="{% url 'commission_sandbox_rule_action' sandbox.public_id rule.id 'down' %}">{% csrf_token %}<button class="button button-secondary" type="submit">Move down</button></form>
+        <form method="post" action="{% url 'commission_sandbox_rule_action' sandbox.public_id rule.id 'delete' %}">{% csrf_token %}<button class="button button-secondary" type="submit">Delete rule</button></form>
+      </div>
+      {% endif %}
+    </article>
+  {% empty %}<p>No sandbox rules.</p>{% endfor %}
+</section>
+
+<section class="card">
+  <h3>Historical replay</h3>
+  <p class="card-description">Production sales are read-only inputs. A replay never changes recorded commission.</p>
+  {% if sandbox.status == "draft" %}
+  <form method="post" action="{% url 'commission_sandbox_replay' sandbox.public_id %}" data-scenario-state-form>
+    {% csrf_token %}{{ replay_form.as_p }}
+    <button class="button button-primary" type="submit">Replay historical sales</button>
+  </form>
+  {% else %}
+  <p>{{ sandbox.replay_start_date|default:"Beginning" }} through {{ sandbox.replay_end_date|default:"Today" }}</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h3>Hypothetical deals</h3>
+  <p class="card-description">Scenario deals are never added to View Sales, dashboards, reports, exports, or production totals.</p>
+  {% if sandbox.status == "draft" %}
+  <form method="post" action="{% url 'commission_sandbox_hypothetical' sandbox.public_id %}" data-scenario-state-form>
+    {% csrf_token %}{{ hypothetical_form.as_p }}
+    <button class="button button-secondary" type="submit">Add hypothetical deal</button>
+  </form>
+  {% endif %}
+  <div class="scenario-card-grid">
+    {% for deal in hypothetical_deals %}
+    <article class="scenario-card">
+      <h4>{{ deal.label|default:deal.customer }}</h4>
+      <p>{{ deal.date }} &middot; {{ deal.vehicle_condition|title }} &middot; {{ deal.count }} unit</p>
+      <p>Front {{ deal.frontEnd|scenario_currency }} &middot; Back {{ deal.backend|scenario_currency }}</p>
+      {% if sandbox.status == "draft" %}
+      <div class="scenario-actions">
+        <a class="button button-secondary" href="{% url 'commission_sandbox_hypothetical_edit' sandbox.public_id deal.id %}">Edit</a>
+        <form method="post" action="{% url 'commission_sandbox_hypothetical_delete' sandbox.public_id deal.id %}">{% csrf_token %}<button class="button button-secondary" type="submit">Delete</button></form>
+      </div>
+      {% endif %}
+    </article>
+    {% empty %}<p>No hypothetical deals.</p>{% endfor %}
+  </div>
+  {% if hypothetical_deals and sandbox.status == "draft" %}
+  <form method="post" action="{% url 'commission_sandbox_project' sandbox.public_id %}">{% csrf_token %}<button class="button button-primary" type="submit">Run hypothetical projection</button></form>
+  {% endif %}
+</section>
+
+{% if calculation_summary %}
+<section class="card">
+  <div class="scenario-toolbar">
+    <h3>Saved calculation snapshot</h3>
+    {% if sandbox.status == "draft" %}
+    <form method="post" action="{% url 'commission_sandbox_recalculate' sandbox.public_id %}">{% csrf_token %}<button class="button button-secondary" type="submit">Recalculate Scenario</button></form>
+    {% endif %}
+  </div>
+  <dl class="scenario-summary-grid">
+    <div class="scenario-summary-item"><dt>Live total</dt><dd>{{ calculation_summary.live_total|scenario_currency }}</dd></div>
+    <div class="scenario-summary-item"><dt>Scenario total</dt><dd>{{ calculation_summary.scenario_total|scenario_currency }}</dd></div>
+    <div class="scenario-summary-item"><dt>Difference</dt><dd>{{ calculation_summary.difference|signed_scenario_currency }}</dd></div>
+    <div class="scenario-summary-item"><dt>Percent change</dt><dd>{{ calculation_summary.percentage_change|signed_scenario_percent }}</dd></div>
+    <div class="scenario-summary-item"><dt>Deals</dt><dd>{{ calculation_summary.sale_count|default:0 }}</dd></div>
+    <div class="scenario-summary-item"><dt>Increased</dt><dd>{{ calculation_summary.increased_deals|default:0 }}</dd></div>
+    <div class="scenario-summary-item"><dt>Decreased</dt><dd>{{ calculation_summary.decreased_deals|default:0 }}</dd></div>
+    <div class="scenario-summary-item"><dt>Unchanged</dt><dd>{{ calculation_summary.unchanged_deals|default:0 }}</dd></div>
+  </dl>
+  {% if latest_run %}
+  <div class="table-wrap"><table class="data-table scenario-comparison-table">
+    <thead><tr><th>Deal</th><th>Live</th><th>Scenario</th><th>Difference</th><th>Explanation</th></tr></thead>
+    <tbody>{% for result in latest_run.results.all %}
+      <tr class="comparison-{{ result.comparison }}">
+        <td><span class="scenario-mobile-label">Deal</span>{% if result.sale_snapshot.deal_number %}{{ result.sale_snapshot.deal_number }}{% else %}{{ result.source_key }}{% endif %}</td>
+        <td><span class="scenario-mobile-label">Live</span>{{ result.actual_commission|scenario_currency }}</td>
+        <td><span class="scenario-mobile-label">Scenario</span>{{ result.sandbox_commission|scenario_currency }}</td>
+        <td><span class="scenario-mobile-label">Difference</span>{{ result.difference|signed_scenario_currency }}</td>
+        <td><span class="scenario-mobile-label">Explanation</span><details><summary>Calculation breakdown</summary>
+          {% for item in result.explanation.rules %}
+            <p><strong>{{ item.rule_name }}</strong>: {{ item.explanation }} &mdash; {{ item.amount|scenario_currency }}</p>
+          {% endfor %}
+          {% for warning in result.explanation.warnings %}<p>{{ warning }}</p>{% endfor %}
+        </details></td>
+      </tr>
+    {% endfor %}</tbody>
+  </table></div>
+  {% endif %}
+</section>
+{% endif %}
+
+<section class="card">
+  <h3>Scenario controls</h3>
+  <div class="scenario-actions">
+    <a class="button button-secondary" href="{% url 'commission_sandbox_compare' %}?scenario={{ sandbox.id }}">Compare Scenarios</a>
+    {% if sandbox.status == "draft" %}
+      <a class="button button-secondary" href="{% url 'commission_sandbox_reset' sandbox.public_id %}">Reset to Source Plan</a>
+      <a class="button button-primary" href="{% url 'commission_sandbox_convert' sandbox.public_id %}">Create Pay Plan Draft</a>
+      <form method="post" action="{% url 'commission_sandbox_archive' sandbox.public_id %}">{% csrf_token %}<button class="button button-secondary" type="submit">Archive Scenario</button></form>
+    {% endif %}
+    <a class="button button-secondary" href="{% url 'commission_sandbox_delete' sandbox.public_id %}">Delete Scenario</a>
+  </div>
+  <p class="scenario-notice">Creating a pay-plan draft does not activate it. Your current plan remains active until the normal review and confirmation workflow is completed.</p>
+</section>
+
+{% if history %}
+<section class="card">
+  <h3>Scenario history</h3>
+  <ol class="scenario-history">
+    {% for entry in history %}
+      <li><strong>{{ entry.created_at|date:"M j, Y g:i a" }}</strong> &mdash; {{ entry.summary }}</li>
+    {% endfor %}
+  </ol>
+</section>
+{% endif %}
+
+{% if sandbox.status == "draft" %}
+<script>
+(function () {
+  var dirty = false;
+  var state = document.getElementById('scenario-unsaved-state');
+  document.querySelectorAll('[data-scenario-state-form] input, [data-scenario-state-form] select, [data-scenario-state-form] textarea').forEach(function (field) {
+    field.addEventListener('change', function () {
+      dirty = true;
+      if (state) {
+        state.textContent = 'Unsaved form changes';
+        state.className = 'scenario-unsaved';
+      }
+    });
+  });
+  document.querySelectorAll('form').forEach(function (form) {
+    form.addEventListener('submit', function () { dirty = false; });
+  });
+  window.addEventListener('beforeunload', function (event) {
+    if (!dirty) return;
+    event.preventDefault();
+    event.returnValue = '';
+  });
+}());
+</script>
+{% endif %}
+{% endblock %}

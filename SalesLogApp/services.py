@@ -6,6 +6,8 @@ from django.db import transaction
 from django.db.models import Min, Sum
 from django.utils import timezone
 
+from .access import uses_new_engine
+from .commission_service import CommissionEngineService
 from .models.sales import (
     ArchivedSale,
     BonusLevel,
@@ -29,6 +31,7 @@ def archive_sale(sale):
         count=sale.count, split_with_name=sale.split_with_name,
         frontEnd=sale.frontEnd, backend=sale.backend, date=sale.date,
         sale_type=sale.sale_type,
+        vehicle_condition=sale.vehicle_condition,
     )
     get_sale_type_handler(sale.sale_type).archive_details(sale, archived)
     sale.delete()
@@ -47,12 +50,23 @@ def month_bounds(month_start):
 def commission_totals(user, sales):
     sales = list(sales)
     commission = Commission.objects.filter(user=user).first()
-    units = sum((sale.count for sale in sales), ZERO)
+    units = sum((sale.unit_credit for sale in sales), ZERO)
+    if uses_new_engine(user):
+        diagnostics = CommissionEngineService.calculate_sales(user, sales)
+        return {
+            'units': units,
+            'front': diagnostics['total_front'],
+            'back': diagnostics['total_back'],
+            'bonus': diagnostics['total_bonus'],
+            'adjustments': ZERO,
+            'total': diagnostics['total_commission'],
+            'diagnostics': diagnostics,
+        }
     if not commission:
         return {'units': units, 'front': ZERO, 'back': ZERO, 'bonus': ZERO,
                 'adjustments': ZERO, 'total': ZERO}
-    front = sum((commission.calculate_front_end(s.frontEnd) for s in sales), ZERO)
-    back = sum((commission.calculate_backend(s.backend) for s in sales), ZERO)
+    front = sum((s.calculate_frontEnd for s in sales), ZERO)
+    back = sum((s.calculate_backend for s in sales), ZERO)
     levels = BonusLevel.objects.filter(user=user, commission=commission, active=True)
     bonus = calculate_bonus(sales, levels)
     adjustments = sum((
@@ -158,6 +172,11 @@ def sales_month_context(user, month_start):
         user=user, date__gte=start, date__lt=end
     ).select_related('vehicle__make', 'vehicle__model').order_by('date', 'dealNumber')
     totals = commission_totals(user, sales)
+    diagnostics = totals.get('diagnostics') or CommissionEngineService.calculate_sales(user, list(sales))
+    active_plan = CommissionEngineService.active_plan_summary(user)
+    sale_diagnostics_by_id = {item.sale_id: item for item in diagnostics['results']}
+    for sale in sales:
+        sale.commission_result = sale_diagnostics_by_id.get(sale.id)
     return {
         'selected_month': start,
         'sales': sales,
@@ -168,6 +187,9 @@ def sales_month_context(user, month_start):
         'total_adjustments': totals['adjustments'],
         'total_commission': totals['total'],
         'commission_instance': Commission.objects.filter(user=user).first(),
+        'commission_diagnostics': diagnostics,
+        'sale_diagnostics_by_id': sale_diagnostics_by_id,
+        'active_plan_summary': active_plan,
     }
 
 

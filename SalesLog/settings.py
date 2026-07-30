@@ -12,6 +12,8 @@ https://docs.djangoproject.com/en/5.0/ref/settings/
 
 from pathlib import Path
 import os
+import ipaddress
+import socket
 
 import dj_database_url
 from django.core.exceptions import ImproperlyConfigured
@@ -52,6 +54,50 @@ if render_hostname:
     render_origin = f'https://{render_hostname}'
     if render_origin not in CSRF_TRUSTED_ORIGINS:
         CSRF_TRUSTED_ORIGINS.append(render_origin)
+
+
+def _local_private_ipv4_addresses():
+    addresses = set()
+    try:
+        hostname = socket.gethostname()
+        for family, _, _, _, sockaddr in socket.getaddrinfo(hostname, None):
+            if family != socket.AF_INET:
+                continue
+            host = sockaddr[0]
+            ip = ipaddress.ip_address(host)
+            if ip.is_private:
+                addresses.add(host)
+    except OSError:
+        pass
+
+    try:
+        # Detect the currently active interface address without sending traffic.
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+            probe.connect(('8.8.8.8', 80))
+            host = probe.getsockname()[0]
+            ip = ipaddress.ip_address(host)
+            if ip.is_private:
+                addresses.add(host)
+    except OSError:
+        pass
+
+    return sorted(addresses)
+
+
+if DEBUG:
+    debug_hosts = {'localhost', '127.0.0.1', '[::1]'}
+    debug_hosts.update(_local_private_ipv4_addresses())
+    for host in sorted(debug_hosts):
+        if host not in ALLOWED_HOSTS:
+            ALLOWED_HOSTS.append(host)
+
+    # Development-only origins for local-network phone testing.
+    for host in sorted(debug_hosts):
+        if host == '[::1]':
+            continue
+        origin = f'http://{host}:8000'
+        if origin not in CSRF_TRUSTED_ORIGINS:
+            CSRF_TRUSTED_ORIGINS.append(origin)
 
 
 # Application definition
@@ -170,6 +216,12 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
+# Upload size limits (default 20 MB)
+MAX_UPLOAD_SIZE_MB = int(os.getenv('MAX_UPLOAD_SIZE_MB', '20'))
+_max_upload_bytes = MAX_UPLOAD_SIZE_MB * 1024 * 1024
+FILE_UPLOAD_MAX_MEMORY_SIZE = _max_upload_bytes
+DATA_UPLOAD_MAX_MEMORY_SIZE = _max_upload_bytes
+
 STORAGES = {
     'default': {
         'BACKEND': 'django.core.files.storage.FileSystemStorage',
@@ -206,10 +258,10 @@ SITE_ID = 1
 
 DJSTRIPE_FOREIGN_KEY_TO_FIELD = "id"
 
-LOGIN_REDIRECT_URL = '/SalesLogApp/view_sales/'
+LOGIN_REDIRECT_URL = '/SalesLogApp/pay-plan/setup/'
 
 # settings.py
-ACCOUNT_LOGIN_REDIRECT_URL = '/SalesLogApp/view_sales/'
+ACCOUNT_LOGIN_REDIRECT_URL = '/SalesLogApp/pay-plan/setup/'
 
 # Email
 EMAIL_BACKEND = os.getenv(
