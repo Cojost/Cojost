@@ -1,5 +1,6 @@
 {% extends 'SalesLogApp/base.html' %}
 {% block title %}Pay Plan Assistant{% endblock %}
+{% block page_class %}pay-plan-assistant-page{% endblock %}
 {% block content %}
 {% include "components/_page_header.html" with heading="Pay Plan Assistant" description="Request a draft change in plain language. Your active plan stays unchanged until you review and confirm the draft." %}
 <form method="post" class="card form-card" id="assistant-request" novalidate>
@@ -7,10 +8,10 @@
   <input type="hidden" name="assistant_action" value="interpret">
   {{ form.non_field_errors }}
   {{ form.as_p }}
-  <div class="notice">
+  <div class="notice assistant-help-panel">
     <strong>Effective date:</strong> Changes may recalculate earlier sales when the selected date is in a prior period.
   </div>
-  <div class="notice">
+  <div class="notice assistant-help-panel">
     <strong>Helpful examples:</strong>
     “Change the standard bonus at 12 units to $1,000.”
     “Change front-end commission to 27%.”
@@ -69,13 +70,13 @@
   </form>
 </section>
 {% endif %}
-<section class="card">
+<section class="card assistant-history">
   <h3>Recent requests</h3>
   <ul>
     {% for item in history %}
     <li>
       {% include "components/_status_badge.html" with label=item.get_status_display status=item.status %} — {{ item.request_text }}
-      <a href="{% url 'replacement_pay_plan_review' item.draft_version_id %}">View draft</a>
+      <a class="text-link" href="{% url 'replacement_pay_plan_review' item.draft_version_id %}">View draft</a>
     </li>
     {% empty %}
     <li>No draft-change requests yet.</li>

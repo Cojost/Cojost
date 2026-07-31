@@ -1,10 +1,12 @@
 import shutil
 import tempfile
 from io import BytesIO
+from pathlib import Path
 
 from PIL import Image
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.contrib.staticfiles import finders
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
@@ -31,6 +33,10 @@ class ProfileTests(TestCase):
             'PNG': 'image/png', 'JPEG': 'image/jpeg', 'WEBP': 'image/webp'
         }[image_format]
         return SimpleUploadedFile(name, output.getvalue(), content_type=content_type)
+
+    @staticmethod
+    def application_styles():
+        return Path(finders.find('styles.css')).read_text(encoding='utf-8')
 
     def test_profile_created_for_new_users(self):
         self.assertTrue(UserProfile.objects.filter(user=self.user).exists())
@@ -65,8 +71,10 @@ class ProfileTests(TestCase):
         page = self.client.get(reverse('profile'))
         self.assertContains(page, 'data-theme="dark"')
         self.assertContains(page, 'header-theme-purple')
-        self.assertContains(page, '--page-background: #f4f6f8')
-        self.assertContains(page, '--graph-primary: #3498db')
+        styles = self.application_styles()
+        self.assertIn('--page-background:', styles)
+        self.assertIn('--graph-primary:', styles)
+        self.assertIn('html[data-theme="dark"]', styles)
         self.assertContains(page, 'getStewLogChartColors')
         self.assertFalse(hasattr(self.user.sales_profile, 'background_color'))
         self.assertFalse(hasattr(self.user.sales_profile, 'graph_primary_color'))
@@ -96,16 +104,19 @@ class ProfileTests(TestCase):
 
     def test_palette_foregrounds_and_anonymous_default(self):
         page = self.client.get(reverse('account_login'))
-        content = page.content.decode()
+        content = self.application_styles()
         self.assertContains(page, 'header-theme-blue')
         for color in ('red', 'orange', 'green', 'blue', 'gray', 'pink', 'purple'):
             self.assertRegex(
                 content,
-                rf'\.header-theme-{color} \{{[^}}]*--header-foreground: #ffffff;',
+                rf'\.header-theme-{color}\s*\{{[^}}]*'
+                rf'--header-foreground:\s*#ffffff;',
             )
-        self.assertContains(
-            page,
-            '.header-theme-yellow { --header-background: #facc15; --header-foreground: #111827;',
+        self.assertRegex(
+            content,
+            r'\.header-theme-yellow\s*\{[^}]*'
+            r'--header-background:\s*#facc15;[^}]*'
+            r'--header-foreground:\s*#111827;',
         )
 
     def test_header_and_menu_share_the_selected_palette(self):
@@ -115,7 +126,7 @@ class ProfileTests(TestCase):
         self.client.force_login(self.user)
 
         page = self.client.get(reverse('profile'))
-        content = page.content.decode()
+        content = self.application_styles()
 
         self.assertContains(page, '<body class="header-theme-yellow">', html=False)
         self.assertIn('background: var(--header-background)', content)
@@ -123,8 +134,14 @@ class ProfileTests(TestCase):
             content.count('color: var(--header-foreground)'),
             2,
         )
-        self.assertIn('--menu-hover-background: rgba(17,24,39,.10)', content)
-        self.assertIn('--menu-active-background: rgba(17,24,39,.18)', content)
+        self.assertRegex(
+            content,
+            r'--menu-hover-background:\s*rgba\(17,\s*24,\s*39,\s*\.10\)',
+        )
+        self.assertRegex(
+            content,
+            r'--menu-active-background:\s*rgba\(17,\s*24,\s*39,\s*\.18\)',
+        )
         self.assertIn('.menu a.active', content)
 
     def test_upload_replace_and_remove_avatar(self):
