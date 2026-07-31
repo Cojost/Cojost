@@ -269,6 +269,7 @@ class PayPlanAssistantTests(TestCase):
     def test_authenticated_view_posts_exact_request_and_reaches_review(self):
         original = deepcopy(self.version.rules.get().configuration)
         self.client.force_login(self.user)
+        version_count = PayPlanVersion.objects.count()
 
         response = self.client.post(
             reverse('pay_plan_assistant'),
@@ -283,6 +284,25 @@ class PayPlanAssistantTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.resolver_match.url_name, 'pay_plan_assistant')
+        self.assertContains(response, 'Here’s what I understood')
+        self.assertContains(response, 'No draft has been created yet')
+        self.assertEqual(PayPlanVersion.objects.count(), version_count)
+        self.assertFalse(PayPlanChangeRequest.objects.exists())
+
+        response = self.client.post(
+            reverse('pay_plan_assistant'),
+            {
+                'assistant_action': 'create_draft',
+                'request_text': 'Pay $250 at 8 units',
+                'effective_date': (
+                    timezone.localdate() + timedelta(days=1)
+                ).isoformat(),
+                'confirm_retroactive': 'on',
+            },
+            follow=True,
+        )
+
         self.assertEqual(
             response.resolver_match.url_name, 'replacement_pay_plan_review',
         )

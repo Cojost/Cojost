@@ -319,9 +319,29 @@ class Phase1AUserInterfaceTests(TestCase):
         self.assertContains(assistant, 'active plan stays unchanged')
 
     def test_assistant_exact_37_unit_request_reaches_review(self):
+        version_count = PayPlanVersion.objects.count()
         response = self.client.post(
             reverse('pay_plan_assistant'),
             {
+                'request_text': 'Pay $251 at 37 units',
+                'effective_date': (
+                    timezone.localdate() + timedelta(days=1)
+                ).isoformat(),
+                'confirm_retroactive': 'on',
+            },
+            follow=True,
+        )
+        self.assertEqual(
+            response.resolver_match.url_name, 'pay_plan_assistant',
+        )
+        self.assertContains(response, 'Here’s what I understood')
+        self.assertEqual(PayPlanVersion.objects.count(), version_count)
+        self.assertFalse(PayPlanChangeRequest.objects.filter(user=self.user).exists())
+
+        response = self.client.post(
+            reverse('pay_plan_assistant'),
+            {
+                'assistant_action': 'create_draft',
                 'request_text': 'Pay $251 at 37 units',
                 'effective_date': (
                     timezone.localdate() + timedelta(days=1)

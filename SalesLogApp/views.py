@@ -83,7 +83,11 @@ from .pay_plan_imports import (
     mark_submission_review_state,
     parse_description_to_import_draft,
 )
-from .pay_plan_assistant import create_plain_text_change_draft
+from .pay_plan_assistant import (
+    create_draft_from_intent,
+    interpret_request,
+    resolve_intent,
+)
 from .models import (
     PayPlanAssignment,
     PayPlanDescriptionSubmission,
@@ -951,27 +955,69 @@ def edit_pay_plan_manually(request):
 def pay_plan_assistant(request):
     if not uses_new_engine(request.user):
         return redirect('view_commission')
+    resolution = None
     if request.method == 'POST':
         form = PayPlanAssistantForm(request.POST)
         if form.is_valid():
+            intent = interpret_request(
+                form.cleaned_data['request_text'],
+                effective_date=form.cleaned_data['effective_date'],
+            )
+            selected_target = request.POST.get('selected_target') or None
             try:
-                change_request = create_plain_text_change_draft(
+                resolution = resolve_intent(
                     request.user,
-                    form.cleaned_data['request_text'],
-                    form.cleaned_data['effective_date'],
+                    intent,
+                    selected_target=selected_target,
                 )
             except ValidationError as exc:
                 form.add_error('request_text', '; '.join(exc.messages))
             else:
-                messages.success(
-                    request,
-                    'A draft change was created. Review the interpretation '
-                    'and calculation preview before activating it.',
-                )
-                return redirect(
-                    'replacement_pay_plan_review',
-                    version_id=change_request.draft_version_id,
-                )
+                if request.POST.get('assistant_action') == 'create_draft':
+                    if not resolution.may_create_draft:
+                        form.add_error(
+                            'request_text',
+                            resolution.message
+                            or 'Clarify the request before creating a draft.',
+                        )
+                    else:
+                        try:
+                            change_request = create_draft_from_intent(
+                                request.user,
+                                intent,
+                                form.cleaned_data['effective_date'],
+                                selected_target=selected_target,
+                                expected_source_version_id=(
+                                    int(request.POST['expected_source_version_id'])
+                                    if request.POST.get(
+                                        'expected_source_version_id',
+                                    ) else None
+                                ),
+                                expected_current_value=(
+                                    request.POST.get('expected_current_value')
+                                    or None
+                                ),
+                            )
+                        except (ValidationError, ValueError) as exc:
+                            error_messages = (
+                                exc.messages
+                                if isinstance(exc, ValidationError)
+                                else ['The interpretation review was invalid.']
+                            )
+                            form.add_error(
+                                'request_text', '; '.join(error_messages),
+                            )
+                        else:
+                            messages.success(
+                                request,
+                                'The inactive draft was created from your '
+                                'confirmed interpretation. Review it before '
+                                'activation.',
+                            )
+                            return redirect(
+                                'replacement_pay_plan_review',
+                                version_id=change_request.draft_version_id,
+                            )
     else:
         form = PayPlanAssistantForm(initial={
             'effective_date': timezone.localdate() + timedelta(days=1),
@@ -980,6 +1026,7 @@ def pay_plan_assistant(request):
     return render(request, 'pay_plan_assistant.html', {
         'form': form,
         'history': history,
+        'resolution': resolution,
     })
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import timedelta
 from decimal import Decimal
 from typing import Any
@@ -200,7 +201,7 @@ def create_manual_draft(user, effective_start_date):
             rule_type=source_rule.rule_type,
             calculation_scope=source_rule.calculation_scope,
             condition_group_operator=source_rule.condition_group_operator,
-            configuration=source_rule.configuration,
+            configuration=deepcopy(source_rule.configuration),
             is_active=source_rule.is_active,
             sort_order=source_rule.sort_order,
         )
@@ -209,7 +210,7 @@ def create_manual_draft(user, effective_start_date):
                 rule=rule,
                 field_name=condition.field_name,
                 operator=condition.operator,
-                value=condition.value,
+                value=deepcopy(condition.value),
                 sort_order=condition.sort_order,
             )
             for condition in source_rule.conditions.all()

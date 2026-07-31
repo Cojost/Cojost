@@ -2,8 +2,9 @@
 {% block title %}Pay Plan Assistant{% endblock %}
 {% block content %}
 {% include "components/_page_header.html" with heading="Pay Plan Assistant" description="Request a draft change in plain language. Your active plan stays unchanged until you review and confirm the draft." %}
-<form method="post" class="card form-card" novalidate>
+<form method="post" class="card form-card" id="assistant-request" novalidate>
   {% csrf_token %}
+  <input type="hidden" name="assistant_action" value="interpret">
   {{ form.non_field_errors }}
   {{ form.as_p }}
   <div class="notice">
@@ -15,11 +16,59 @@
     “Change front-end commission to 27%.”
     “Remove the video requirement from the Green Pea volume bonus.”
   </div>
+  {% if resolution.status == "clarification" %}
+  <div class="notice notice-warning" role="status">
+    <strong>One more detail is needed</strong>
+    <p>{{ resolution.message|default:resolution.intent.clarification_question }}</p>
+    {% if resolution.intent.candidate_targets %}
+    <fieldset>
+      <legend>Select the rule you mean</legend>
+      {% for candidate in resolution.intent.candidate_targets %}
+      <label><input type="radio" name="selected_target" value="{{ candidate.selector }}" required> {{ candidate.label }} — {{ candidate.rule_name }}</label>
+      {% endfor %}
+    </fieldset>
+    {% endif %}
+  </div>
+  {% elif resolution.status == "unsupported" %}
+  <div class="notice notice-warning" role="status">
+    <strong>That operation is not supported yet</strong>
+    <p>{{ resolution.message }}</p>
+  </div>
+  {% endif %}
   <div class="actions">
     <a class="button button-secondary" href="{% url 'view_commission' %}">Cancel</a>
-    <button class="button button-primary" type="submit">Create Draft Change</button>
+    <button class="button button-primary" type="submit">{% if resolution.intent.candidate_targets %}Review selected rule{% else %}Review interpretation{% endif %}</button>
   </div>
 </form>
+{% if resolution.may_create_draft %}
+<section class="card" aria-labelledby="interpretation-heading">
+  <h3 id="interpretation-heading">Here’s what I understood</h3>
+  <dl class="commission-grid">
+    <div><dt>Action</dt><dd>{{ resolution.intent.action|title }}</dd></div>
+    <div><dt>Target</dt><dd>{{ resolution.proposal.target_label }}</dd></div>
+    <div><dt>From</dt><dd>{{ resolution.proposal.current_display }}</dd></div>
+    <div><dt>To</dt><dd>{{ resolution.proposal.new_display }}</dd></div>
+    <div><dt>Applies to</dt><dd>{{ resolution.proposal.applies_to }}</dd></div>
+    <div><dt>Effective date</dt><dd>{{ form.cleaned_data.effective_date }}</dd></div>
+  </dl>
+  <p class="card-description">No draft has been created yet. Your active pay plan remains unchanged.</p>
+  <form method="post">
+    {% csrf_token %}
+    <input type="hidden" name="assistant_action" value="create_draft">
+    <input type="hidden" name="request_text" value="{{ form.cleaned_data.request_text }}">
+    <input type="hidden" name="effective_date" value="{{ form.cleaned_data.effective_date|date:'Y-m-d' }}">
+    {% if form.cleaned_data.confirm_retroactive %}<input type="hidden" name="confirm_retroactive" value="on">{% endif %}
+    {% if resolution.proposal.rule_selector %}<input type="hidden" name="selected_target" value="{{ resolution.proposal.rule_selector }}">{% endif %}
+    <input type="hidden" name="expected_source_version_id" value="{{ resolution.proposal.source_version_id }}">
+    <input type="hidden" name="expected_current_value" value="{{ resolution.proposal.current_display }}">
+    <div class="actions">
+      <a class="button button-secondary" href="#assistant-request">Edit request</a>
+      <a class="button button-secondary" href="{% url 'view_commission' %}">Cancel</a>
+      <button class="button button-primary" type="submit">Create draft</button>
+    </div>
+  </form>
+</section>
+{% endif %}
 <section class="card">
   <h3>Recent requests</h3>
   <ul>
