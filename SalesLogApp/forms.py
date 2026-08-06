@@ -288,6 +288,11 @@ class PayPlanRuleConditionEditForm(forms.Form):
 
 
 class PayPlanAssistantForm(forms.Form):
+    submission_token = forms.CharField(
+        required=False,
+        max_length=64,
+        widget=forms.HiddenInput(),
+    )
     request_text = forms.CharField(
         label='What would you like to change?',
         max_length=2000,
@@ -324,6 +329,11 @@ class PayPlanAssistantForm(forms.Form):
 
 
 class PayPlanAssistantFollowUpForm(forms.Form):
+    submission_token = forms.CharField(
+        required=False,
+        max_length=64,
+        widget=forms.HiddenInput(),
+    )
     response_text = forms.CharField(
         label='Your answer',
         required=False,

@@ -15,6 +15,7 @@ from .models import (
     PayPlanVersion,
     PayPlanConversation,
     PayPlanConversationTurn,
+    PayPlanAssistantUsageEvent,
     CommissionSandbox,
     ScenarioHistory,
     SandboxHypotheticalDeal,
@@ -97,6 +98,27 @@ class PayPlanConversationAdmin(admin.ModelAdmin):
     list_filter = ('status',)
     search_fields = ('conversation_key', 'user__username')
     inlines = (PayPlanConversationTurnInline,)
+
+
+@admin.register(PayPlanAssistantUsageEvent)
+class PayPlanAssistantUsageEventAdmin(admin.ModelAdmin):
+    list_display = (
+        'created_at', 'user', 'route', 'status', 'duration_bucket',
+        'model_name',
+    )
+    list_filter = ('route', 'status', 'duration_bucket', 'model_name')
+    search_fields = ('conversation_ref', 'provider_request_id', 'user__username')
+    readonly_fields = (
+        'user', 'category', 'route', 'status', 'duration_ms',
+        'duration_bucket', 'model_name', 'conversation_ref', 'input_tokens',
+        'output_tokens', 'provider_request_id', 'created_at',
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(CommissionSandbox)

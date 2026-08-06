@@ -1,5 +1,10 @@
 # Phase 1D Pay Plan Assistant
 
+> Phase 1E production configuration, rollout, rate limiting, observability,
+> incident response, and rollback guidance supersedes the operational portions
+> of this document. See
+> [Phase 1E Pay Plan Assistant Operations](phase1e_pay_plan_assistant_operations.md).
+
 ## Purpose
 
 Phase 1D adds an authenticated, multi-turn conversation around the existing

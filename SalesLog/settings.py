@@ -50,7 +50,7 @@ def env_list(name):
 DEBUG = env_bool('DEBUG', True)
 
 # Optional Pay Plan Assistant provider. External calls are opt-in and the API
-# key is read by the provider adapter only when a request actually needs it.
+# key is read only inside the provider adapter for readiness and request use.
 PAY_PLAN_ASSISTANT_PROVIDER_ENABLED = env_bool(
     'PAY_PLAN_ASSISTANT_PROVIDER_ENABLED', False,
 )
@@ -60,12 +60,35 @@ PAY_PLAN_ASSISTANT_PROVIDER = os.getenv(
 PAY_PLAN_ASSISTANT_MODEL = os.getenv(
     'PAY_PLAN_ASSISTANT_MODEL', 'gpt-5.6-sol',
 ).strip() or 'gpt-5.6-sol'
-PAY_PLAN_ASSISTANT_TIMEOUT_SECONDS = env_int(
-    'PAY_PLAN_ASSISTANT_TIMEOUT_SECONDS', 10,
+# Provider-facing values remain raw so the readiness diagnostic can distinguish
+# invalid deployment configuration from a valid default.
+PAY_PLAN_ASSISTANT_TIMEOUT_SECONDS = os.getenv(
+    'PAY_PLAN_ASSISTANT_TIMEOUT_SECONDS', '10',
+).strip()
+PAY_PLAN_ASSISTANT_ROLLOUT_PERCENT = os.getenv(
+    'PAY_PLAN_ASSISTANT_ROLLOUT_PERCENT', '0',
+).strip()
+PAY_PLAN_ASSISTANT_ALLOWED_USER_IDS = env_list(
+    'PAY_PLAN_ASSISTANT_ALLOWED_USER_IDS',
 )
+PAY_PLAN_ASSISTANT_DAILY_REQUEST_LIMIT = os.getenv(
+    'PAY_PLAN_ASSISTANT_DAILY_REQUEST_LIMIT', '20',
+).strip()
+PAY_PLAN_ASSISTANT_MAX_PROVIDER_INPUT_CHARS = os.getenv(
+    'PAY_PLAN_ASSISTANT_MAX_PROVIDER_INPUT_CHARS', '8000',
+).strip()
+PAY_PLAN_ASSISTANT_MAX_PROVIDER_RESPONSE_BYTES = os.getenv(
+    'PAY_PLAN_ASSISTANT_MAX_PROVIDER_RESPONSE_BYTES', '65536',
+).strip()
+PAY_PLAN_ASSISTANT_MAX_OUTPUT_TOKENS = os.getenv(
+    'PAY_PLAN_ASSISTANT_MAX_OUTPUT_TOKENS', '600',
+).strip()
 PAY_PLAN_ASSISTANT_MAX_TURNS = env_int('PAY_PLAN_ASSISTANT_MAX_TURNS', 12)
 PAY_PLAN_ASSISTANT_CONVERSATION_TTL_HOURS = env_int(
     'PAY_PLAN_ASSISTANT_CONVERSATION_TTL_HOURS', 24,
+)
+PAY_PLAN_ASSISTANT_EVENT_RETENTION_DAYS = env_int(
+    'PAY_PLAN_ASSISTANT_EVENT_RETENTION_DAYS', 30,
 )
 
 SECRET_KEY = os.getenv('SECRET_KEY')

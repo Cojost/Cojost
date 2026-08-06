@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Max
 from django.utils import timezone
 
@@ -51,34 +51,62 @@ class PayPlanConversationService:
     """Transactional, authenticated lifecycle for assistant conversations."""
 
     @classmethod
-    @transaction.atomic
-    def start(cls, user, request_text, effective_date, *, interpreter=None):
-        version = active_version_for_user(user)
-        conversation = PayPlanConversation(
-            user=user,
-            plan_version=version,
-            conversation_key=uuid4().hex,
-            context={'effective_date': effective_date.isoformat()},
-        )
-        conversation.full_clean()
-        conversation.save()
-        cls._assert_turn_capacity(conversation, additional=2)
-        cls._append_turn(
-            conversation,
-            PayPlanConversationTurn.USER,
-            request_text,
-        )
-        return cls._interpret_and_store(
+    def start(
+        cls,
+        user,
+        request_text,
+        effective_date,
+        *,
+        interpreter=None,
+        submission_token='',
+    ):
+        submission_token = cls._submission_token(submission_token)
+        if submission_token:
+            existing = PayPlanConversation.objects.filter(
+                user=user,
+                start_submission_token=submission_token,
+            ).first()
+            if existing is not None:
+                return cls._duplicate_outcome(user, existing)
+        try:
+            with transaction.atomic():
+                version = active_version_for_user(user)
+                conversation = PayPlanConversation(
+                    user=user,
+                    plan_version=version,
+                    conversation_key=uuid4().hex,
+                    context={'effective_date': effective_date.isoformat()},
+                    start_submission_token=submission_token,
+                )
+                conversation.full_clean()
+                conversation.save()
+                cls._assert_turn_capacity(conversation, additional=2)
+                cls._append_turn(
+                    conversation,
+                    PayPlanConversationTurn.USER,
+                    request_text,
+                    submission_token=submission_token,
+                )
+                processing_token = cls._begin_processing(conversation)
+        except IntegrityError:
+            if not submission_token:
+                raise
+            existing = PayPlanConversation.objects.get(
+                user=user,
+                start_submission_token=submission_token,
+            )
+            return cls._duplicate_outcome(user, existing)
+        return cls._interpret_and_reconcile(
             conversation,
             user,
             request_text,
             effective_date,
             prior_turns=(),
+            processing_token=processing_token,
             interpreter=interpreter,
         )
 
     @classmethod
-    @transaction.atomic
     def begin_existing(
         cls,
         user,
@@ -87,27 +115,49 @@ class PayPlanConversationService:
         effective_date,
         *,
         interpreter=None,
+        submission_token='',
     ):
-        conversation = cls._owned(conversation_key, user, for_update=True)
-        cls._assert_open_and_current(conversation, user)
-        if conversation.turns.exists() or conversation.pending_intent:
-            raise ConversationStateError(
-                'This conversation has already started. Resume it instead.'
-            )
-        cls._assert_turn_capacity(conversation, additional=2)
-        conversation.context = {'effective_date': effective_date.isoformat()}
-        conversation.save(update_fields=['context', 'updated_at'])
-        cls._append_turn(
-            conversation,
-            PayPlanConversationTurn.USER,
-            request_text,
-        )
-        return cls._interpret_and_store(
+        submission_token = cls._submission_token(submission_token)
+        duplicate = None
+        with transaction.atomic():
+            conversation = cls._owned(conversation_key, user, for_update=True)
+            if (
+                submission_token
+                and conversation.start_submission_token == submission_token
+                and conversation.turns.exists()
+            ):
+                duplicate = conversation
+            else:
+                cls._assert_open_and_current(conversation, user)
+                cls._assert_not_processing(conversation)
+                if conversation.turns.exists() or conversation.pending_intent:
+                    raise ConversationStateError(
+                        'This conversation has already started. Resume it instead.'
+                    )
+                cls._assert_turn_capacity(conversation, additional=2)
+                conversation.context = {
+                    'effective_date': effective_date.isoformat(),
+                }
+                conversation.start_submission_token = submission_token
+                conversation.save(update_fields=[
+                    'context', 'start_submission_token', 'updated_at',
+                ])
+                cls._append_turn(
+                    conversation,
+                    PayPlanConversationTurn.USER,
+                    request_text,
+                    submission_token=submission_token,
+                )
+                processing_token = cls._begin_processing(conversation)
+        if duplicate is not None:
+            return cls._duplicate_outcome(user, duplicate)
+        return cls._interpret_and_reconcile(
             conversation,
             user,
             request_text,
             effective_date,
             prior_turns=(),
+            processing_token=processing_token,
             interpreter=interpreter,
         )
 
@@ -119,8 +169,11 @@ class PayPlanConversationService:
             previous.status = PayPlanConversation.CANCELLED
             previous.pending_intent = {}
             previous.selected_rule_key = ''
+            previous.processing_token = ''
+            previous.processing_started_at = None
             previous.save(update_fields=[
-                'status', 'pending_intent', 'selected_rule_key', 'updated_at',
+                'status', 'pending_intent', 'selected_rule_key',
+                'processing_token', 'processing_started_at', 'updated_at',
             ])
         version = active_version_for_user(user)
         effective_date = (
@@ -156,7 +209,6 @@ class PayPlanConversationService:
         return ConversationOutcome(conversation, resolution)
 
     @classmethod
-    @transaction.atomic
     def follow_up(
         cls,
         user,
@@ -165,74 +217,58 @@ class PayPlanConversationService:
         response_text='',
         candidate_index=None,
         interpreter=None,
+        submission_token='',
     ):
-        conversation = cls._owned(conversation_key, user, for_update=True)
-        cls._assert_open_and_current(conversation, user)
-        cls._assert_turn_capacity(conversation, additional=2)
-        effective_date = date.fromisoformat(conversation.context['effective_date'])
-        current_intent = pending_payload_to_intent(
-            conversation.pending_intent,
-            source_text=cls._combined_user_text(conversation),
-        )
-
+        submission_token = cls._submission_token(submission_token)
         if candidate_index not in (None, ''):
-            current_resolution = resolve_intent(user, current_intent)
-            candidates = current_resolution.intent.candidate_targets
-            try:
-                candidate = candidates[int(candidate_index)]
-            except (IndexError, TypeError, ValueError) as exc:
-                raise ConversationStateError(
-                    'Select one of the currently available rules.'
-                ) from exc
-            user_text = f'Selected: {candidate.label} — {candidate.rule_name}'
-            cls._append_turn(
-                conversation,
-                PayPlanConversationTurn.USER,
-                user_text,
-            )
-            resolution = resolve_intent(
+            return cls._candidate_follow_up(
                 user,
-                current_intent,
-                selected_target=candidate.selector,
+                conversation_key,
+                candidate_index,
+                submission_token=submission_token,
             )
-            conversation.selected_rule_key = candidate.selector
-            route = conversation.context.get('interpretation_source', 'deterministic')
-            provider_status = conversation.context.get('provider_status', 'disabled')
-            interpreted = current_intent
-        else:
-            text = (response_text or '').strip()
-            if not text:
-                raise ConversationStateError('Enter a follow-up answer.')
+
+        text = (response_text or '').strip()
+        if not text:
+            raise ConversationStateError('Enter a follow-up answer.')
+        with transaction.atomic():
+            conversation = cls._owned(conversation_key, user, for_update=True)
+            if cls._turn_for_submission(conversation, submission_token):
+                return cls._duplicate_outcome(user, conversation)
+            cls._assert_open_and_current(conversation, user)
+            cls._assert_not_processing(conversation)
+            cls._assert_turn_capacity(conversation, additional=2)
+            effective_date = date.fromisoformat(
+                conversation.context['effective_date'],
+            )
+            current_intent = pending_payload_to_intent(
+                conversation.pending_intent,
+                source_text=cls._combined_user_text(conversation),
+            )
             prior_turns = tuple(
                 conversation.turns.filter(
                     role=PayPlanConversationTurn.USER,
                 ).order_by('sequence').values_list('content', flat=True)
             )
-            gateway = interpreter or configured_intent_interpreter()
-            interpreted = gateway.interpret(
-                text,
-                effective_date=effective_date,
-                prior_turns=prior_turns,
-            )
-            interpreted = merge_intents(current_intent, interpreted)
             cls._append_turn(
                 conversation,
                 PayPlanConversationTurn.USER,
                 text,
+                submission_token=submission_token,
             )
             conversation.selected_rule_key = ''
-            resolution = resolve_intent(user, interpreted)
-            route = gateway.last_route
-            provider_status = gateway.last_provider_status
-
-        cls._store_interpretation(
+            conversation.save(update_fields=['selected_rule_key', 'updated_at'])
+            processing_token = cls._begin_processing(conversation)
+        return cls._interpret_and_reconcile(
             conversation,
-            interpreted,
-            resolution,
-            route=route,
-            provider_status=provider_status,
+            user,
+            text,
+            effective_date,
+            prior_turns=prior_turns,
+            processing_token=processing_token,
+            previous_intent=current_intent,
+            interpreter=interpreter,
         )
-        return ConversationOutcome(conversation, resolution)
 
     @classmethod
     @transaction.atomic
@@ -245,16 +281,27 @@ class PayPlanConversationService:
         conversation.status = PayPlanConversation.CANCELLED
         conversation.pending_intent = {}
         conversation.selected_rule_key = ''
+        conversation.processing_token = ''
+        conversation.processing_started_at = None
         conversation.save(update_fields=[
-            'status', 'pending_intent', 'selected_rule_key', 'updated_at',
+            'status', 'pending_intent', 'selected_rule_key',
+            'processing_token', 'processing_started_at', 'updated_at',
         ])
         return ConversationOutcome(conversation)
 
     @classmethod
     @transaction.atomic
-    def create_draft(cls, user, conversation_key):
+    def create_draft(cls, user, conversation_key, *, submission_token=''):
+        submission_token = cls._submission_token(submission_token)
         conversation = cls._owned(conversation_key, user, for_update=True)
+        if (
+            submission_token
+            and conversation.draft_submission_token == submission_token
+            and conversation.draft_change_request_id
+        ):
+            return conversation.draft_change_request
         cls._assert_open_and_current(conversation, user)
+        cls._assert_not_processing(conversation)
         if not conversation.pending_intent:
             raise ConversationStateError(
                 'The conversation has no reviewed interpretation.'
@@ -291,8 +338,11 @@ class PayPlanConversationService:
             **conversation.context,
             'draft_created': True,
         }
+        conversation.draft_submission_token = submission_token
+        conversation.draft_change_request = change_request
         conversation.save(update_fields=[
             'status', 'pending_intent', 'selected_rule_key', 'context',
+            'draft_submission_token', 'draft_change_request',
             'updated_at',
         ])
         return change_request
@@ -322,7 +372,7 @@ class PayPlanConversationService:
         return conversation
 
     @classmethod
-    def _interpret_and_store(
+    def _interpret_and_reconcile(
         cls,
         conversation,
         user,
@@ -330,21 +380,114 @@ class PayPlanConversationService:
         effective_date,
         *,
         prior_turns,
+        processing_token,
+        previous_intent=None,
         interpreter=None,
     ):
-        gateway = interpreter or configured_intent_interpreter()
-        intent = gateway.interpret(
-            request_text,
-            effective_date=effective_date,
-            prior_turns=prior_turns,
+        gateway = interpreter or configured_intent_interpreter(
+            user=user,
+            conversation=conversation,
         )
-        resolution = resolve_intent(user, intent)
+        try:
+            intent = gateway.interpret(
+                request_text,
+                effective_date=effective_date,
+                prior_turns=prior_turns,
+            )
+        except Exception as exc:
+            cls._clear_processing(
+                user,
+                conversation.conversation_key,
+                processing_token,
+            )
+            raise ConversationStateError(
+                'The request could not be interpreted. Try again or start over.'
+            ) from exc
+        if previous_intent is not None:
+            intent = merge_intents(previous_intent, intent)
+
+        lifecycle_error = ''
+        with transaction.atomic():
+            conversation = cls._owned(
+                conversation.conversation_key,
+                user,
+                for_update=True,
+            )
+            cls._refresh_lifecycle(conversation, user)
+            if conversation.status != PayPlanConversation.OPEN:
+                lifecycle_error = cls._conversation_status_message(conversation)
+            elif conversation.processing_token != processing_token:
+                raise ConversationStateError(
+                    'This response is no longer current. Resume or start over.'
+                )
+            else:
+                resolution = resolve_intent(user, intent)
+                cls._store_interpretation(
+                    conversation,
+                    intent,
+                    resolution,
+                    route=getattr(gateway, 'last_route', 'deterministic'),
+                    provider_status=getattr(
+                        gateway,
+                        'last_provider_status',
+                        'disabled',
+                    ),
+                )
+        if lifecycle_error:
+            raise ConversationStateError(lifecycle_error)
+        return ConversationOutcome(conversation, resolution)
+
+    @classmethod
+    @transaction.atomic
+    def _candidate_follow_up(
+        cls,
+        user,
+        conversation_key,
+        candidate_index,
+        *,
+        submission_token,
+    ):
+        conversation = cls._owned(conversation_key, user, for_update=True)
+        if cls._turn_for_submission(conversation, submission_token):
+            return cls._duplicate_outcome(user, conversation)
+        cls._assert_open_and_current(conversation, user)
+        cls._assert_not_processing(conversation)
+        cls._assert_turn_capacity(conversation, additional=2)
+        current_intent = pending_payload_to_intent(
+            conversation.pending_intent,
+            source_text=cls._combined_user_text(conversation),
+        )
+        candidates = resolve_intent(user, current_intent).intent.candidate_targets
+        try:
+            candidate = candidates[int(candidate_index)]
+        except (IndexError, TypeError, ValueError) as exc:
+            raise ConversationStateError(
+                'Select one of the currently available rules.'
+            ) from exc
+        cls._append_turn(
+            conversation,
+            PayPlanConversationTurn.USER,
+            f'Selected: {candidate.label} — {candidate.rule_name}',
+            submission_token=submission_token,
+        )
+        conversation.selected_rule_key = candidate.selector
+        resolution = resolve_intent(
+            user,
+            current_intent,
+            selected_target=candidate.selector,
+        )
         cls._store_interpretation(
             conversation,
-            intent,
+            current_intent,
             resolution,
-            route=gateway.last_route,
-            provider_status=gateway.last_provider_status,
+            route=conversation.context.get(
+                'interpretation_source',
+                'deterministic',
+            ),
+            provider_status=conversation.context.get(
+                'provider_status',
+                'disabled',
+            ),
         )
         return ConversationOutcome(conversation, resolution)
 
@@ -369,8 +512,11 @@ class PayPlanConversationService:
         else:
             context.pop('expected_current_value', None)
         conversation.context = context
+        conversation.processing_token = ''
+        conversation.processing_started_at = None
         conversation.save(update_fields=[
-            'pending_intent', 'selected_rule_key', 'context', 'updated_at',
+            'pending_intent', 'selected_rule_key', 'context',
+            'processing_token', 'processing_started_at', 'updated_at',
         ])
         cls._append_turn(
             conversation,
@@ -395,7 +541,15 @@ class PayPlanConversationService:
         )
 
     @classmethod
-    def _append_turn(cls, conversation, role, content, *, structured_intent=None):
+    def _append_turn(
+        cls,
+        conversation,
+        role,
+        content,
+        *,
+        structured_intent=None,
+        submission_token='',
+    ):
         # Callers hold a row lock (or own a not-yet-shared new conversation).
         last_sequence = conversation.turns.aggregate(
             maximum=Max('sequence'),
@@ -406,7 +560,85 @@ class PayPlanConversationService:
             content=(content or '').strip(),
             structured_intent=structured_intent or {},
             sequence=last_sequence + 1,
+            submission_token=submission_token,
         )
+
+    @staticmethod
+    def _submission_token(value):
+        token = (value or '').strip()
+        if len(token) > 64:
+            raise ConversationStateError('The submission token is invalid.')
+        return token
+
+    @staticmethod
+    def _turn_for_submission(conversation, submission_token):
+        if not submission_token:
+            return None
+        return conversation.turns.filter(
+            submission_token=submission_token,
+        ).first()
+
+    @classmethod
+    @transaction.atomic
+    def _duplicate_outcome(cls, user, conversation):
+        conversation = cls._owned(
+            conversation.conversation_key,
+            user,
+            for_update=True,
+        )
+        cls._refresh_lifecycle(conversation, user)
+        if conversation.processing_token:
+            raise ConversationStateError(
+                'This submission is already being processed. Resume shortly.'
+            )
+        resolution = None
+        if conversation.status == PayPlanConversation.OPEN:
+            if not conversation.pending_intent:
+                raise ConversationStateError(
+                    'The earlier submission did not finish. Start over to retry.'
+                )
+            intent = pending_payload_to_intent(
+                conversation.pending_intent,
+                source_text=cls._combined_user_text(conversation),
+            )
+            resolution = resolve_intent(
+                user,
+                intent,
+                selected_target=conversation.selected_rule_key or None,
+            )
+        return ConversationOutcome(conversation, resolution)
+
+    @staticmethod
+    def _assert_not_processing(conversation):
+        if conversation.processing_token:
+            raise ConversationStateError(
+                'Another submission is being processed. Resume shortly.'
+            )
+
+    @classmethod
+    def _begin_processing(cls, conversation):
+        cls._assert_not_processing(conversation)
+        processing_token = uuid4().hex
+        conversation.processing_token = processing_token
+        conversation.processing_started_at = timezone.now()
+        conversation.interpretation_revision += 1
+        conversation.save(update_fields=[
+            'processing_token', 'processing_started_at',
+            'interpretation_revision', 'updated_at',
+        ])
+        return processing_token
+
+    @classmethod
+    @transaction.atomic
+    def _clear_processing(cls, user, conversation_key, processing_token):
+        conversation = cls._owned(conversation_key, user, for_update=True)
+        if conversation.processing_token != processing_token:
+            return
+        conversation.processing_token = ''
+        conversation.processing_started_at = None
+        conversation.save(update_fields=[
+            'processing_token', 'processing_started_at', 'updated_at',
+        ])
 
     @staticmethod
     def _owned(conversation_key, user, *, for_update=False):
@@ -425,6 +657,13 @@ class PayPlanConversationService:
     @classmethod
     def _assert_open_and_current(cls, conversation, user):
         cls._refresh_lifecycle(conversation, user)
+        if conversation.status != PayPlanConversation.OPEN:
+            raise ConversationStateError(
+                cls._conversation_status_message(conversation),
+            )
+
+    @staticmethod
+    def _conversation_status_message(conversation):
         messages = {
             PayPlanConversation.CANCELLED: 'This conversation was cancelled.',
             PayPlanConversation.RESOLVED: 'This conversation is already resolved.',
@@ -435,16 +674,31 @@ class PayPlanConversationService:
                 'Your active pay plan changed. Start over to review the current plan.'
             ),
         }
-        if conversation.status != PayPlanConversation.OPEN:
-            raise ConversationStateError(messages.get(
-                conversation.status,
-                'This conversation is no longer open.',
-            ))
+        return messages.get(
+            conversation.status,
+            'This conversation is no longer open.',
+        )
 
     @classmethod
     def _refresh_lifecycle(cls, conversation, user):
         if conversation.status != PayPlanConversation.OPEN:
             return
+        if conversation.processing_token and conversation.processing_started_at:
+            try:
+                provider_timeout = int(
+                    settings.PAY_PLAN_ASSISTANT_TIMEOUT_SECONDS,
+                )
+            except (TypeError, ValueError):
+                provider_timeout = 10
+            processing_deadline = conversation.processing_started_at + timedelta(
+                seconds=max(1, min(provider_timeout, 60)) + 60,
+            )
+            if processing_deadline <= timezone.now():
+                conversation.processing_token = ''
+                conversation.processing_started_at = None
+                conversation.save(update_fields=[
+                    'processing_token', 'processing_started_at', 'updated_at',
+                ])
         ttl = timedelta(
             hours=settings.PAY_PLAN_ASSISTANT_CONVERSATION_TTL_HOURS,
         )
@@ -464,8 +718,11 @@ class PayPlanConversationService:
         conversation.status = status
         conversation.pending_intent = {}
         conversation.selected_rule_key = ''
+        conversation.processing_token = ''
+        conversation.processing_started_at = None
         conversation.save(update_fields=[
-            'status', 'pending_intent', 'selected_rule_key', 'updated_at',
+            'status', 'pending_intent', 'selected_rule_key',
+            'processing_token', 'processing_started_at', 'updated_at',
         ])
 
     @staticmethod

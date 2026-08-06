@@ -652,6 +652,15 @@ a:hover {
   margin: 0;
 }
 
+.assistant-submission-form.is-processing {
+  cursor: wait;
+}
+
+.assistant-submission-form.is-processing button:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+
 .button,
 .submit {
   display: inline-block;

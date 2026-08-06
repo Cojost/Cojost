@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import fields, replace
 from datetime import date
 from decimal import Decimal, InvalidOperation
+from time import perf_counter
 from typing import Any, Mapping, Protocol
 
 from .contract import ACTIONS, TARGET_TYPES, PayPlanIntent
@@ -34,14 +35,25 @@ class ProviderRefusalError(RuntimeError):
 class ProviderNeutralInterpreter:
     """Optional provider gateway with deterministic-first safe fallback."""
 
-    def __init__(self, provider=None, *, enabled=False):
+    def __init__(
+        self,
+        provider=None,
+        *,
+        enabled=False,
+        disabled_status=None,
+        provider_authorizer=None,
+        usage_recorder=None,
+    ):
         self.provider = provider
         self.provider_requested = bool(enabled)
         self.enabled = bool(self.provider_requested and provider is not None)
+        self.provider_authorizer = provider_authorizer
+        self.usage_recorder = usage_recorder
         self.deterministic = DeterministicIntentInterpreter()
         self.last_route = 'deterministic'
         self.last_provider_status = (
-            'disabled' if not self.provider_requested else 'unavailable'
+            disabled_status
+            or ('disabled' if not self.provider_requested else 'unavailable')
         )
 
     def interpret(
@@ -51,6 +63,7 @@ class ProviderNeutralInterpreter:
         effective_date: date | None = None,
         prior_turns: tuple[str, ...] = (),
     ) -> PayPlanIntent:
+        started = perf_counter()
         combined_text = '\n'.join((
             *(str(item).strip() for item in prior_turns if str(item).strip()),
             (source_text or '').strip(),
@@ -62,12 +75,18 @@ class ProviderNeutralInterpreter:
         self.last_route = 'deterministic'
         if deterministic.target_type:
             self.last_provider_status = 'not_needed'
+            self._record_deterministic('not_needed', started)
             return deterministic
         if not self.enabled:
-            self.last_provider_status = (
-                'disabled' if not self.provider_requested else 'unavailable'
-            )
+            self._record_deterministic(self.last_provider_status, started)
             return deterministic
+        authorization = None
+        if self.provider_authorizer is not None:
+            authorization = self.provider_authorizer()
+            if not authorization.allowed:
+                self.last_provider_status = authorization.status
+                self._record_deterministic(authorization.status, started)
+                return deterministic
         provider_intent = safe_provider_interpret(
             self.provider,
             source_text,
@@ -83,10 +102,37 @@ class ProviderNeutralInterpreter:
                 item for item in provider_intent.missing_information
                 if item in provider_failures
             )
+            self._finalize_provider(authorization, self.last_provider_status, started)
             return deterministic
         self.last_route = 'provider'
         self.last_provider_status = 'used'
+        self._finalize_provider(authorization, 'used', started)
         return replace(provider_intent, source_text=combined_text)
+
+    @staticmethod
+    def _elapsed_ms(started):
+        return max(0, int((perf_counter() - started) * 1000))
+
+    def _record_deterministic(self, status, started):
+        if self.usage_recorder is not None:
+            self.usage_recorder.record_deterministic(
+                status,
+                self._elapsed_ms(started),
+            )
+
+    def _finalize_provider(self, authorization, status, started):
+        if (
+            self.usage_recorder is None
+            or authorization is None
+            or authorization.event_id is None
+        ):
+            return
+        self.usage_recorder.finalize_provider_attempt(
+            authorization.event_id,
+            status,
+            self._elapsed_ms(started),
+            getattr(self.provider, 'last_metadata', {}),
+        )
 
 
 PROVIDER_FIELDS = frozenset({
@@ -249,6 +295,19 @@ def safe_provider_interpret(
             clarification_question=(
                 'The conversational interpretation could not be validated. '
                 'Please rephrase the request.'
+            ),
+        )
+    except Exception:
+        # Provider failures are never rendered verbatim. The deterministic
+        # interpreter remains the safe recovery path.
+        return PayPlanIntent(
+            source_text=source_text,
+            effective_date=effective_date,
+            confidence=Decimal('0'),
+            missing_information=('provider_unavailable',),
+            clarification_question=(
+                'The optional interpreter is unavailable. Please describe '
+                'the pay-plan change more specifically.'
             ),
         )
 

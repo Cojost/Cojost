@@ -4,8 +4,18 @@
 {% block content %}
 {% include "components/_page_header.html" with heading="Pay Plan Assistant" description="Request a draft change in plain language. Your active plan stays unchanged until you review and confirm the draft." %}
 
+<div class="notice assistant-availability" role="status">
+  {% if assistant_availability.external_available %}
+  <strong>Conversational assistance available</strong>
+  <p>Requests the built-in interpreter cannot resolve may use the optional language provider.</p>
+  {% else %}
+  <strong>Built-in interpretation available</strong>
+  <p>You can continue with guided, deterministic interpretation and clarification.</p>
+  {% endif %}
+</div>
+
 {% if not conversation or conversation.status == "open" and not conversation_turns %}
-<form method="post" class="card form-card assistant-start" id="assistant-request" novalidate>
+<form method="post" class="card form-card assistant-start assistant-submission-form" id="assistant-request" novalidate>
   {% csrf_token %}
   <input type="hidden" name="assistant_action" value="start">
   {% if conversation %}<input type="hidden" name="conversation_key" value="{{ conversation.conversation_key }}">{% endif %}
@@ -22,7 +32,7 @@
   </div>
   <div class="actions">
     <a class="button button-secondary" href="{% url 'view_commission' %}">Cancel</a>
-    <button class="button button-primary" type="submit">Review interpretation</button>
+    <button class="button button-primary" type="submit" data-processing-label="Reviewing…">Review interpretation</button>
   </div>
 </form>
 {% else %}
@@ -37,7 +47,7 @@
 {% if conversation and conversation_turns %}
 <section class="card assistant-conversation-card" aria-labelledby="conversation-heading">
   <h2 id="conversation-heading">Conversation</h2>
-  <ol class="assistant-conversation" aria-label="Pay Plan Assistant conversation">
+  <ol class="assistant-conversation" aria-label="Pay Plan Assistant conversation" aria-live="polite">
     {% for turn in conversation_turns %}
     <li class="assistant-message assistant-message-{{ turn.role }}">
       <strong>{% if turn.role == "user" %}You{% elif turn.role == "assistant" %}Pay Plan Assistant{% else %}System{% endif %}</strong>
@@ -56,8 +66,8 @@
   <div class="notice" role="status"><strong>Conversation cancelled</strong><p>No draft was created.</p></div>
   {% elif conversation.status == "resolved" %}
   <div class="notice notice-success" role="status"><strong>Conversation resolved</strong><p>The inactive draft was created for replacement review. The active plan was not changed.</p></div>
-  {% elif conversation.context.provider_status == "unavailable" or conversation.context.provider_status == "provider_timeout" or conversation.context.provider_status == "provider_unavailable" or conversation.context.provider_status == "provider_refusal" or conversation.context.provider_status == "invalid_provider_output" %}
-  <div class="notice notice-warning" role="status"><strong>Using deterministic clarification</strong><p>The optional language provider is unavailable. No provider error details are exposed, and no draft has been created.</p></div>
+  {% elif conversation.context.provider_status == "unavailable" or conversation.context.provider_status == "provider_timeout" or conversation.context.provider_status == "provider_unavailable" or conversation.context.provider_status == "provider_refusal" or conversation.context.provider_status == "invalid_provider_output" or conversation.context.provider_status == "missing_credentials" or conversation.context.provider_status == "invalid_configuration" or conversation.context.provider_status == "unsupported_provider" or conversation.context.provider_status == "rollout_excluded" or conversation.context.provider_status == "rate_limited" or conversation.context.provider_status == "disabled" %}
+  <div class="notice notice-warning" role="status"><strong>Using deterministic clarification</strong><p>Conversational assistance could not be used. Rephrase and try again, or continue with the built-in clarification. No draft was created.</p></div>
   {% elif conversation.context.interpretation_source == "deterministic" and conversation.context.provider_status == "not_needed" %}
   <div class="notice" role="status"><strong>Built-in interpretation was sufficient</strong><p>The request was understood without calling an external provider.</p></div>
   {% endif %}
@@ -67,10 +77,11 @@
     <strong>One more detail is needed</strong>
     <p>{{ resolution.message|default:resolution.intent.clarification_question }}</p>
   </div>
-  <form method="post" class="assistant-follow-up" id="assistant-follow-up" novalidate>
+  <form method="post" class="assistant-follow-up assistant-submission-form" id="assistant-follow-up" novalidate>
     {% csrf_token %}
     <input type="hidden" name="assistant_action" value="follow_up">
     <input type="hidden" name="conversation_key" value="{{ conversation.conversation_key }}">
+    {{ follow_up_form.submission_token }}
     {{ follow_up_form.non_field_errors }}
     {% if resolution.intent.candidate_targets %}
     <fieldset class="assistant-candidates">
@@ -84,7 +95,7 @@
     {{ follow_up_form.response_text.label_tag }}
     {{ follow_up_form.response_text }}
     <div class="actions">
-      <button class="button button-primary" type="submit">Continue</button>
+      <button class="button button-primary" type="submit" data-processing-label="Processing…">Continue</button>
     </div>
   </form>
   {% elif conversation.status == "open" and resolution.status == "unsupported" %}
@@ -95,16 +106,17 @@
   {% endif %}
 
   {% if conversation.status == "open" and resolution.may_create_draft %}
-  <form method="post" class="assistant-follow-up" id="assistant-follow-up" novalidate>
+  <form method="post" class="assistant-follow-up assistant-submission-form" id="assistant-follow-up" novalidate>
     {% csrf_token %}
     <input type="hidden" name="assistant_action" value="follow_up">
     <input type="hidden" name="conversation_key" value="{{ conversation.conversation_key }}">
+    {{ follow_up_form.submission_token }}
     <h3>Need to adjust the interpretation?</h3>
     {{ follow_up_form.non_field_errors }}
     {{ follow_up_form.response_text.errors }}
     {{ follow_up_form.response_text.label_tag }}
     {{ follow_up_form.response_text }}
-    <div class="actions"><button class="button button-secondary" type="submit">Update interpretation</button></div>
+    <div class="actions"><button class="button button-secondary" type="submit" data-processing-label="Updating…">Update interpretation</button></div>
   </form>
   {% endif %}
 
@@ -140,13 +152,14 @@
     <div><dt>Effective date</dt><dd>{{ conversation.context.effective_date }}</dd></div>
   </dl>
   <p class="card-description">No draft has been created yet. Your active pay plan remains unchanged.</p>
-  <form method="post">
+  <form method="post" class="assistant-submission-form">
     {% csrf_token %}
     <input type="hidden" name="assistant_action" value="create_draft">
     <input type="hidden" name="conversation_key" value="{{ conversation.conversation_key }}">
+    <input type="hidden" name="draft_submission_token" value="{{ draft_submission_token }}">
     <div class="actions">
       <a class="button button-secondary" href="#assistant-follow-up">Add clarification</a>
-      <button class="button button-primary" type="submit">Create draft</button>
+      <button class="button button-primary" type="submit" data-processing-label="Creating draft…">Create draft</button>
     </div>
   </form>
 </section>
@@ -176,4 +189,19 @@
     {% endfor %}
   </ul>
 </section>
+{% endblock %}
+{% block page_scripts %}
+<script>
+  document.querySelectorAll('.assistant-submission-form').forEach((form) => {
+    form.addEventListener('submit', () => {
+      if (form.classList.contains('is-processing')) return;
+      form.classList.add('is-processing');
+      form.setAttribute('aria-busy', 'true');
+      form.querySelectorAll('button[type="submit"]').forEach((button) => {
+        button.disabled = true;
+        button.textContent = button.dataset.processingLabel || 'Processing…';
+      });
+    });
+  });
+</script>
 {% endblock %}

@@ -1,6 +1,7 @@
 from decimal import Decimal
 from datetime import datetime, timedelta
 from functools import wraps
+from uuid import uuid4
 from django.http import Http404, JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from .models.sales import (
@@ -89,6 +90,7 @@ from .pay_plan_conversations import (
     ConversationStateError,
     PayPlanConversationService,
 )
+from .pay_plan_intents.openai_provider import provider_availability_for_user
 from .models import (
     PayPlanAssignment,
     PayPlanDescriptionSubmission,
@@ -1008,9 +1010,15 @@ def pay_plan_assistant(request):
         return redirect('view_commission')
     conversation = None
     resolution = None
-    follow_up_form = PayPlanAssistantFollowUpForm()
+    follow_up_form = PayPlanAssistantFollowUpForm(initial={
+        'submission_token': uuid4().hex,
+    })
     initial_date = timezone.localdate() + timedelta(days=1)
-    form = PayPlanAssistantForm(initial={'effective_date': initial_date})
+    form = PayPlanAssistantForm(initial={
+        'effective_date': initial_date,
+        'submission_token': uuid4().hex,
+    })
+    draft_submission_token = uuid4().hex
 
     if request.method == 'POST':
         action = request.POST.get('assistant_action') or 'start'
@@ -1024,6 +1032,9 @@ def pay_plan_assistant(request):
                         conversation_key,
                         response_text=follow_up_form.cleaned_data['response_text'],
                         candidate_index=request.POST.get('candidate_choice'),
+                        submission_token=follow_up_form.cleaned_data[
+                            'submission_token'
+                        ],
                     )
                 except ObjectDoesNotExist as exc:
                     raise Http404('Conversation not found.') from exc
@@ -1032,7 +1043,9 @@ def pay_plan_assistant(request):
                 else:
                     conversation = outcome.conversation
                     resolution = outcome.resolution
-                    follow_up_form = PayPlanAssistantFollowUpForm()
+                    follow_up_form = PayPlanAssistantFollowUpForm(initial={
+                        'submission_token': uuid4().hex,
+                    })
             if conversation is None and conversation_key:
                 try:
                     outcome = PayPlanConversationService.resume(
@@ -1070,9 +1083,15 @@ def pay_plan_assistant(request):
                     f'{outcome.conversation.conversation_key}'
                 )
         elif action == 'create_draft' and conversation_key:
+            draft_submission_token = request.POST.get(
+                'draft_submission_token',
+                '',
+            )
             try:
                 change_request = PayPlanConversationService.create_draft(
-                    request.user, conversation_key,
+                    request.user,
+                    conversation_key,
+                    submission_token=draft_submission_token,
                 )
             except ObjectDoesNotExist as exc:
                 raise Http404('Conversation not found.') from exc
@@ -1108,12 +1127,18 @@ def pay_plan_assistant(request):
                             conversation_key,
                             form.cleaned_data['request_text'],
                             form.cleaned_data['effective_date'],
+                            submission_token=form.cleaned_data[
+                                'submission_token'
+                            ],
                         )
                     else:
                         outcome = PayPlanConversationService.start(
                             request.user,
                             form.cleaned_data['request_text'],
                             form.cleaned_data['effective_date'],
+                            submission_token=form.cleaned_data[
+                                'submission_token'
+                            ],
                         )
                 except ObjectDoesNotExist as exc:
                     raise Http404('Conversation not found.') from exc
@@ -1127,6 +1152,10 @@ def pay_plan_assistant(request):
                             change_request = PayPlanConversationService.create_draft(
                                 request.user,
                                 conversation.conversation_key,
+                                submission_token=(
+                                    request.POST.get('draft_submission_token')
+                                    or uuid4().hex
+                                ),
                             )
                         except ValidationError as exc:
                             form.add_error('request_text', '; '.join(exc.messages))
@@ -1167,6 +1196,8 @@ def pay_plan_assistant(request):
             conversation.turns.order_by('sequence') if conversation else ()
         ),
         'resolution': resolution,
+        'draft_submission_token': draft_submission_token,
+        'assistant_availability': provider_availability_for_user(request.user),
     })
 
 

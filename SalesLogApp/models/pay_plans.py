@@ -931,6 +931,18 @@ class PayPlanConversation(models.Model):
     selected_rule_key = models.CharField(max_length=150, blank=True)
     pending_intent = models.JSONField(default=dict, blank=True)
     context = models.JSONField(default=dict, blank=True)
+    start_submission_token = models.CharField(max_length=64, blank=True)
+    draft_submission_token = models.CharField(max_length=64, blank=True)
+    draft_change_request = models.ForeignKey(
+        PayPlanChangeRequest,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name='assistant_conversations',
+    )
+    processing_token = models.CharField(max_length=64, blank=True)
+    processing_started_at = models.DateTimeField(null=True, blank=True)
+    interpretation_revision = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -939,6 +951,11 @@ class PayPlanConversation(models.Model):
             models.UniqueConstraint(
                 fields=['user', 'conversation_key'],
                 name='unique_payplan_conversation_key_per_user',
+            ),
+            models.UniqueConstraint(
+                fields=['user', 'start_submission_token'],
+                condition=~Q(start_submission_token=''),
+                name='unique_pp_conv_start_token_user',
             ),
         ]
         indexes = [
@@ -955,6 +972,11 @@ class PayPlanConversation(models.Model):
             and self.plan_version.pay_plan.owner_user_id != self.user_id
         ):
             raise ValidationError('Conversation plan version must belong to the user.')
+        if (
+            self.draft_change_request_id
+            and self.draft_change_request.user_id != self.user_id
+        ):
+            raise ValidationError('Conversation draft request must belong to the user.')
 
 
 class PayPlanConversationTurn(models.Model):
@@ -971,6 +993,7 @@ class PayPlanConversationTurn(models.Model):
     content = models.TextField()
     structured_intent = models.JSONField(default=dict, blank=True)
     sequence = models.PositiveIntegerField()
+    submission_token = models.CharField(max_length=64, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -979,5 +1002,75 @@ class PayPlanConversationTurn(models.Model):
             models.UniqueConstraint(
                 fields=['conversation', 'sequence'],
                 name='unique_payplan_conversation_turn_sequence',
+            ),
+            models.UniqueConstraint(
+                fields=['conversation', 'submission_token'],
+                condition=~Q(submission_token=''),
+                name='unique_pp_turn_submission_token',
+            ),
+        ]
+
+
+class PayPlanAssistantUsageEvent(models.Model):
+    INTERPRETATION = 'interpretation'
+    CATEGORY_CHOICES = [(INTERPRETATION, 'Interpretation')]
+    DETERMINISTIC = 'deterministic'
+    PROVIDER = 'provider'
+    ROUTE_CHOICES = [
+        (DETERMINISTIC, 'Deterministic'),
+        (PROVIDER, 'Provider'),
+    ]
+    SUCCESS = 'success'
+    TIMEOUT = 'timeout'
+    REFUSAL = 'refusal'
+    UNAVAILABLE = 'unavailable'
+    INVALID_OUTPUT = 'invalid_output'
+    RATE_LIMITED = 'rate_limited'
+    DISABLED = 'disabled'
+    ROLLOUT_EXCLUDED = 'rollout_excluded'
+    CONFIGURATION_ERROR = 'configuration_error'
+    STATUS_CHOICES = [
+        (SUCCESS, 'Success'),
+        (TIMEOUT, 'Timeout'),
+        (REFUSAL, 'Refusal'),
+        (UNAVAILABLE, 'Unavailable'),
+        (INVALID_OUTPUT, 'Invalid output'),
+        (RATE_LIMITED, 'Rate limited'),
+        (DISABLED, 'Disabled'),
+        (ROLLOUT_EXCLUDED, 'Rollout excluded'),
+        (CONFIGURATION_ERROR, 'Configuration error'),
+    ]
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='pay_plan_assistant_usage_events',
+    )
+    category = models.CharField(
+        max_length=32,
+        choices=CATEGORY_CHOICES,
+        default=INTERPRETATION,
+    )
+    route = models.CharField(max_length=16, choices=ROUTE_CHOICES)
+    status = models.CharField(max_length=32, choices=STATUS_CHOICES)
+    duration_ms = models.PositiveIntegerField(default=0)
+    duration_bucket = models.CharField(max_length=16)
+    model_name = models.CharField(max_length=100, blank=True)
+    conversation_ref = models.CharField(max_length=64, blank=True)
+    input_tokens = models.PositiveIntegerField(null=True, blank=True)
+    output_tokens = models.PositiveIntegerField(null=True, blank=True)
+    provider_request_id = models.CharField(max_length=100, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at', '-id']
+        indexes = [
+            models.Index(
+                fields=['user', 'route', 'created_at'],
+                name='pp_usage_user_route_time_idx',
+            ),
+            models.Index(
+                fields=['status', 'created_at'],
+                name='pp_usage_status_time_idx',
             ),
         ]

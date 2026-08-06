@@ -25,6 +25,7 @@ from .pay_plans import (
     PayPlanVersion,
     PayPlanConversation,
     PayPlanConversationTurn,
+    PayPlanAssistantUsageEvent,
 )
 from .vehicles import ArchivedVehicle, Vehicle, VehicleMake, VehicleModel
 from .sandbox import (

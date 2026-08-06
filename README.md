@@ -26,3 +26,9 @@ http://192.168.1.25:8000/
   - Ensure Python is allowed on **Private** networks.
 
 This setup is development-only. Production security settings remain unchanged.
+
+## Pay Plan Assistant operations
+
+Production provider rollout, rate limits, privacy-safe monitoring, incident
+shutoff, migration, and rollback are documented in
+[`docs/phase1e_pay_plan_assistant_operations.md`](docs/phase1e_pay_plan_assistant_operations.md).
