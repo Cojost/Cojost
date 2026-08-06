@@ -452,42 +452,41 @@ def view_commission(request):
         total_bonus = calculate_bonus(current_sales, bonus_levels)
         return total_count, total_front_end, total_back_end, total_bonus
 
-    if request.method == 'POST':
-        form = SaleForm(request.POST)
-        if form.is_valid():
-            sale = form.save(commit=False)
-            sale.user = user
-            sale.save()
+    #if request.method == 'POST':
+     #   form = SaleForm(request.POST)
+      #  if form.is_valid():
+       #     sale = form.save(commit=False)
+        #    sale.user = user
+         #   sale.save()
 
-            sales = list(
-                Sale.objects.filter(
-                    user=user,
-                    date__gte=start_of_month,
-                    date__lt=start_of_next_month,
-                )
-            )
-            total_count, total_calculated_front_end, total_calculated_back_end, total_bonus = calculate_totals_and_bonuses(sales)
+          #  sales = list(
+           #     Sale.objects.filter(
+            #        user=user,
+             #       date__gte=start_of_month,
+              #      date__lt=start_of_next_month,
+          #      )
+          #  )
+            #total_count, total_calculated_front_end, total_calculated_back_end, total_bonus = calculate_totals_and_bonuses(sales)
 
-            return render(request, 'view_commission.html', {
-                'commission_instance': commission_instance,
-                'form': SaleForm(),
-                'total_count': total_count,
-                'total_front_end': total_calculated_front_end,
-                'total_back_end': total_calculated_back_end,
-                'total_bonus': total_bonus,
-                'other_adjustments': other_adjustments,
-                'total_adjustments': total_adjustments,
-                'total_commission': total_calculated_front_end + total_calculated_back_end + total_bonus + total_adjustments,
-                'sales': sales,
-            })
-    else:
-        form = SaleForm()
+            #return render(request, 'view_commission.html', {
+             #   'commission_instance': commission_instance,
+              #  'form': SaleForm(),
+               # 'total_count': total_count,
+                #'total_front_end': total_calculated_front_end,
+               # 'total_back_end': total_calculated_back_end,
+                #'total_bonus': total_bonus,
+                #'other_adjustments': other_adjustments,
+               # 'total_adjustments': total_adjustments,
+                #'total_commission': total_calculated_front_end + total_calculated_back_end + total_bonus + total_adjustments,
+                #'sales': sales,
+           # })
+    #else:
+    #    form = SaleForm()
 
     total_count, total_calculated_front_end, total_calculated_back_end, total_bonus = calculate_totals_and_bonuses(sales)
 
     return render(request, 'view_commission.html', {
         'commission_instance': commission_instance,
-        'form': form,
         'total_count': total_count,
         'total_front_end': total_calculated_front_end,
         'total_back_end': total_calculated_back_end,
