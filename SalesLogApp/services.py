@@ -173,6 +173,11 @@ def sales_month_context(user, month_start):
     ).select_related('vehicle__make', 'vehicle__model').order_by('date', 'dealNumber')
     totals = commission_totals(user, sales)
     diagnostics = totals.get('diagnostics') or CommissionEngineService.calculate_sales(user, list(sales))
+    draw_progress = diagnostics.get('draw_progress')
+    draw_amount = (
+        Decimal(str(draw_progress.get('amount') or 0))
+        if draw_progress else ZERO
+    )
     active_plan = CommissionEngineService.active_plan_summary(user)
     sale_diagnostics_by_id = {item.sale_id: item for item in diagnostics['results']}
     for sale in sales:
@@ -186,6 +191,8 @@ def sales_month_context(user, month_start):
         'total_bonus': totals['bonus'],
         'total_adjustments': totals['adjustments'],
         'total_commission': totals['total'],
+        'draw_amount': draw_amount,
+        'total_commission_after_draw': totals['total'] - draw_amount,
         'commission_instance': Commission.objects.filter(user=user).first(),
         'commission_diagnostics': diagnostics,
         'sale_diagnostics_by_id': sale_diagnostics_by_id,

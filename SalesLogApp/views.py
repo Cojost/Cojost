@@ -36,7 +36,7 @@ from .forms import (
     ScenarioSaveAsForm,
     ScenarioSaveForm,
 )
-from .eligibility_forms import PayPlanEligibilityForm
+from .eligibility_forms import DashboardNPSProjectionForm, PayPlanEligibilityForm
 from django.utils import timezone
 from django.contrib.auth.views import LoginView
 from django.contrib.auth import authenticate, login 
@@ -68,6 +68,7 @@ from .services import (
     sales_month_context,
 )
 from .commission_service import CommissionEngineService, CommissionHelpContext
+from .nps_projection import NPSSurveyProjectionService
 from .plan_requirements import PlanRequirementService
 from .pay_plan_management import (
     PayPlanActivationService,
@@ -200,7 +201,58 @@ def activity_goals(request, activity_id=None):
 
 @pay_plan_onboarding_required
 def view_sales(request):
-    context = sales_month_context(request.user, _selected_month(request))
+    selected_month = _selected_month(request)
+    projection_rules = NPSSurveyProjectionService.rules_for_user(
+        request.user, selected_month,
+    )
+    nps_projection_visible = bool(projection_rules)
+    eligibility = PayPlanEligibility.objects.filter(
+        user=request.user,
+        month_start=selected_month,
+    ).first()
+    is_projection_post = (
+        request.method == 'POST'
+        and request.POST.get('form_type') == 'nps_projection'
+    )
+    if is_projection_post and not nps_projection_visible:
+        messages.error(
+            request,
+            'NPS survey projection is not available for this pay plan.',
+        )
+        return redirect(f"{reverse('view_sales')}?month={selected_month:%Y-%m}")
+    if is_projection_post:
+        nps_projection_form = DashboardNPSProjectionForm(
+            request.POST, instance=eligibility,
+        )
+        if nps_projection_form.is_valid():
+            eligibility = nps_projection_form.save(commit=False)
+            eligibility.user = request.user
+            eligibility.month_start = selected_month
+            eligibility.updated_by = request.user
+            eligibility.save()
+            messages.success(
+                request,
+                'NPS survey projection updated for the selected month.',
+            )
+            return redirect(
+                f"{reverse('view_sales')}?month={selected_month:%Y-%m}"
+            )
+    else:
+        nps_projection_form = DashboardNPSProjectionForm(instance=eligibility)
+    context = sales_month_context(request.user, selected_month)
+    projection_source = eligibility or PayPlanEligibility()
+    nps_projection = NPSSurveyProjectionService.calculate(
+        projection_rules,
+        selected_month,
+        passing=projection_source.nps_projection_passing,
+        good_surveys=projection_source.nps_projected_good_surveys,
+        bad_surveys=projection_source.nps_projected_bad_surveys,
+    )
+    context.update({
+        'nps_projection_visible': nps_projection_visible,
+        'nps_projection_form': nps_projection_form,
+        'nps_projection': nps_projection,
+    })
     request.session['total_count'] = float(context['total_count'])
     return render(request, 'view_sales.html', context)
 

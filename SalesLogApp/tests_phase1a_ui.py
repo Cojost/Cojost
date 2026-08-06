@@ -107,14 +107,15 @@ class Phase1AUserInterfaceTests(TestCase):
         self.assertContains(response, 'Estimated total commission')
         self.assertContains(response, 'Front-end commission')
         self.assertContains(response, 'Back-end commission')
-        self.assertContains(response, 'Bonuses')
+        self.assertContains(response, 'Current bonus')
         self.assertNotContains(response, 'How this was calculated')
 
-    def test_dashboard_restores_authoritative_reconciling_totals_box(self):
+    def test_dashboard_keeps_authoritative_totals_in_normal_content(self):
         sale = self.make_sale()
         expected = CommissionEngineService.calculate_sales(self.user, [sale])
         response = self.client.get(reverse('view_sales'))
-        self.assertContains(response, 'class="summary dashboard-summary"')
+        self.assertNotContains(response, 'class="summary dashboard-summary"')
+        self.assertContains(response, 'id="commission-totals-heading"')
         self.assertEqual(response.context['total_count'], sale.unit_credit)
         self.assertEqual(response.context['total_front_end'], expected['total_front'])
         self.assertEqual(response.context['total_back_end'], expected['total_back'])

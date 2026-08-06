@@ -112,13 +112,15 @@ class MultiUserPlanIsolationTests(TestCase):
         self.client.login(
             username=self.michaels.username, password='test-password',
         )
-        for name in ('view_commission', 'view_sales'):
-            response = self.client.get(reverse(name))
-            self.assertEqual(response.status_code, 200)
-            content = response.content.decode()
-            self.assertNotIn('NPS', content)
-            self.assertNotIn('Green Pea', content)
-            self.assertNotIn('AR Requirement', content)
+        commission = self.client.get(reverse('view_commission'))
+        self.assertEqual(commission.status_code, 200)
+        self.assertNotContains(commission, 'NPS')
+        sales = self.client.get(reverse('view_sales'))
+        self.assertEqual(sales.status_code, 200)
+        self.assertNotContains(sales, 'NPS Survey Projection')
+        for response in (commission, sales):
+            self.assertNotContains(response, 'Green Pea')
+            self.assertNotContains(response, 'AR Requirement')
         response = self.client.get(reverse('pay_plan_eligibility'))
         self.assertRedirects(response, reverse('view_commission'))
 

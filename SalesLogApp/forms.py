@@ -733,6 +733,11 @@ class SaleForm(forms.ModelForm):
         (Decimal('1'), '1'),
         (Decimal('0.5'), '0.5'),
     ]
+    EDIT_COUNT_CHOICES = [
+        (Decimal('0.5'), '0.5'),
+        (Decimal('1'), '1'),
+        (Decimal('2'), '2'),
+    ]
     count = forms.TypedChoiceField(
         choices=COUNT_CHOICES,
         coerce=Decimal,
@@ -744,6 +749,8 @@ class SaleForm(forms.ModelForm):
         label='Front end',
         decimal_places=2,
         max_digits=10,
+        required=False,
+        initial=Decimal('0.00'),
         widget=forms.NumberInput(attrs={
             'step': '0.01', 'inputmode': 'decimal',
         }),
@@ -752,6 +759,8 @@ class SaleForm(forms.ModelForm):
         label='Back end',
         decimal_places=2,
         max_digits=10,
+        required=False,
+        initial=Decimal('0.00'),
         widget=forms.NumberInput(attrs={
             'step': '0.01', 'inputmode': 'decimal',
         }),
@@ -768,6 +777,29 @@ class SaleForm(forms.ModelForm):
         widgets = {
             'date': forms.DateInput(attrs={'type': 'date'})
         }
+
+    def __init__(self, *args, **kwargs):
+        instance = kwargs.get('instance')
+        if args and instance is not None and instance.pk:
+            data = args[0].copy()
+            for field_name in self.Meta.fields:
+                if field_name not in data:
+                    value = getattr(instance, field_name)
+                    if field_name == 'count':
+                        value = format(Decimal(str(value)).normalize(), 'f')
+                    data[field_name] = value
+            args = (data, *args[1:])
+        super().__init__(*args, **kwargs)
+        if instance is not None and instance.pk:
+            self.fields['count'].choices = self.EDIT_COUNT_CHOICES
+            if not self.is_bound:
+                self.initial['count'] = Decimal(str(instance.count)).normalize()
+
+    def clean_frontEnd(self):
+        return self.cleaned_data.get('frontEnd') or Decimal('0.00')
+
+    def clean_backend(self):
+        return self.cleaned_data.get('backend') or Decimal('0.00')
 
     def clean(self):
         cleaned_data = super().clean()
@@ -812,6 +844,12 @@ class VehicleForm(forms.Form):
                 'model_id': vehicle.model_id, 'mileage': vehicle.mileage,
                 'stock_number': vehicle.stock_number, 'vin': vehicle.vin,
             })
+            if args:
+                data = args[0].copy()
+                for field_name, value in initial.items():
+                    if field_name not in data:
+                        data[field_name] = value
+                args = (data, *args[1:])
         super().__init__(*args, **kwargs)
         current = next_vehicle_year()
         self.fields['year'].choices = [(year, year) for year in range(current, 1999, -1)]

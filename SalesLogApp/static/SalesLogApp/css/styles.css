@@ -937,6 +937,10 @@ legend {
   font-size: 1.25rem;
 }
 
+.nps-projection-results {
+  margin-top: 24px;
+}
+
 progress {
   width: 100%;
   height: 18px;
@@ -987,6 +991,29 @@ progress {
   background: var(--elevated-surface);
   color: var(--primary-text);
   box-shadow: 0 5px 15px var(--shadow-color);
+}
+
+.autocomplete-results[hidden],
+.add-catalog-value[hidden] {
+  display: none !important;
+}
+
+.add-catalog-value:not([hidden]) {
+  min-height: 44px;
+  padding: 11px 18px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--elevated-surface);
+  color: var(--primary-text);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.add-catalog-value:not([hidden]):hover,
+.add-catalog-value:not([hidden]):active {
+  border-color: var(--link-color);
+  background: var(--row-hover-background);
 }
 
 .autocomplete-results button {

@@ -9,12 +9,12 @@
   <div class="vehicle-combobox" data-search-url="{% url 'vehicle_make_search' %}">
     <p>{{ vehicle_form.make.errors }}{{ vehicle_form.make.label_tag }}{{ vehicle_form.make }}</p>
     <div class="autocomplete-results" role="listbox" aria-label="Matching makes" hidden></div>
-    <button type="button" class="add-catalog-value button button-secondary" hidden></button>
+    <button type="button" class="add-catalog-value" hidden></button>
   </div>
   <div class="vehicle-combobox" data-search-url="{% url 'vehicle_model_search' %}" data-model-field>
     <p>{{ vehicle_form.model.errors }}{{ vehicle_form.model.label_tag }}{{ vehicle_form.model }}</p>
     <div class="autocomplete-results" role="listbox" aria-label="Matching models" hidden></div>
-    <button type="button" class="add-catalog-value button button-secondary" hidden></button>
+    <button type="button" class="add-catalog-value" hidden></button>
   </div>
   <p>{{ vehicle_form.mileage.errors }}{{ vehicle_form.mileage.label_tag }}{{ vehicle_form.mileage }}<span class="helptext">Whole miles, up to 10,000,000.</span></p>
   <p>{{ vehicle_form.stock_number.errors }}{{ vehicle_form.stock_number.label_tag }}{{ vehicle_form.stock_number }}</p>

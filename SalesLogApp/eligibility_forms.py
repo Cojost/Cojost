@@ -71,3 +71,35 @@ class PayPlanEligibilityForm(forms.ModelForm):
 
     def clean_month_start(self):
         return self.cleaned_data['month_start'].replace(day=1)
+
+
+class DashboardNPSProjectionForm(forms.ModelForm):
+    nps_projection_passing = forms.TypedChoiceField(
+        label='Is your current NPS passing?',
+        choices=((True, 'Yes'), (False, 'No')),
+        coerce=lambda value: value in {True, 'True', 'true', '1'},
+        empty_value=None,
+        widget=forms.RadioSelect,
+    )
+    nps_projected_good_surveys = forms.IntegerField(
+        label='Projected good surveys',
+        min_value=0,
+        widget=forms.NumberInput(attrs={
+            'min': '0', 'step': '1', 'inputmode': 'numeric',
+        }),
+    )
+    nps_projected_bad_surveys = forms.IntegerField(
+        label='Projected bad surveys',
+        min_value=0,
+        widget=forms.NumberInput(attrs={
+            'min': '0', 'step': '1', 'inputmode': 'numeric',
+        }),
+    )
+
+    class Meta:
+        model = PayPlanEligibility
+        fields = [
+            'nps_projection_passing',
+            'nps_projected_good_surveys',
+            'nps_projected_bad_surveys',
+        ]

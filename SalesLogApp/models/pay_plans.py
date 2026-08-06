@@ -705,6 +705,19 @@ class PayPlanEligibility(models.Model):
     nps_status = models.CharField(
         max_length=16, choices=NPS_CHOICES, default=NPS_PENDING,
     )
+    nps_projection_passing = models.BooleanField(
+        null=True,
+        blank=True,
+        help_text='Private user-entered assumption for the monthly NPS projection.',
+    )
+    nps_projected_good_surveys = models.PositiveIntegerField(
+        default=0,
+        help_text='Private projected count of good surveys for this month.',
+    )
+    nps_projected_bad_surveys = models.PositiveIntegerField(
+        default=0,
+        help_text='Private projected count of bad surveys for this month.',
+    )
     training_requirements_met = models.BooleanField(null=True, blank=True)
     call_requirement_met = models.BooleanField(null=True, blank=True)
     video_requirement_met = models.BooleanField(null=True, blank=True)
