@@ -595,6 +595,63 @@ a:hover {
   margin: 22px 0 0;
 }
 
+.assistant-conversation {
+  display: grid;
+  gap: 12px;
+  margin: 18px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.assistant-message {
+  max-width: min(90%, 720px);
+  padding: 14px 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 9px;
+  background: var(--secondary-background);
+}
+
+.assistant-message-user {
+  justify-self: end;
+}
+
+.assistant-message-assistant,
+.assistant-message-system {
+  justify-self: start;
+}
+
+.assistant-message p {
+  margin: 6px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.assistant-follow-up textarea {
+  width: 100%;
+}
+
+.assistant-candidates {
+  display: grid;
+  gap: 10px;
+  margin: 18px 0;
+}
+
+.assistant-candidates label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.assistant-lifecycle-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.assistant-lifecycle-actions form {
+  margin: 0;
+}
+
 .button,
 .submit {
   display: inline-block;
@@ -1921,6 +1978,18 @@ progress {
   .scenario-summary-grid,
   .scenario-actions {
     grid-template-columns: 1fr;
+  }
+
+  .assistant-message {
+    max-width: 100%;
+  }
+
+  .assistant-lifecycle-actions,
+  .assistant-lifecycle-actions form,
+  .assistant-lifecycle-actions .button,
+  .pay-plan-assistant-page .actions,
+  .pay-plan-assistant-page .actions .button {
+    width: 100%;
   }
 }
 

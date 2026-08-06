@@ -1,7 +1,7 @@
 from decimal import Decimal
 from datetime import datetime, timedelta
 from functools import wraps
-from django.http import JsonResponse
+from django.http import Http404, JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from .models.sales import (
     Sale,
@@ -21,6 +21,7 @@ from .forms import (
     ManualPayPlanRuleForm,
     PayPlanRuleConditionEditForm,
     PayPlanAssistantForm,
+    PayPlanAssistantFollowUpForm,
     PayPlanReplacementForm,
     PayPlanSetupForm,
     SandboxActivationForm,
@@ -45,7 +46,7 @@ from django.contrib.auth.forms import PasswordChangeForm, SetPasswordForm
 from django.contrib.auth.models import User
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
-from django.core.exceptions import PermissionDenied, ValidationError
+from django.core.exceptions import ObjectDoesNotExist, PermissionDenied, ValidationError
 from django.db import transaction
 from django.views.decorators.http import require_http_methods, require_POST
 from django.urls import reverse
@@ -84,10 +85,9 @@ from .pay_plan_imports import (
     mark_submission_review_state,
     parse_description_to_import_draft,
 )
-from .pay_plan_assistant import (
-    create_draft_from_intent,
-    interpret_request,
-    resolve_intent,
+from .pay_plan_conversations import (
+    ConversationStateError,
+    PayPlanConversationService,
 )
 from .models import (
     PayPlanAssignment,
@@ -1006,58 +1006,130 @@ def edit_pay_plan_manually(request):
 def pay_plan_assistant(request):
     if not uses_new_engine(request.user):
         return redirect('view_commission')
+    conversation = None
     resolution = None
+    follow_up_form = PayPlanAssistantFollowUpForm()
+    initial_date = timezone.localdate() + timedelta(days=1)
+    form = PayPlanAssistantForm(initial={'effective_date': initial_date})
+
     if request.method == 'POST':
-        form = PayPlanAssistantForm(request.POST)
-        if form.is_valid():
-            intent = interpret_request(
-                form.cleaned_data['request_text'],
-                effective_date=form.cleaned_data['effective_date'],
-            )
-            selected_target = request.POST.get('selected_target') or None
+        action = request.POST.get('assistant_action') or 'start'
+        conversation_key = request.POST.get('conversation_key', '').strip()
+        if action == 'follow_up':
+            follow_up_form = PayPlanAssistantFollowUpForm(request.POST)
+            if follow_up_form.is_valid():
+                try:
+                    outcome = PayPlanConversationService.follow_up(
+                        request.user,
+                        conversation_key,
+                        response_text=follow_up_form.cleaned_data['response_text'],
+                        candidate_index=request.POST.get('candidate_choice'),
+                    )
+                except ObjectDoesNotExist as exc:
+                    raise Http404('Conversation not found.') from exc
+                except ValidationError as exc:
+                    follow_up_form.add_error(None, '; '.join(exc.messages))
+                else:
+                    conversation = outcome.conversation
+                    resolution = outcome.resolution
+                    follow_up_form = PayPlanAssistantFollowUpForm()
+            if conversation is None and conversation_key:
+                try:
+                    outcome = PayPlanConversationService.resume(
+                        request.user, conversation_key,
+                    )
+                except ObjectDoesNotExist as exc:
+                    raise Http404('Conversation not found.') from exc
+                else:
+                    conversation = outcome.conversation
+                    resolution = outcome.resolution
+        elif action == 'cancel':
             try:
-                resolution = resolve_intent(
-                    request.user,
-                    intent,
-                    selected_target=selected_target,
+                outcome = PayPlanConversationService.cancel(
+                    request.user, conversation_key,
                 )
+            except ObjectDoesNotExist as exc:
+                raise Http404('Conversation not found.') from exc
             except ValidationError as exc:
-                form.add_error('request_text', '; '.join(exc.messages))
+                messages.error(request, '; '.join(exc.messages))
             else:
-                if request.POST.get('assistant_action') == 'create_draft':
-                    if not resolution.may_create_draft:
-                        form.add_error(
-                            'request_text',
-                            resolution.message
-                            or 'Clarify the request before creating a draft.',
+                messages.info(request, 'The conversation was cancelled. No draft was created.')
+                conversation = outcome.conversation
+        elif action == 'start_over':
+            try:
+                outcome = PayPlanConversationService.start_over(
+                    request.user, conversation_key,
+                )
+            except ObjectDoesNotExist as exc:
+                raise Http404('Conversation not found.') from exc
+            except ValidationError as exc:
+                messages.error(request, '; '.join(exc.messages))
+            else:
+                return redirect(
+                    f"{reverse('pay_plan_assistant')}?conversation="
+                    f'{outcome.conversation.conversation_key}'
+                )
+        elif action == 'create_draft' and conversation_key:
+            try:
+                change_request = PayPlanConversationService.create_draft(
+                    request.user, conversation_key,
+                )
+            except ObjectDoesNotExist as exc:
+                raise Http404('Conversation not found.') from exc
+            except ValidationError as exc:
+                messages.error(request, '; '.join(exc.messages))
+                try:
+                    outcome = PayPlanConversationService.resume(
+                        request.user, conversation_key,
+                    )
+                except ObjectDoesNotExist as resume_exc:
+                    raise Http404('Conversation not found.') from resume_exc
+                conversation = outcome.conversation
+                resolution = outcome.resolution
+            else:
+                messages.success(
+                    request,
+                    'The inactive draft was created from your confirmed '
+                    'interpretation. Review it before activation.',
+                )
+                return redirect(
+                    'replacement_pay_plan_review',
+                    version_id=change_request.draft_version_id,
+                )
+        else:
+            # The no-key create_draft branch preserves the pre-Phase 1D trusted
+            # POST contract while still passing through a scoped conversation.
+            form = PayPlanAssistantForm(request.POST)
+            if form.is_valid():
+                try:
+                    if conversation_key:
+                        outcome = PayPlanConversationService.begin_existing(
+                            request.user,
+                            conversation_key,
+                            form.cleaned_data['request_text'],
+                            form.cleaned_data['effective_date'],
                         )
                     else:
+                        outcome = PayPlanConversationService.start(
+                            request.user,
+                            form.cleaned_data['request_text'],
+                            form.cleaned_data['effective_date'],
+                        )
+                except ObjectDoesNotExist as exc:
+                    raise Http404('Conversation not found.') from exc
+                except ValidationError as exc:
+                    form.add_error('request_text', '; '.join(exc.messages))
+                else:
+                    conversation = outcome.conversation
+                    resolution = outcome.resolution
+                    if action == 'create_draft':
                         try:
-                            change_request = create_draft_from_intent(
+                            change_request = PayPlanConversationService.create_draft(
                                 request.user,
-                                intent,
-                                form.cleaned_data['effective_date'],
-                                selected_target=selected_target,
-                                expected_source_version_id=(
-                                    int(request.POST['expected_source_version_id'])
-                                    if request.POST.get(
-                                        'expected_source_version_id',
-                                    ) else None
-                                ),
-                                expected_current_value=(
-                                    request.POST.get('expected_current_value')
-                                    or None
-                                ),
+                                conversation.conversation_key,
                             )
-                        except (ValidationError, ValueError) as exc:
-                            error_messages = (
-                                exc.messages
-                                if isinstance(exc, ValidationError)
-                                else ['The interpretation review was invalid.']
-                            )
-                            form.add_error(
-                                'request_text', '; '.join(error_messages),
-                            )
+                        except ValidationError as exc:
+                            form.add_error('request_text', '; '.join(exc.messages))
                         else:
                             messages.success(
                                 request,
@@ -1069,14 +1141,31 @@ def pay_plan_assistant(request):
                                 'replacement_pay_plan_review',
                                 version_id=change_request.draft_version_id,
                             )
-    else:
-        form = PayPlanAssistantForm(initial={
-            'effective_date': timezone.localdate() + timedelta(days=1),
-        })
+    elif request.GET.get('conversation'):
+        try:
+            outcome = PayPlanConversationService.resume(
+                request.user,
+                request.GET['conversation'],
+            )
+        except ObjectDoesNotExist as exc:
+            raise Http404('Conversation not found.') from exc
+        except ConversationStateError as exc:
+            messages.error(request, '; '.join(exc.messages))
+        else:
+            conversation = outcome.conversation
+            resolution = outcome.resolution
+
     history = PayPlanChangeRequest.objects.filter(user=request.user)[:10]
+    open_conversations = PayPlanConversationService.open_for_user(request.user)
     return render(request, 'pay_plan_assistant.html', {
         'form': form,
+        'follow_up_form': follow_up_form,
         'history': history,
+        'open_conversations': open_conversations,
+        'conversation': conversation,
+        'conversation_turns': (
+            conversation.turns.order_by('sequence') if conversation else ()
+        ),
         'resolution': resolution,
     })
 

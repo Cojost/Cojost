@@ -3,9 +3,12 @@
 {% block page_class %}pay-plan-assistant-page{% endblock %}
 {% block content %}
 {% include "components/_page_header.html" with heading="Pay Plan Assistant" description="Request a draft change in plain language. Your active plan stays unchanged until you review and confirm the draft." %}
-<form method="post" class="card form-card" id="assistant-request" novalidate>
+
+{% if not conversation or conversation.status == "open" and not conversation_turns %}
+<form method="post" class="card form-card assistant-start" id="assistant-request" novalidate>
   {% csrf_token %}
-  <input type="hidden" name="assistant_action" value="interpret">
+  <input type="hidden" name="assistant_action" value="start">
+  {% if conversation %}<input type="hidden" name="conversation_key" value="{{ conversation.conversation_key }}">{% endif %}
   {{ form.non_field_errors }}
   {{ form.as_p }}
   <div class="notice assistant-help-panel">
@@ -17,61 +20,151 @@
     “Change front-end commission to 27%.”
     “Remove the video requirement from the Green Pea volume bonus.”
   </div>
-  {% if resolution.status == "clarification" %}
+  <div class="actions">
+    <a class="button button-secondary" href="{% url 'view_commission' %}">Cancel</a>
+    <button class="button button-primary" type="submit">Review interpretation</button>
+  </div>
+</form>
+{% else %}
+<div class="notice assistant-help-panel">
+  <strong>Effective date:</strong> {{ conversation.context.effective_date }}. A draft may recalculate sales from this date.
+</div>
+<div class="notice assistant-help-panel">
+  <strong>Safety:</strong> Conversation and interpretation steps do not change your active plan. Only an explicit Create draft action creates an inactive draft for review.
+</div>
+{% endif %}
+
+{% if conversation and conversation_turns %}
+<section class="card assistant-conversation-card" aria-labelledby="conversation-heading">
+  <h2 id="conversation-heading">Conversation</h2>
+  <ol class="assistant-conversation" aria-label="Pay Plan Assistant conversation">
+    {% for turn in conversation_turns %}
+    <li class="assistant-message assistant-message-{{ turn.role }}">
+      <strong>{% if turn.role == "user" %}You{% elif turn.role == "assistant" %}Pay Plan Assistant{% else %}System{% endif %}</strong>
+      <p>{{ turn.content }}</p>
+    </li>
+    {% empty %}
+    <li class="assistant-message assistant-message-system"><strong>System</strong><p>Start with a new pay-plan request below.</p></li>
+    {% endfor %}
+  </ol>
+
+  {% if conversation.status == "expired" %}
+  <div class="notice notice-warning" role="status"><strong>Conversation expired</strong><p>Start over to make a new request. No draft was created.</p></div>
+  {% elif conversation.status == "stale" %}
+  <div class="notice notice-warning" role="status"><strong>Conversation became stale</strong><p>Your active plan changed. Start over so the request can be checked against the current plan.</p></div>
+  {% elif conversation.status == "cancelled" %}
+  <div class="notice" role="status"><strong>Conversation cancelled</strong><p>No draft was created.</p></div>
+  {% elif conversation.status == "resolved" %}
+  <div class="notice notice-success" role="status"><strong>Conversation resolved</strong><p>The inactive draft was created for replacement review. The active plan was not changed.</p></div>
+  {% elif conversation.context.provider_status == "unavailable" or conversation.context.provider_status == "provider_timeout" or conversation.context.provider_status == "provider_unavailable" or conversation.context.provider_status == "provider_refusal" or conversation.context.provider_status == "invalid_provider_output" %}
+  <div class="notice notice-warning" role="status"><strong>Using deterministic clarification</strong><p>The optional language provider is unavailable. No provider error details are exposed, and no draft has been created.</p></div>
+  {% elif conversation.context.interpretation_source == "deterministic" and conversation.context.provider_status == "not_needed" %}
+  <div class="notice" role="status"><strong>Built-in interpretation was sufficient</strong><p>The request was understood without calling an external provider.</p></div>
+  {% endif %}
+
+  {% if conversation.status == "open" and resolution.status == "clarification" %}
   <div class="notice notice-warning" role="status">
     <strong>One more detail is needed</strong>
     <p>{{ resolution.message|default:resolution.intent.clarification_question }}</p>
+  </div>
+  <form method="post" class="assistant-follow-up" id="assistant-follow-up" novalidate>
+    {% csrf_token %}
+    <input type="hidden" name="assistant_action" value="follow_up">
+    <input type="hidden" name="conversation_key" value="{{ conversation.conversation_key }}">
+    {{ follow_up_form.non_field_errors }}
     {% if resolution.intent.candidate_targets %}
-    <fieldset>
+    <fieldset class="assistant-candidates">
       <legend>Select the rule you mean</legend>
       {% for candidate in resolution.intent.candidate_targets %}
-      <label><input type="radio" name="selected_target" value="{{ candidate.selector }}" required> {{ candidate.label }} — {{ candidate.rule_name }}</label>
+      <label><input type="radio" name="candidate_choice" value="{{ forloop.counter0 }}"> {{ candidate.label }} — {{ candidate.rule_name }}</label>
       {% endfor %}
     </fieldset>
     {% endif %}
-  </div>
-  {% elif resolution.status == "unsupported" %}
+    {{ follow_up_form.response_text.errors }}
+    {{ follow_up_form.response_text.label_tag }}
+    {{ follow_up_form.response_text }}
+    <div class="actions">
+      <button class="button button-primary" type="submit">Continue</button>
+    </div>
+  </form>
+  {% elif conversation.status == "open" and resolution.status == "unsupported" %}
   <div class="notice notice-warning" role="status">
     <strong>That operation is not supported yet</strong>
     <p>{{ resolution.message }}</p>
   </div>
   {% endif %}
-  <div class="actions">
-    <a class="button button-secondary" href="{% url 'view_commission' %}">Cancel</a>
-    <button class="button button-primary" type="submit">{% if resolution.intent.candidate_targets %}Review selected rule{% else %}Review interpretation{% endif %}</button>
+
+  {% if conversation.status == "open" and resolution.may_create_draft %}
+  <form method="post" class="assistant-follow-up" id="assistant-follow-up" novalidate>
+    {% csrf_token %}
+    <input type="hidden" name="assistant_action" value="follow_up">
+    <input type="hidden" name="conversation_key" value="{{ conversation.conversation_key }}">
+    <h3>Need to adjust the interpretation?</h3>
+    {{ follow_up_form.non_field_errors }}
+    {{ follow_up_form.response_text.errors }}
+    {{ follow_up_form.response_text.label_tag }}
+    {{ follow_up_form.response_text }}
+    <div class="actions"><button class="button button-secondary" type="submit">Update interpretation</button></div>
+  </form>
+  {% endif %}
+
+  {% if conversation.status == "open" %}
+  <div class="assistant-lifecycle-actions">
+    <form method="post">
+      {% csrf_token %}<input type="hidden" name="assistant_action" value="cancel"><input type="hidden" name="conversation_key" value="{{ conversation.conversation_key }}">
+      <button class="button button-secondary" type="submit">Cancel conversation</button>
+    </form>
+    <form method="post">
+      {% csrf_token %}<input type="hidden" name="assistant_action" value="start_over"><input type="hidden" name="conversation_key" value="{{ conversation.conversation_key }}">
+      <button class="button button-secondary" type="submit">Start over</button>
+    </form>
   </div>
-</form>
-{% if resolution.may_create_draft %}
-<section class="card" aria-labelledby="interpretation-heading">
-  <h3 id="interpretation-heading">Here’s what I understood</h3>
+  {% else %}
+  <form method="post" class="assistant-lifecycle-actions">
+    {% csrf_token %}<input type="hidden" name="assistant_action" value="start_over"><input type="hidden" name="conversation_key" value="{{ conversation.conversation_key }}">
+    <button class="button button-primary" type="submit">Start over</button>
+  </form>
+  {% endif %}
+</section>
+{% endif %}
+
+{% if conversation.status == "open" and resolution.may_create_draft %}
+<section class="card assistant-interpretation" aria-labelledby="interpretation-heading">
+  <h2 id="interpretation-heading">Here’s what I understood</h2>
   <dl class="commission-grid">
     <div><dt>Action</dt><dd>{{ resolution.intent.action|title }}</dd></div>
     <div><dt>Target</dt><dd>{{ resolution.proposal.target_label }}</dd></div>
     <div><dt>From</dt><dd>{{ resolution.proposal.current_display }}</dd></div>
     <div><dt>To</dt><dd>{{ resolution.proposal.new_display }}</dd></div>
     <div><dt>Applies to</dt><dd>{{ resolution.proposal.applies_to }}</dd></div>
-    <div><dt>Effective date</dt><dd>{{ form.cleaned_data.effective_date }}</dd></div>
+    <div><dt>Effective date</dt><dd>{{ conversation.context.effective_date }}</dd></div>
   </dl>
   <p class="card-description">No draft has been created yet. Your active pay plan remains unchanged.</p>
   <form method="post">
     {% csrf_token %}
     <input type="hidden" name="assistant_action" value="create_draft">
-    <input type="hidden" name="request_text" value="{{ form.cleaned_data.request_text }}">
-    <input type="hidden" name="effective_date" value="{{ form.cleaned_data.effective_date|date:'Y-m-d' }}">
-    {% if form.cleaned_data.confirm_retroactive %}<input type="hidden" name="confirm_retroactive" value="on">{% endif %}
-    {% if resolution.proposal.rule_selector %}<input type="hidden" name="selected_target" value="{{ resolution.proposal.rule_selector }}">{% endif %}
-    <input type="hidden" name="expected_source_version_id" value="{{ resolution.proposal.source_version_id }}">
-    <input type="hidden" name="expected_current_value" value="{{ resolution.proposal.current_display }}">
+    <input type="hidden" name="conversation_key" value="{{ conversation.conversation_key }}">
     <div class="actions">
-      <a class="button button-secondary" href="#assistant-request">Edit request</a>
-      <a class="button button-secondary" href="{% url 'view_commission' %}">Cancel</a>
+      <a class="button button-secondary" href="#assistant-follow-up">Add clarification</a>
       <button class="button button-primary" type="submit">Create draft</button>
     </div>
   </form>
 </section>
 {% endif %}
+
+{% if open_conversations %}
+<section class="card assistant-open-conversations" aria-labelledby="open-conversations-heading">
+  <h2 id="open-conversations-heading">Open conversations</h2>
+  <ul>
+    {% for item in open_conversations %}
+    <li><a class="text-link" href="{% url 'pay_plan_assistant' %}?conversation={{ item.conversation_key }}">Resume conversation from {{ item.updated_at|date:"M j, Y, g:i a" }}</a></li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
 <section class="card assistant-history">
-  <h3>Recent requests</h3>
+  <h2>Recent requests</h2>
   <ul>
     {% for item in history %}
     <li>

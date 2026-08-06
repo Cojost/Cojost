@@ -912,8 +912,11 @@ class PayPlanConversation(models.Model):
     OPEN = 'open'
     RESOLVED = 'resolved'
     CANCELLED = 'cancelled'
+    EXPIRED = 'expired'
+    STALE = 'stale'
     STATUS_CHOICES = [
         (OPEN, 'Open'), (RESOLVED, 'Resolved'), (CANCELLED, 'Cancelled'),
+        (EXPIRED, 'Expired'), (STALE, 'Stale'),
     ]
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE,

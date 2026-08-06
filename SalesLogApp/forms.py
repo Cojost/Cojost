@@ -290,6 +290,7 @@ class PayPlanRuleConditionEditForm(forms.Form):
 class PayPlanAssistantForm(forms.Form):
     request_text = forms.CharField(
         label='What would you like to change?',
+        max_length=2000,
         widget=forms.Textarea(attrs={
             'rows': 4,
             'placeholder': (
@@ -318,6 +319,30 @@ class PayPlanAssistantForm(forms.Form):
             self.add_error(
                 'confirm_retroactive',
                 'Confirm retroactive recalculation or choose today or a future date.',
+            )
+        return cleaned
+
+
+class PayPlanAssistantFollowUpForm(forms.Form):
+    response_text = forms.CharField(
+        label='Your answer',
+        required=False,
+        max_length=2000,
+        widget=forms.Textarea(attrs={
+            'rows': 3,
+            'placeholder': 'Add the one detail requested above.',
+        }),
+    )
+
+    def clean(self):
+        cleaned = super().clean()
+        if (
+            not (cleaned.get('response_text') or '').strip()
+            and self.data.get('candidate_choice') in (None, '')
+        ):
+            self.add_error(
+                'response_text',
+                'Enter an answer or select one of the available rules.',
             )
         return cleaned
 

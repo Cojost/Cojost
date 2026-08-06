@@ -32,11 +32,41 @@ def env_bool(name, default=False):
     return value.strip().lower() in {'1', 'true', 'yes', 'on'}
 
 
+def env_int(name, default, *, minimum=1):
+    value = os.getenv(name)
+    if value is None:
+        return default
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed >= minimum else default
+
+
 def env_list(name):
     return [item.strip() for item in os.getenv(name, '').split(',') if item.strip()]
 
 
 DEBUG = env_bool('DEBUG', True)
+
+# Optional Pay Plan Assistant provider. External calls are opt-in and the API
+# key is read by the provider adapter only when a request actually needs it.
+PAY_PLAN_ASSISTANT_PROVIDER_ENABLED = env_bool(
+    'PAY_PLAN_ASSISTANT_PROVIDER_ENABLED', False,
+)
+PAY_PLAN_ASSISTANT_PROVIDER = os.getenv(
+    'PAY_PLAN_ASSISTANT_PROVIDER', 'openai',
+).strip().lower()
+PAY_PLAN_ASSISTANT_MODEL = os.getenv(
+    'PAY_PLAN_ASSISTANT_MODEL', 'gpt-5.6-sol',
+).strip() or 'gpt-5.6-sol'
+PAY_PLAN_ASSISTANT_TIMEOUT_SECONDS = env_int(
+    'PAY_PLAN_ASSISTANT_TIMEOUT_SECONDS', 10,
+)
+PAY_PLAN_ASSISTANT_MAX_TURNS = env_int('PAY_PLAN_ASSISTANT_MAX_TURNS', 12)
+PAY_PLAN_ASSISTANT_CONVERSATION_TTL_HOURS = env_int(
+    'PAY_PLAN_ASSISTANT_CONVERSATION_TTL_HOURS', 24,
+)
 
 SECRET_KEY = os.getenv('SECRET_KEY')
 if not SECRET_KEY:
