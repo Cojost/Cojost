@@ -36,7 +36,7 @@ class ProfileTests(TestCase):
 
     @staticmethod
     def application_styles():
-        return Path(finders.find('styles.css')).read_text(encoding='utf-8')
+        return Path(finders.find('SalesLogApp/css/styles.css')).read_text(encoding='utf-8')
 
     def test_profile_created_for_new_users(self):
         self.assertTrue(UserProfile.objects.filter(user=self.user).exists())

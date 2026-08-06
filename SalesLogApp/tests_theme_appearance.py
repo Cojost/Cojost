@@ -55,7 +55,7 @@ class ThemeAppearanceTests(TestCase):
 
     def setUp(self):
         self.client.force_login(self.user)
-        self.styles = self.read_static('styles.css')
+        self.styles = self.read_static('SalesLogApp/css/styles.css')
 
     @staticmethod
     def read_static(name):
@@ -432,7 +432,10 @@ class ThemeAppearanceTests(TestCase):
         ).read_text(encoding='utf-8')
 
         self.assertNotIn('<style', template)
-        self.assertEqual(template.count("static 'styles.css'"), 1)
+        self.assertEqual(
+            template.count("static 'SalesLogApp/css/styles.css'"),
+            1,
+        )
         self.assertIn('data-theme="{{ appearance.theme_mode }}"', template)
         self.assertNotIn('theme-dark', template)
         self.assertNotIn('dark-mode', template)
