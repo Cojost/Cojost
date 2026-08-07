@@ -165,6 +165,52 @@ class ProfileTests(TestCase):
         self.assertFalse(profile.avatar)
         self.assertFalse(profile.avatar.storage.exists(replacement))
 
+    def test_avatar_upload_has_stored_url_and_authenticated_response(self):
+        self.client.force_login(self.user)
+        response = self.client.post(reverse('profile'), {
+            'form_type': 'avatar',
+            'avatar': self.image_upload(),
+        })
+        self.assertRedirects(response, reverse('profile'))
+        profile = UserProfile.objects.get(user=self.user)
+        self.assertTrue(profile.avatar.storage.exists(profile.avatar.name))
+        self.assertEqual(
+            profile.avatar.url,
+            f'/media/profile_avatars/{self.user.pk}/'
+            f'{Path(profile.avatar.name).name}',
+        )
+        page = self.client.get(reverse('profile'))
+        self.assertContains(page, profile.avatar.url)
+        served = self.client.get(profile.avatar.url)
+        self.assertEqual(served.status_code, 200)
+        self.assertEqual(served['Content-Type'], 'image/png')
+        self.assertTrue(b''.join(served.streaming_content).startswith(b'\x89PNG'))
+
+    def test_missing_avatar_file_falls_back_without_broken_image(self):
+        profile = self.user.sales_profile
+        profile.avatar = (
+            f'profile_avatars/{self.user.pk}/missing-avatar.png'
+        )
+        profile.save(update_fields=['avatar', 'updated_at'])
+        self.client.force_login(self.user)
+        page = self.client.get(reverse('profile'))
+        self.assertEqual(page.status_code, 200)
+        self.assertNotContains(page, profile.avatar.url)
+        self.assertContains(page, 'Default profile picture')
+        self.assertEqual(self.client.get(profile.avatar.url).status_code, 404)
+
+    def test_avatar_file_is_owner_scoped(self):
+        self.client.force_login(self.user)
+        self.client.post(reverse('profile'), {
+            'form_type': 'avatar',
+            'avatar': self.image_upload(),
+        })
+        profile = UserProfile.objects.get(user=self.user)
+        avatar_url = profile.avatar.url
+        self.client.force_login(self.other)
+        self.assertEqual(self.client.get(avatar_url).status_code, 404)
+        self.assertFalse(self.other.sales_profile.avatar)
+
     def test_bad_and_oversized_avatars_are_rejected(self):
         self.client.force_login(self.user)
         for upload in (

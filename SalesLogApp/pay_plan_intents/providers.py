@@ -3,11 +3,26 @@ from __future__ import annotations
 from dataclasses import fields, replace
 from datetime import date
 from decimal import Decimal, InvalidOperation
+import logging
 from time import perf_counter
 from typing import Any, Mapping, Protocol
 
+from django.db import DatabaseError
+
 from .contract import ACTIONS, TARGET_TYPES, PayPlanIntent
 from .interpreter import DeterministicIntentInterpreter
+
+
+logger = logging.getLogger(__name__)
+
+
+def _log_sanitized_provider_exception(message, exc):
+    """Keep exception traceback context without emitting provider text."""
+    sanitized = RuntimeError(message)
+    logger.exception(
+        message,
+        exc_info=(RuntimeError, sanitized, exc.__traceback__),
+    )
 
 
 class IntentProvider(Protocol):
@@ -82,7 +97,14 @@ class ProviderNeutralInterpreter:
             return deterministic
         authorization = None
         if self.provider_authorizer is not None:
-            authorization = self.provider_authorizer()
+            try:
+                authorization = self.provider_authorizer()
+            except DatabaseError as exc:
+                _log_sanitized_provider_exception(
+                    'Pay-plan assistant provider authorization failed.', exc,
+                )
+                self.last_provider_status = 'provider_unavailable'
+                return deterministic
             if not authorization.allowed:
                 self.last_provider_status = authorization.status
                 self._record_deterministic(authorization.status, started)
@@ -115,10 +137,15 @@ class ProviderNeutralInterpreter:
 
     def _record_deterministic(self, status, started):
         if self.usage_recorder is not None:
-            self.usage_recorder.record_deterministic(
-                status,
-                self._elapsed_ms(started),
-            )
+            try:
+                self.usage_recorder.record_deterministic(
+                    status,
+                    self._elapsed_ms(started),
+                )
+            except DatabaseError as exc:
+                _log_sanitized_provider_exception(
+                    'Pay-plan assistant usage recording failed.', exc,
+                )
 
     def _finalize_provider(self, authorization, status, started):
         if (
@@ -127,12 +154,17 @@ class ProviderNeutralInterpreter:
             or authorization.event_id is None
         ):
             return
-        self.usage_recorder.finalize_provider_attempt(
-            authorization.event_id,
-            status,
-            self._elapsed_ms(started),
-            getattr(self.provider, 'last_metadata', {}),
-        )
+        try:
+            self.usage_recorder.finalize_provider_attempt(
+                authorization.event_id,
+                status,
+                self._elapsed_ms(started),
+                getattr(self.provider, 'last_metadata', {}),
+            )
+        except DatabaseError as exc:
+            _log_sanitized_provider_exception(
+                'Pay-plan assistant usage finalization failed.', exc,
+            )
 
 
 PROVIDER_FIELDS = frozenset({
@@ -253,7 +285,10 @@ def safe_provider_interpret(
         return validate_provider_output(
             source_text, payload, effective_date=effective_date,
         )
-    except TimeoutError:
+    except TimeoutError as exc:
+        _log_sanitized_provider_exception(
+            'Pay-plan assistant provider timed out.', exc,
+        )
         return PayPlanIntent(
             source_text=source_text,
             effective_date=effective_date,
@@ -264,7 +299,10 @@ def safe_provider_interpret(
                 'specific request or try again.'
             ),
         )
-    except ProviderRefusalError:
+    except ProviderRefusalError as exc:
+        _log_sanitized_provider_exception(
+            'Pay-plan assistant provider refused a request.', exc,
+        )
         return PayPlanIntent(
             source_text=source_text,
             effective_date=effective_date,
@@ -275,7 +313,10 @@ def safe_provider_interpret(
                 'Please describe the pay-plan change more specifically.'
             ),
         )
-    except (ProviderUnavailableError, ConnectionError, OSError):
+    except (ProviderUnavailableError, ConnectionError, OSError) as exc:
+        _log_sanitized_provider_exception(
+            'Pay-plan assistant provider was unavailable.', exc,
+        )
         return PayPlanIntent(
             source_text=source_text,
             effective_date=effective_date,
@@ -286,7 +327,10 @@ def safe_provider_interpret(
                 'the pay-plan change more specifically.'
             ),
         )
-    except (ProviderOutputError, TypeError, ValueError, InvalidOperation):
+    except (ProviderOutputError, TypeError, ValueError, InvalidOperation) as exc:
+        _log_sanitized_provider_exception(
+            'Pay-plan assistant provider returned invalid output.', exc,
+        )
         return PayPlanIntent(
             source_text=source_text,
             effective_date=effective_date,
@@ -297,21 +341,6 @@ def safe_provider_interpret(
                 'Please rephrase the request.'
             ),
         )
-    except Exception:
-        # Provider failures are never rendered verbatim. The deterministic
-        # interpreter remains the safe recovery path.
-        return PayPlanIntent(
-            source_text=source_text,
-            effective_date=effective_date,
-            confidence=Decimal('0'),
-            missing_information=('provider_unavailable',),
-            clarification_question=(
-                'The optional interpreter is unavailable. Please describe '
-                'the pay-plan change more specifically.'
-            ),
-        )
-
-
 def _decimal(value) -> Decimal:
     return Decimal(str(value))
 

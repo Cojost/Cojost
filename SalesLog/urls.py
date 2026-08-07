@@ -19,13 +19,24 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 from django.views.generic.base import RedirectView
+from SalesLogApp import views as sales_views
+
+
+_avatar_route = (
+    f"{settings.MEDIA_URL.lstrip('/')}"
+    'profile_avatars/<int:user_id>/<str:filename>'
+)
 
 urlpatterns = [
     path('', RedirectView.as_view(url='/SalesLogApp/', permanent=False)),
     path('admin/', admin.site.urls),
     path('SalesLogApp/', include('SalesLogApp.urls')),
     path('accounts/', include('allauth.urls')),
-    
+    path(
+        _avatar_route,
+        sales_views.profile_avatar_file,
+        name='profile_avatar_file',
+    ),
 
 ]
 

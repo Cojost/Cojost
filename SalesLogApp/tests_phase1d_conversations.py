@@ -1,3 +1,4 @@
+import os
 from datetime import timedelta
 from decimal import Decimal
 from unittest.mock import patch
@@ -21,6 +22,8 @@ from .pay_plan_conversations import (
     PENDING_INTENT_FIELDS,
     PayPlanConversationService,
 )
+from .pay_plan_intents.openai_provider import OpenAIIntentProvider
+from .pay_plan_intents.providers import ProviderUnavailableError
 
 
 @override_settings(
@@ -134,6 +137,124 @@ class Phase1DConversationTests(TestCase):
             {'conversation': conversation.conversation_key},
         )
         self.assertEqual(response.status_code, 404)
+
+    def test_assistant_get_and_post_are_valid_for_owned_active_plan(self):
+        response = self.client.get(reverse('pay_plan_assistant'))
+        self.assertEqual(response.status_code, 200)
+        response = self.client.post(reverse('pay_plan_assistant'), {
+            'assistant_action': 'start',
+            'request_text': 'change front minimum to 300',
+            'effective_date': self.effective_date.isoformat(),
+            'submission_token': 'valid-owner-request',
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="interpretation-heading"')
+        self.assertFalse(PayPlanChangeRequest.objects.exists())
+
+    def test_user_without_active_plan_is_redirected_to_onboarding(self):
+        self.user.pay_plan_assignments.all().delete()
+        for method, data in (
+            ('get', {}),
+            ('post', {
+                'assistant_action': 'start',
+                'request_text': 'change front minimum to 300',
+                'effective_date': self.effective_date.isoformat(),
+            }),
+        ):
+            with self.subTest(method=method):
+                response = getattr(self.client, method)(
+                    reverse('pay_plan_assistant'), data,
+                )
+                self.assertRedirects(
+                    response,
+                    reverse('pay_plan_setup'),
+                    fetch_redirect_response=False,
+                )
+        self.assertFalse(PayPlanConversation.objects.filter(user=self.user).exists())
+
+    def test_incomplete_active_assignment_redirects_to_onboarding(self):
+        self.version.status = PayPlanVersion.DRAFT
+        self.version.save(update_fields=['status', 'updated_at'])
+        response = self.client.get(reverse('pay_plan_assistant'))
+        self.assertRedirects(
+            response,
+            reverse('pay_plan_setup'),
+            fetch_redirect_response=False,
+        )
+
+    def test_blank_assistant_post_shows_validation_without_writes(self):
+        response = self.client.post(reverse('pay_plan_assistant'), {
+            'assistant_action': 'start',
+            'request_text': '',
+            'effective_date': '',
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'This field is required')
+        self.assertFalse(PayPlanConversation.objects.filter(user=self.user).exists())
+
+    def test_malformed_saved_conversation_is_a_safe_form_message(self):
+        conversation = self.start('change front minimum to 300').conversation
+        PayPlanConversation.objects.filter(pk=conversation.pk).update(
+            pending_intent={'unexpected': 'data'},
+        )
+        with self.assertLogs(
+            'SalesLogApp.pay_plan_conversations', level='ERROR',
+        ):
+            response = self.client.get(
+                reverse('pay_plan_assistant'),
+                {'conversation': conversation.conversation_key},
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'saved assistant state is invalid')
+        self.assertFalse(PayPlanChangeRequest.objects.exists())
+
+    def test_malformed_active_rule_is_a_safe_form_message(self):
+        self.minimum.configuration = {
+            'applies_to_categories': ['front_end'],
+        }
+        self.minimum.save(update_fields=['configuration', 'updated_at'])
+        with self.assertLogs(
+            'SalesLogApp.pay_plan_intents.service', level='ERROR',
+        ):
+            response = self.client.post(reverse('pay_plan_assistant'), {
+                'assistant_action': 'start',
+                'request_text': 'change front minimum to 300',
+                'effective_date': self.effective_date.isoformat(),
+                'submission_token': 'invalid-rule-request',
+            })
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'invalid configuration')
+        self.assertFalse(PayPlanChangeRequest.objects.exists())
+
+    @override_settings(
+        PAY_PLAN_ASSISTANT_PROVIDER_ENABLED=True,
+        PAY_PLAN_ASSISTANT_ROLLOUT_PERCENT='100',
+        PAY_PLAN_ASSISTANT_ALLOWED_USER_IDS=[],
+    )
+    def test_provider_failure_falls_back_for_real_request_user(self):
+        raw_error = 'RAW-PROVIDER-SECRET'
+        with (
+            patch.dict(os.environ, {'OPENAI_API_KEY': 'test-only-key'}),
+            patch.object(
+                OpenAIIntentProvider,
+                'interpret',
+                side_effect=ProviderUnavailableError(raw_error),
+            ),
+            self.assertLogs(
+                'SalesLogApp.pay_plan_intents.providers', level='ERROR',
+            ) as captured,
+        ):
+            response = self.client.post(reverse('pay_plan_assistant'), {
+                'assistant_action': 'start',
+                'request_text': 'make the mystery payment better',
+                'effective_date': self.effective_date.isoformat(),
+                'submission_token': 'provider-failure-request',
+            })
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Using deterministic clarification')
+        self.assertNotContains(response, raw_error)
+        self.assertNotIn(raw_error, '\n'.join(captured.output))
+        self.assertFalse(PayPlanChangeRequest.objects.exists())
 
     def test_pending_intent_contains_only_validated_semantic_data(self):
         conversation = self.start().conversation

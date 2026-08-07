@@ -266,8 +266,19 @@ USE_TZ = True
 
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / "staticfiles"
-MEDIA_URL = '/media/'
-MEDIA_ROOT = BASE_DIR / 'media'
+MEDIA_URL = os.getenv('MEDIA_URL', '/media/').strip() or '/media/'
+if not MEDIA_URL.startswith('/'):
+    MEDIA_URL = f'/{MEDIA_URL}'
+if not MEDIA_URL.endswith('/'):
+    MEDIA_URL = f'{MEDIA_URL}/'
+_configured_media_root = os.getenv('MEDIA_ROOT', '').strip()
+MEDIA_ROOT = (
+    Path(_configured_media_root).expanduser()
+    if _configured_media_root
+    else BASE_DIR / 'media'
+)
+if not MEDIA_ROOT.is_absolute():
+    MEDIA_ROOT = BASE_DIR / MEDIA_ROOT
 
 # Upload size limits (default 20 MB)
 MAX_UPLOAD_SIZE_MB = int(os.getenv('MAX_UPLOAD_SIZE_MB', '20'))

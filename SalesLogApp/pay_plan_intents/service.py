@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from datetime import date
+from decimal import InvalidOperation
+import logging
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
@@ -15,6 +17,18 @@ from SalesLogApp.pay_plan_domain.services import CanonicalPlanStorageService
 from .contract import IntentResolution, PayPlanIntent
 from .handlers import TARGET_HANDLER_REGISTRY, active_version_for_user
 from .interpreter import DeterministicIntentInterpreter
+
+
+logger = logging.getLogger(__name__)
+
+
+def _log_sanitized_configuration_exception(exc):
+    message = 'Invalid active pay-plan rule configuration during resolution.'
+    sanitized = RuntimeError(message)
+    logger.exception(
+        message,
+        exc_info=(RuntimeError, sanitized, exc.__traceback__),
+    )
 
 
 def interpret_request(
@@ -49,11 +63,22 @@ def resolve_intent(
             'not supported safely yet. No draft was created.'
         )
         return IntentResolution('unsupported', intent, message=message)
-    return handler.resolve(
-        user,
-        intent,
-        selected_target=selected_target,
-    )
+    try:
+        return handler.resolve(
+            user,
+            intent,
+            selected_target=selected_target,
+        )
+    except (AttributeError, InvalidOperation, KeyError, OverflowError, TypeError, ValueError) as exc:
+        # Existing rows may predate current rule validation or may have been
+        # imported without full_clean(). Never log rule configuration or the
+        # user's request text.
+        _log_sanitized_configuration_exception(exc)
+        raise ValidationError(
+            'Your active pay plan contains invalid configuration for this '
+            'request. Review the plan rules or contact support. No draft was '
+            'created.'
+        ) from exc
 
 
 @transaction.atomic

@@ -1,8 +1,10 @@
 from decimal import Decimal
 from datetime import datetime, timedelta
 from functools import wraps
+import logging
+import mimetypes
 from uuid import uuid4
-from django.http import Http404, JsonResponse
+from django.http import FileResponse, Http404, JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from .models.sales import (
     Sale,
@@ -71,7 +73,7 @@ from .services import (
 )
 from .commission_service import CommissionEngineService, CommissionHelpContext
 from .nps_projection import NPSSurveyProjectionService
-from .plan_requirements import PlanRequirementService
+from .plan_requirements import ActivePayPlanService, PlanRequirementService
 from .pay_plan_management import (
     PayPlanActivationService,
     create_manual_draft,
@@ -87,7 +89,6 @@ from .pay_plan_imports import (
     parse_description_to_import_draft,
 )
 from .pay_plan_conversations import (
-    ConversationStateError,
     PayPlanConversationService,
 )
 from .pay_plan_intents.openai_provider import provider_availability_for_user
@@ -105,6 +106,9 @@ from .models import (
 )
 from .models.sales import SaleType
 from .sale_types import get_sale_type_handler
+
+
+logger = logging.getLogger(__name__)
 
 def commission_required(view_func):
     @login_required
@@ -361,6 +365,38 @@ def profile(request):
         'password_is_set': request.user.has_usable_password(),
         'commission_instance': Commission.objects.filter(user=request.user).first(),
     })
+
+
+@login_required
+def profile_avatar_file(request, user_id, filename):
+    """Serve only the authenticated user's exact stored avatar file."""
+    if request.user.pk != user_id:
+        raise Http404('Profile picture not found.')
+    if not filename or '/' in filename or '\\' in filename:
+        raise Http404('Profile picture not found.')
+    user_profile = get_user_profile(request.user)
+    expected_name = f'profile_avatars/{user_id}/{filename}'
+    if not user_profile.avatar or user_profile.avatar.name != expected_name:
+        raise Http404('Profile picture not found.')
+    content_type = mimetypes.guess_type(filename)[0]
+    if content_type not in {'image/jpeg', 'image/png', 'image/webp'}:
+        raise Http404('Profile picture not found.')
+    try:
+        avatar_file = user_profile.avatar.storage.open(expected_name, 'rb')
+    except FileNotFoundError as exc:
+        raise Http404('Profile picture not found.') from exc
+    except OSError as exc:
+        message = 'Avatar storage read failed.'
+        sanitized = RuntimeError(message)
+        logger.exception(
+            message,
+            exc_info=(RuntimeError, sanitized, exc.__traceback__),
+        )
+        raise Http404('Profile picture not found.') from exc
+    response = FileResponse(avatar_file, content_type=content_type)
+    response['Cache-Control'] = 'private, max-age=3600'
+    response['X-Content-Type-Options'] = 'nosniff'
+    return response
 
 @pay_plan_onboarding_required
 def add_sale(request):
@@ -1008,6 +1044,14 @@ def edit_pay_plan_manually(request):
 def pay_plan_assistant(request):
     if not uses_new_engine(request.user):
         return redirect('view_commission')
+    active_plan = ActivePayPlanService.get_for_user(request.user)
+    if active_plan.status != 'active':
+        messages.error(
+            request,
+            'Finish pay-plan setup before using the assistant. No changes '
+            'were made.',
+        )
+        return redirect('pay_plan_setup')
     conversation = None
     resolution = None
     follow_up_form = PayPlanAssistantFollowUpForm(initial={
@@ -1053,6 +1097,8 @@ def pay_plan_assistant(request):
                     )
                 except ObjectDoesNotExist as exc:
                     raise Http404('Conversation not found.') from exc
+                except ValidationError as exc:
+                    follow_up_form.add_error(None, '; '.join(exc.messages))
                 else:
                     conversation = outcome.conversation
                     resolution = outcome.resolution
@@ -1103,8 +1149,11 @@ def pay_plan_assistant(request):
                     )
                 except ObjectDoesNotExist as resume_exc:
                     raise Http404('Conversation not found.') from resume_exc
-                conversation = outcome.conversation
-                resolution = outcome.resolution
+                except ValidationError as resume_exc:
+                    messages.error(request, '; '.join(resume_exc.messages))
+                else:
+                    conversation = outcome.conversation
+                    resolution = outcome.resolution
             else:
                 messages.success(
                     request,
@@ -1178,7 +1227,7 @@ def pay_plan_assistant(request):
             )
         except ObjectDoesNotExist as exc:
             raise Http404('Conversation not found.') from exc
-        except ConversationStateError as exc:
+        except ValidationError as exc:
             messages.error(request, '; '.join(exc.messages))
         else:
             conversation = outcome.conversation

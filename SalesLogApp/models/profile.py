@@ -95,5 +95,21 @@ class UserProfile(models.Model):
     def reset_header_color(self):
         self.header_color = 'blue'
 
+    @property
+    def avatar_available(self):
+        """Return false when a persisted avatar path has lost its file."""
+        if not self.avatar or not self.avatar.name:
+            return False
+        prefix = f'profile_avatars/{self.user_id}/'
+        if not self.avatar.name.startswith(prefix):
+            return False
+        filename = self.avatar.name.removeprefix(prefix)
+        if not filename or '/' in filename or '\\' in filename:
+            return False
+        try:
+            return self.avatar.storage.exists(self.avatar.name)
+        except OSError:
+            return False
+
     def __str__(self):
         return f'Profile for {self.user}'

@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
+import logging
 from uuid import uuid4
 
 from django.conf import settings
@@ -27,6 +28,17 @@ from .pay_plan_intents.providers import (
     PROVIDER_TARGET_SCOPES,
 )
 from .pay_plan_intents.service import create_draft_from_intent, resolve_intent
+
+
+logger = logging.getLogger(__name__)
+
+
+def _log_sanitized_exception(message, exc):
+    sanitized = RuntimeError(message)
+    logger.exception(
+        message,
+        exc_info=(RuntimeError, sanitized, exc.__traceback__),
+    )
 
 
 PENDING_INTENT_FIELDS = frozenset({
@@ -197,10 +209,7 @@ class PayPlanConversationService:
         cls._refresh_lifecycle(conversation, user)
         resolution = None
         if conversation.status == PayPlanConversation.OPEN and conversation.pending_intent:
-            intent = pending_payload_to_intent(
-                conversation.pending_intent,
-                source_text=cls._combined_user_text(conversation),
-            )
+            intent = cls._pending_intent(conversation, user)
             resolution = resolve_intent(
                 user,
                 intent,
@@ -238,13 +247,8 @@ class PayPlanConversationService:
             cls._assert_open_and_current(conversation, user)
             cls._assert_not_processing(conversation)
             cls._assert_turn_capacity(conversation, additional=2)
-            effective_date = date.fromisoformat(
-                conversation.context['effective_date'],
-            )
-            current_intent = pending_payload_to_intent(
-                conversation.pending_intent,
-                source_text=cls._combined_user_text(conversation),
-            )
+            effective_date = cls._effective_date(conversation, user)
+            current_intent = cls._pending_intent(conversation, user)
             prior_turns = tuple(
                 conversation.turns.filter(
                     role=PayPlanConversationTurn.USER,
@@ -306,10 +310,7 @@ class PayPlanConversationService:
             raise ConversationStateError(
                 'The conversation has no reviewed interpretation.'
             )
-        intent = pending_payload_to_intent(
-            conversation.pending_intent,
-            source_text=cls._combined_user_text(conversation),
-        )
+        intent = cls._pending_intent(conversation, user)
         resolution = resolve_intent(
             user,
             intent,
@@ -320,7 +321,7 @@ class PayPlanConversationService:
                 resolution.message
                 or 'The request needs clarification before a draft can be created.'
             )
-        effective_date = date.fromisoformat(conversation.context['effective_date'])
+        effective_date = cls._effective_date(conversation, user)
         change_request = create_draft_from_intent(
             user,
             intent,
@@ -388,21 +389,11 @@ class PayPlanConversationService:
             user=user,
             conversation=conversation,
         )
-        try:
-            intent = gateway.interpret(
-                request_text,
-                effective_date=effective_date,
-                prior_turns=prior_turns,
-            )
-        except Exception as exc:
-            cls._clear_processing(
-                user,
-                conversation.conversation_key,
-                processing_token,
-            )
-            raise ConversationStateError(
-                'The request could not be interpreted. Try again or start over.'
-            ) from exc
+        intent = gateway.interpret(
+            request_text,
+            effective_date=effective_date,
+            prior_turns=prior_turns,
+        )
         if previous_intent is not None:
             intent = merge_intents(previous_intent, intent)
 
@@ -453,10 +444,7 @@ class PayPlanConversationService:
         cls._assert_open_and_current(conversation, user)
         cls._assert_not_processing(conversation)
         cls._assert_turn_capacity(conversation, additional=2)
-        current_intent = pending_payload_to_intent(
-            conversation.pending_intent,
-            source_text=cls._combined_user_text(conversation),
-        )
+        current_intent = cls._pending_intent(conversation, user)
         candidates = resolve_intent(user, current_intent).intent.candidate_targets
         try:
             candidate = candidates[int(candidate_index)]
@@ -597,10 +585,7 @@ class PayPlanConversationService:
                 raise ConversationStateError(
                     'The earlier submission did not finish. Start over to retry.'
                 )
-            intent = pending_payload_to_intent(
-                conversation.pending_intent,
-                source_text=cls._combined_user_text(conversation),
-            )
+            intent = cls._pending_intent(conversation, user)
             resolution = resolve_intent(
                 user,
                 intent,
@@ -614,6 +599,41 @@ class PayPlanConversationService:
             raise ConversationStateError(
                 'Another submission is being processed. Resume shortly.'
             )
+
+    @classmethod
+    def _pending_intent(cls, conversation, user):
+        try:
+            return pending_payload_to_intent(
+                conversation.pending_intent,
+                source_text=cls._combined_user_text(conversation),
+            )
+        except ValidationError as exc:
+            _log_sanitized_exception(
+                'Invalid saved pay-plan assistant intent.', exc,
+            )
+            raise ConversationStateError(
+                'The saved assistant state is invalid. Start over to make a '
+                'new request. No draft was created.'
+            ) from exc
+
+    @staticmethod
+    def _effective_date(conversation, user):
+        try:
+            context = conversation.context
+            if not isinstance(context, dict):
+                raise TypeError('Conversation context must be an object.')
+            value = context['effective_date']
+            if not isinstance(value, str):
+                raise TypeError('Effective date must be text.')
+            return date.fromisoformat(value)
+        except (KeyError, TypeError, ValueError) as exc:
+            _log_sanitized_exception(
+                'Invalid saved pay-plan assistant effective date.', exc,
+            )
+            raise ConversationStateError(
+                'The saved assistant date is invalid. Start over to make a '
+                'new request. No draft was created.'
+            ) from exc
 
     @classmethod
     def _begin_processing(cls, conversation):
@@ -801,6 +821,11 @@ def pending_payload_to_intent(payload, *, source_text):
             if payload.get('effective_date') else None
         )
         confidence = Decimal(str(payload.get('confidence', '0')))
+        amount = _optional_decimal(payload.get('amount'))
+        percentage = _optional_decimal(payload.get('percentage'))
+        unit_threshold = _optional_decimal(payload.get('unit_threshold'))
+        current_value = _optional_decimal(payload.get('current_value'))
+        new_value = _optional_decimal(payload.get('new_value'))
     except (InvalidOperation, TypeError, ValueError) as exc:
         raise ValidationError('Stored pending intent values are invalid.') from exc
     return PayPlanIntent(
@@ -808,11 +833,11 @@ def pending_payload_to_intent(payload, *, source_text):
         action=action,
         target_type=target_type,
         target_scope=target_scope,
-        amount=_optional_decimal(payload.get('amount')),
-        percentage=_optional_decimal(payload.get('percentage')),
-        unit_threshold=_optional_decimal(payload.get('unit_threshold')),
-        current_value=_optional_decimal(payload.get('current_value')),
-        new_value=_optional_decimal(payload.get('new_value')),
+        amount=amount,
+        percentage=percentage,
+        unit_threshold=unit_threshold,
+        current_value=current_value,
+        new_value=new_value,
         conditions=tuple(conditions),
         effective_date=effective_date,
         confidence=confidence,

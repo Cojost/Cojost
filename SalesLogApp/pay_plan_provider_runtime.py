@@ -5,6 +5,7 @@ import hashlib
 import hmac
 
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.utils import timezone
 
@@ -97,7 +98,10 @@ class ProviderUsageRecorder:
     def authorize_provider_attempt(self, configuration):
         if not stable_rollout_eligible(self.user, configuration):
             return ProviderAuthorization(False, 'rollout_excluded')
-        type(self.user).objects.select_for_update().get(pk=self.user.pk)
+        # AuthenticationMiddleware exposes request.user through a
+        # SimpleLazyObject. Lock the configured user model rather than the
+        # proxy's Python type so the production request path is supported.
+        get_user_model().objects.select_for_update().get(pk=self.user.pk)
         attempts = PayPlanAssistantUsageEvent.objects.filter(
             user=self.user,
             route=PayPlanAssistantUsageEvent.PROVIDER,

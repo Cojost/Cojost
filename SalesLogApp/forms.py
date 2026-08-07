@@ -1076,6 +1076,12 @@ class AvatarForm(forms.ModelForm):
             ),
         }
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance.pk and not self.instance.avatar_available:
+            # ClearableFileInput otherwise links to a stale database path.
+            self.initial['avatar'] = None
+
     def clean_avatar(self):
         upload = self.cleaned_data.get('avatar')
         if not upload:
