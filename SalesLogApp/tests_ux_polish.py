@@ -51,6 +51,15 @@ class DashboardUxPolishTests(TestCase):
         values.update(overrides)
         return Sale.objects.create(**values)
 
+    def test_dashboard_subtitle_uses_uncorrupted_apostrophe(self):
+        response = self.client.get(reverse('view_sales'))
+
+        self.assertContains(
+            response,
+            'Manage deals and review each deal&rsquo;s estimated commission.',
+        )
+        self.assertNotContains(response, 'dealâ€™s')
+
     def enable_new_engine(self):
         profile = self.user.sales_profile
         profile.commission_system = UserProfile.PAY_PLAN_V2

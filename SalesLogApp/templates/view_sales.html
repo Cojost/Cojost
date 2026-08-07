@@ -2,7 +2,7 @@
 {% block title %}Dashboard{% endblock %}
 {% block page_class %}dashboard-page{% endblock %}
 {% block content %}
-{% include "components/_page_header.html" with heading="Dashboard" description="Manage deals and review each dealâ€™s estimated commission." %}
+{% include "components/_page_header.html" with heading="Dashboard" description="Manage deals and review each deal&rsquo;s estimated commission." %}
 <form method="get" class="card compact-form"><label for="sales-month">Sales month</label><input id="sales-month" type="month" name="month" value="{{ selected_month|date:'Y-m' }}"><button class="button button-secondary" type="submit">View month</button></form>
 {% if sales %}<section class="card" aria-labelledby="commission-totals-heading"><h2 id="commission-totals-heading">Commission totals</h2><div class="metric-grid"><div><span>Unit credit</span><strong>{{ total_count|floatformat:1 }}</strong></div><div><span>Front-end commission</span><strong>${{ total_front_end|floatformat:2 }}</strong></div><div><span>Back-end commission</span><strong>${{ total_back_end|floatformat:2 }}</strong></div><div><span>Current bonus</span><strong>${{ total_bonus|floatformat:2 }}</strong></div>{% if total_adjustments %}<div><span>Adjustments</span><strong>${{ total_adjustments|floatformat:2 }}</strong></div>{% endif %}<div><span>Estimated total commission</span><strong>${{ total_commission|floatformat:2 }}</strong></div></div></section>{% endif %}
 <section class="card" aria-labelledby="sales-log-heading">

@@ -65,7 +65,7 @@ class FrontGrossPercentageEvaluator(BaseEvaluator):
             return self.build_line_item(Decimal('0.00'), self.category, False, f'{gross_field} is missing.')
         gross = Decimal(str(gross))
         pack = validate_decimal(self.configuration.get('pack_amount', 0), 'pack_amount')
-        commissionable = max(gross - pack, Decimal('0'))
+        commissionable = gross - pack
         amount = commissionable * rate
         item = self.build_line_item(
             amount, self.category, True,
@@ -126,7 +126,7 @@ class ProgressiveUnitPositionPercentageEvaluator(BaseEvaluator):
         if selected is None:
             raise CalculationError(f'No progressive tier contains unit position {after}.')
         rate = normalize_percentage_rate(selected['rate'])
-        commissionable = max(gross - pack, Decimal('0'))
+        commissionable = gross - pack
         amount = commissionable * rate
         item = self.build_line_item(
             amount, self.category, True,
