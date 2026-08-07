@@ -1,11 +1,12 @@
 import os
 from datetime import timedelta
 from decimal import Decimal
+from unittest import skipUnless
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -110,6 +111,86 @@ class Phase1DConversationTests(TestCase):
                     content='duplicate sequence',
                     sequence=1,
                 )
+
+    def test_owned_lock_targets_only_the_conversation_row(self):
+        conversation_key = 'base-row-lock-target'
+        expected = object()
+        with patch.object(
+            PayPlanConversation.objects, 'select_related',
+        ) as select_related:
+            filtered = select_related.return_value.filter.return_value
+            locked = filtered.select_for_update.return_value
+            locked.get.return_value = expected
+
+            result = PayPlanConversationService._owned(
+                conversation_key,
+                self.user,
+                for_update=True,
+            )
+
+        self.assertIs(result, expected)
+        select_related.assert_called_once_with('plan_version__pay_plan')
+        select_related.return_value.filter.assert_called_once_with(
+            user=self.user,
+            conversation_key=conversation_key,
+        )
+        filtered.select_for_update.assert_called_once_with(of=('self',))
+
+    def test_owned_lock_loads_nullable_plan_relationships_and_is_owner_scoped(self):
+        conversations = (
+            PayPlanConversation.objects.create(
+                user=self.user,
+                plan_version=self.version,
+                conversation_key='conversation-with-plan',
+            ),
+            PayPlanConversation.objects.create(
+                user=self.user,
+                plan_version=None,
+                conversation_key='conversation-without-plan',
+            ),
+        )
+
+        for conversation in conversations:
+            with self.subTest(plan_version_id=conversation.plan_version_id):
+                locked = PayPlanConversationService._owned(
+                    conversation.conversation_key,
+                    self.user,
+                    for_update=True,
+                )
+                self.assertEqual(locked.pk, conversation.pk)
+                self.assertIn('plan_version', locked._state.fields_cache)
+                if locked.plan_version is not None:
+                    self.assertIn(
+                        'pay_plan',
+                        locked.plan_version._state.fields_cache,
+                    )
+
+                with self.assertRaises(ObjectDoesNotExist):
+                    PayPlanConversationService._owned(
+                        conversation.conversation_key,
+                        self.other,
+                        for_update=True,
+                    )
+
+    @skipUnless(
+        connection.vendor == 'postgresql',
+        'PostgreSQL is required for the nullable outer-join locking regression.',
+    )
+    def test_postgresql_lock_allows_null_plan_version(self):
+        conversation = PayPlanConversation.objects.create(
+            user=self.user,
+            plan_version=None,
+            conversation_key='postgresql-null-plan-lock',
+        )
+
+        locked = PayPlanConversationService._owned(
+            conversation.conversation_key,
+            self.user,
+            for_update=True,
+        )
+
+        self.assertEqual(locked.pk, conversation.pk)
+        self.assertIsNone(locked.plan_version)
 
     def test_conversation_and_all_actions_are_owner_scoped(self):
         conversation = self.start().conversation

@@ -666,7 +666,7 @@ class PayPlanConversationService:
             'plan_version__pay_plan',
         ).filter(user=user, conversation_key=conversation_key)
         if for_update:
-            queryset = queryset.select_for_update()
+            queryset = queryset.select_for_update(of=('self',))
         try:
             return queryset.get()
         except PayPlanConversation.DoesNotExist as exc:
