@@ -13,8 +13,9 @@ and operational checklist below have been completed.
 - Teams are invitation-only. There is no directory, global ranking, direct
   messaging, or discovery endpoint.
 - A user with a Pro entitlement may create and own one active team.
-- An owner or admin may invite a registered user. An invited Basic user may
-  accept or decline and participate in one team.
+- An owner or admin may invite an email address, including someone who has not
+  registered yet. An invited Basic user may accept or decline and participate
+  in one team after verifying that exact address.
 - Membership is modeled per team, so a future multiple-team policy does not
   require replacing the schema. The one-active-team policy is enforced in the
   transactional service layer today.
@@ -58,12 +59,14 @@ Member email is not used as a display fallback. Existing avatar files remain
 owner-protected, so Phase 2A uses an initial rather than exposing another
 profile's protected avatar URL.
 
-The following are prohibited from team templates, projections, forms, URLs,
+The following are prohibited from team templates, projections, URLs, activity
 messages, aggregates, and application logs: customer and sale notes, deal
 number, vehicle details, front/back gross, commission amount or breakdown,
 adjustments, pay plans and rules, uploaded documents, assistant conversations,
-private goals, email (unless a later explicit display-identity feature is
-added), and internal sale ownership links.
+private goals, member email used as a public display identity, and internal sale
+ownership links. An intended recipient's email is accepted by the
+management-only invitation form, shown only in the management-only pending
+invitation list, and used only to deliver and authorize that invitation.
 
 Totals query only `Sale.user_id`, `Sale.date`, and `Sum(Sale.count)`. No gross,
 commission, customer, or deal field is selected or cached. Team code does not
@@ -78,9 +81,10 @@ change a Sale, its owner, or any commission calculation.
   and sharing preference. A database constraint permits only one row per
   team/user; the current one-team policy remains a service rule for future
   schema flexibility.
-- `TeamInvitation` stores the intended registered user, optional verified-email
-  constraint, token HMAC digest, non-sensitive prefix, expiry, creator, and
-  acceptance/revocation audit timestamps.
+- `TeamInvitation` stores the normalized intended email, an optional user
+  binding for recipients who already have a verified account, token HMAC
+  digest, non-sensitive prefix, expiry, creator, and acceptance/revocation audit
+  timestamps.
 - `TeamActivity` contains only safe activity fields plus an internal nullable
   one-to-one sale link. Sale deletion safely withdraws the record before the
   link is cleared.
@@ -96,15 +100,21 @@ Plan, document, assistant record, member history, comment, or reaction.
 ## Invitation lifecycle
 
 Invitation codes use `secrets.token_urlsafe(32)`. Only an HMAC-SHA256 digest and
-the first ten non-sensitive characters are stored. The complete code is shown
-to the inviter once through the session and is submitted by the recipient in a
-CSRF-protected POST body. It is never put in a URL or written by application
-logging.
+the first ten non-sensitive characters are stored. The complete code is emailed
+to the intended address and shown to the inviter once through the session as a
+backup. It is submitted by the recipient in a CSRF-protected POST body, never
+put in a URL, and never written by application logging. The email contains only
+generic registration, sign-in, and Teams links, so forwarding a URL cannot
+transfer the secret.
 
-The authenticated recipient must match the intended user. If an email was
-specified, django-allauth must report it as verified both when the invitation
-is created and when it is accepted. Acceptance locks the invitation, recipient
-user, team, and membership in a transaction. This serializes concurrent
+The signup form requires a unique email address. General beta access currently
+uses optional allauth verification to avoid locking out existing unverified
+accounts, but accepting a Team invitation always requires allauth to report the
+invited address as verified. A recipient may therefore be invited before an
+account exists; the invitation is bound to that user only during acceptance.
+Delivery failure rolls back both the invitation and any pending membership.
+Acceptance locks the invitation, recipient user, team, and membership in a
+transaction. This serializes concurrent
 acceptances—including different invitations for the same user—and database
 uniqueness prevents duplicate team membership. Expired, revoked, accepted,
 wrong-user, and unverifiable-email codes return 404. Accepting is one-time;
@@ -158,7 +168,9 @@ per page.
 
 ## Rollout and operations
 
-1. Keep `TEAMS_FEATURE_ENABLED=false` while deploying migration 0053.
+1. Keep `TEAMS_FEATURE_ENABLED=false` while deploying migrations 0053 and
+   0055. Migration 0055 permits an invitation to exist before its recipient
+   registers; it does not delete or rewrite existing invitations.
 2. Verify the migration on a non-production copy and confirm rollback/runbook
    ownership. Disabling the flag is the immediate application-level shutoff;
    do not reverse the migration during an incident.
@@ -186,7 +198,8 @@ a dedicated event-key design; generating them now would risk duplicate or
 historically unauthorized posts. A later Teams phase should add those keys and
 privacy tests before enabling milestones.
 
-Also deferred are notification delivery, an explicit public display-identity
-setting, multiple-team product policy, richer audit operations, and the broader
-Basic/Pro feature split. Checkout/webhook infrastructure now exists but remains
-disabled pending the separate billing rollout runbook.
+Also deferred are broader Teams activity notifications, an explicit public
+display-identity setting, multiple-team product policy, richer audit operations,
+and the broader Basic/Pro feature split. Invitation email delivery is included;
+Checkout/webhook infrastructure now exists but remains disabled pending the
+separate billing rollout runbook.

@@ -387,6 +387,17 @@ LOGIN_REDIRECT_URL = '/SalesLogApp/pay-plan/setup/'
 
 # settings.py
 ACCOUNT_LOGIN_REDIRECT_URL = '/SalesLogApp/pay-plan/setup/'
+# Email is the stable identity boundary for account recovery and Teams
+# invitations. Verification remains optional for general beta access, but a
+# verified address is required before an emailed Team invitation can be used.
+ACCOUNT_SIGNUP_FIELDS = [
+    'username*',
+    'email*',
+    'password1*',
+    'password2*',
+]
+ACCOUNT_UNIQUE_EMAIL = True
+ACCOUNT_EMAIL_VERIFICATION = 'optional'
 
 # Email
 EMAIL_BACKEND = os.getenv(

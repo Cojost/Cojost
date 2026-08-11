@@ -154,7 +154,9 @@ class TeamInvitation(models.Model):
     )
     intended_user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
         related_name='sales_team_invitations',
     )
     intended_email = models.EmailField(blank=True)

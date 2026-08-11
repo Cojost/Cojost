@@ -24,9 +24,11 @@ from .models import (
     TeamReaction,
 )
 from .team_services import (
+    InvitationDeliveryError,
     accept_invitation,
     build_feed_queryset,
     build_month_totals,
+    create_and_email_invitation,
     create_invitation,
     create_team,
     project_activity,
@@ -70,14 +72,24 @@ class Phase2ATeamsTests(TestCase):
     def setUp(self):
         user_model = get_user_model()
         self.owner = user_model.objects.create_user(
-            username='owner', password='pass', first_name='Olivia', last_name='Owner'
+            username='owner', email='owner@example.com', password='pass',
+            first_name='Olivia', last_name='Owner'
         )
         self.member = user_model.objects.create_user(
-            username='member', password='pass', first_name='Mina', last_name='Member'
+            username='member', email='member@example.com', password='pass',
+            first_name='Mina', last_name='Member'
         )
         self.outsider = user_model.objects.create_user(
-            username='outsider', password='pass', first_name='Otto', last_name='Outside'
+            username='outsider', email='outside@example.com', password='pass',
+            first_name='Otto', last_name='Outside'
         )
+        for user in (self.owner, self.member, self.outsider):
+            EmailAddress.objects.create(
+                user=user,
+                email=user.email,
+                verified=True,
+                primary=True,
+            )
         self.entitlement_override = override_settings(
             TEAMS_FOUNDER_USER_IDS=[str(self.owner.pk)]
         )
@@ -140,7 +152,9 @@ class Phase2ATeamsTests(TestCase):
         self.assertTrue(get_team_entitlement(self.owner).has_pro_access)
         self.login(self.outsider)
         self.assertEqual(self.client.get(reverse('team_create')).status_code, 403)
-        invitation, raw = create_invitation(self.owner_membership, self.outsider)
+        invitation, raw = create_invitation(
+            self.owner_membership, self.outsider.email
+        )
         response = self.client.post(reverse('team_invitation_accept'), {
             'invitation_code': raw,
             'action': 'accept',
@@ -153,7 +167,9 @@ class Phase2ATeamsTests(TestCase):
         ).exists())
 
     def test_invited_user_can_decline(self):
-        invitation, raw = create_invitation(self.owner_membership, self.outsider)
+        invitation, raw = create_invitation(
+            self.owner_membership, self.outsider.email
+        )
         self.login(self.outsider)
         response = self.client.post(reverse('team_invitation_accept'), {
             'invitation_code': raw,
@@ -176,7 +192,9 @@ class Phase2ATeamsTests(TestCase):
             )
 
     def test_invitation_stores_digest_only_and_is_intended_user_only(self):
-        invitation, raw = create_invitation(self.owner_membership, self.outsider)
+        invitation, raw = create_invitation(
+            self.owner_membership, self.outsider.email
+        )
         self.assertNotEqual(invitation.token_digest, raw)
         self.assertNotIn(raw, invitation.token_digest)
         self.assertEqual(invitation.token_prefix, raw[:10])
@@ -187,23 +205,120 @@ class Phase2ATeamsTests(TestCase):
         })
         self.assertEqual(response.status_code, 404)
 
-    def test_invitation_requires_verified_intended_email(self):
-        EmailAddress.objects.create(
-            user=self.outsider, email='outside@example.com', verified=False, primary=True
-        )
-        with self.assertRaises(ValidationError):
-            create_invitation(
-                self.owner_membership, self.outsider, 'outside@example.com'
-            )
-        EmailAddress.objects.filter(user=self.outsider).update(verified=True)
+    def test_invitation_requires_verification_at_acceptance(self):
+        EmailAddress.objects.filter(user=self.outsider).update(verified=False)
         invitation, raw = create_invitation(
-            self.owner_membership, self.outsider, 'outside@example.com'
+            self.owner_membership, self.outsider.email
         )
-        self.assertTrue(raw)
-        self.assertEqual(invitation.intended_email, 'outside@example.com')
+        self.assertIsNone(invitation.intended_user)
+        self.login(self.outsider)
+        self.assertEqual(self.client.post(reverse('team_invitation_accept'), {
+            'invitation_code': raw,
+            'action': 'accept',
+        }).status_code, 404)
+        EmailAddress.objects.filter(user=self.outsider).update(verified=True)
+        self.assertEqual(self.client.post(reverse('team_invitation_accept'), {
+            'invitation_code': raw,
+            'action': 'accept',
+        }).status_code, 302)
+        invitation.refresh_from_db()
+        self.assertEqual(invitation.intended_user, self.outsider)
+
+    @patch('SalesLogApp.team_services.send_mail', return_value=1)
+    def test_invite_view_emails_unregistered_recipient_without_code_in_url(
+        self, send_mail
+    ):
+        self.login(self.owner)
+        response = self.client.post(
+            reverse('team_invite', args=[self.team.public_id]),
+            {'intended_email': 'New.Person@Example.com'},
+        )
+        self.assertEqual(response.status_code, 302)
+        invitation = TeamInvitation.objects.get(
+            team=self.team,
+            intended_email='new.person@example.com',
+        )
+        self.assertIsNone(invitation.intended_user)
+        raw_code = self.client.session['team_invitation_once']['code']
+        mail = send_mail.call_args.kwargs
+        self.assertEqual(mail['recipient_list'], ['new.person@example.com'])
+        self.assertIn('http://testserver/accounts/signup/', mail['message'])
+        self.assertIn('http://testserver/accounts/login/', mail['message'])
+        self.assertIn('http://testserver/SalesLogApp/teams/invitations/', mail['message'])
+        self.assertIn(raw_code, mail['message'])
+        for line in mail['message'].splitlines():
+            if line.startswith(('http://', 'https://')):
+                self.assertNotIn(raw_code, line)
+
+    @patch('SalesLogApp.team_services.send_mail', return_value=1)
+    def test_admin_can_send_an_email_invitation(self, send_mail):
+        self.member_membership.role = TeamMembership.ADMIN
+        self.member_membership.save(update_fields=['role', 'updated_at'])
+        self.login(self.member)
+
+        response = self.client.post(
+            reverse('team_invite', args=[self.team.public_id]),
+            {'intended_email': 'admin.invitee@example.com'},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        invitation = TeamInvitation.objects.get(
+            team=self.team,
+            intended_email='admin.invitee@example.com',
+        )
+        self.assertEqual(invitation.created_by, self.member)
+        self.assertEqual(
+            send_mail.call_args.kwargs['recipient_list'],
+            ['admin.invitee@example.com'],
+        )
+
+    def test_unregistered_recipient_can_verify_and_accept(self):
+        invitation, raw = create_invitation(
+            self.owner_membership,
+            'future.member@example.com',
+        )
+        self.assertIsNone(invitation.intended_user)
+        future_member = get_user_model().objects.create_user(
+            username='future-member',
+            email='future.member@example.com',
+            password='pass',
+        )
+        EmailAddress.objects.create(
+            user=future_member,
+            email=future_member.email,
+            verified=True,
+            primary=True,
+        )
+        self.assertTrue(can_use_teams(future_member))
+        membership = accept_invitation(raw, future_member)
+        invitation.refresh_from_db()
+        self.assertEqual(invitation.intended_user, future_member)
+        self.assertEqual(invitation.accepted_by, future_member)
+        self.assertEqual(membership.status, TeamMembership.ACTIVE)
+
+    @patch('SalesLogApp.team_services.send_mail', side_effect=OSError('offline'))
+    def test_email_failure_rolls_back_invitation_and_membership(self, _send_mail):
+        with self.assertRaises(InvitationDeliveryError):
+            create_and_email_invitation(
+                self.owner_membership,
+                self.outsider.email,
+                signup_url='https://example.test/accounts/signup/',
+                login_url='https://example.test/accounts/login/',
+                teams_url='https://example.test/SalesLogApp/teams/invitations/',
+            )
+        self.assertFalse(TeamInvitation.objects.filter(
+            team=self.team,
+            intended_email=self.outsider.email,
+        ).exists())
+        self.assertFalse(TeamMembership.objects.filter(
+            team=self.team,
+            user=self.outsider,
+        ).exists())
 
     def test_expired_revoked_and_replayed_invitations_are_rejected(self):
-        invitation, raw = create_invitation(self.owner_membership, self.outsider)
+        invitation, raw = create_invitation(
+            self.owner_membership, self.outsider.email
+        )
         invitation.expires_at = timezone.now() - timedelta(seconds=1)
         invitation.save(update_fields=['expires_at'])
         self.login(self.outsider)
@@ -211,14 +326,18 @@ class Phase2ATeamsTests(TestCase):
             'invitation_code': raw, 'action': 'accept'
         }).status_code, 404)
 
-        invitation, raw = create_invitation(self.owner_membership, self.outsider)
+        invitation, raw = create_invitation(
+            self.owner_membership, self.outsider.email
+        )
         invitation.revoked_at = timezone.now()
         invitation.save(update_fields=['revoked_at'])
         self.assertEqual(self.client.post(reverse('team_invitation_accept'), {
             'invitation_code': raw, 'action': 'accept'
         }).status_code, 404)
 
-        invitation, raw = create_invitation(self.owner_membership, self.outsider)
+        invitation, raw = create_invitation(
+            self.owner_membership, self.outsider.email
+        )
         self.assertEqual(self.client.post(reverse('team_invitation_accept'), {
             'invitation_code': raw, 'action': 'accept'
         }).status_code, 302)
@@ -230,11 +349,9 @@ class Phase2ATeamsTests(TestCase):
         ).count(), 1)
 
     def test_verified_email_is_rechecked_during_acceptance(self):
-        address = EmailAddress.objects.create(
-            user=self.outsider, email='verified@example.com', verified=True
-        )
+        address = EmailAddress.objects.get(user=self.outsider)
         invitation, raw = create_invitation(
-            self.owner_membership, self.outsider, address.email
+            self.owner_membership, address.email
         )
         address.verified = False
         address.save(update_fields=['verified'])
@@ -261,10 +378,10 @@ class Phase2ATeamsTests(TestCase):
                 team=other_team, user=other_owner
             )
             _, first_raw = create_invitation(
-                self.owner_membership, self.outsider
+                self.owner_membership, self.outsider.email
             )
             second_invitation, second_raw = create_invitation(
-                other_owner_membership, self.outsider
+                other_owner_membership, self.outsider.email
             )
             accept_invitation(first_raw, self.outsider)
             with self.assertRaises(ValidationError):

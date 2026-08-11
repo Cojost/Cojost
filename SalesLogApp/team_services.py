@@ -10,6 +10,8 @@ from allauth.account.models import EmailAddress
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.core.mail import send_mail
+from django.core.validators import validate_email
 from django.db import transaction
 from django.db.models import Prefetch, Q, Sum
 from django.http import Http404
@@ -34,6 +36,10 @@ REACTION_EMOJI = {
     TeamReaction.STRONG_WORK: '💪',
     TeamReaction.GREAT_JOB: '⭐',
 }
+
+
+class InvitationDeliveryError(Exception):
+    """Raised when an invitation cannot be delivered without leaking details."""
 
 
 @dataclass(frozen=True)
@@ -219,46 +225,63 @@ def _token_digest(raw_token):
 
 
 @transaction.atomic
-def create_invitation(membership, intended_user, intended_email=''):
+def create_invitation(membership, intended_email):
     require_management(membership)
     team = Team.objects.select_for_update().get(pk=membership.team_id)
     if not team.is_active:
         raise Http404('Team not found.')
-    if intended_user.pk == team.owner_id:
+    normalized_email = intended_email.strip().lower()
+    if not normalized_email:
+        raise ValidationError('Enter an email address.')
+    validate_email(normalized_email)
+
+    verified_address = (
+        EmailAddress.objects.select_related('user')
+        .filter(
+            email__iexact=normalized_email,
+            verified=True,
+        )
+        .order_by('pk')
+        .first()
+    )
+    intended_user = verified_address.user if verified_address else None
+    if intended_user and intended_user.pk == team.owner_id:
         raise ValidationError('That account already belongs to this team.')
-    if TeamMembership.objects.select_for_update().filter(
+    if intended_user and TeamMembership.objects.select_for_update().filter(
         user=intended_user,
         status=TeamMembership.ACTIVE,
         team__is_active=True,
     ).exists():
         raise ValidationError('That account already belongs to a team.')
 
-    normalized_email = intended_email.strip().lower()
-    if normalized_email and not EmailAddress.objects.filter(
+    if intended_user and not EmailAddress.objects.filter(
         user=intended_user,
         email__iexact=normalized_email,
         verified=True,
     ).exists():
         raise ValidationError('Use a verified email address for that account.')
 
-    pending_membership, _ = TeamMembership.objects.get_or_create(
-        team=team,
-        user=intended_user,
-        defaults={
-            'role': TeamMembership.MEMBER,
-            'status': TeamMembership.INVITED,
-        },
-    )
-    if pending_membership.status == TeamMembership.ACTIVE:
-        raise ValidationError('That account already belongs to this team.')
-    pending_membership.role = TeamMembership.MEMBER
-    pending_membership.status = TeamMembership.INVITED
-    pending_membership.joined_at = None
-    pending_membership.save(update_fields=['role', 'status', 'joined_at', 'updated_at'])
+    if intended_user:
+        pending_membership, _ = TeamMembership.objects.get_or_create(
+            team=team,
+            user=intended_user,
+            defaults={
+                'role': TeamMembership.MEMBER,
+                'status': TeamMembership.INVITED,
+            },
+        )
+        if pending_membership.status == TeamMembership.ACTIVE:
+            raise ValidationError('That account already belongs to this team.')
+        pending_membership.role = TeamMembership.MEMBER
+        pending_membership.status = TeamMembership.INVITED
+        pending_membership.joined_at = None
+        pending_membership.save(
+            update_fields=['role', 'status', 'joined_at', 'updated_at']
+        )
 
     TeamInvitation.objects.filter(
         team=team,
-        intended_user=intended_user,
+        intended_email__iexact=normalized_email,
         accepted_at__isnull=True,
         revoked_at__isnull=True,
     ).update(revoked_at=timezone.now())
@@ -275,6 +298,60 @@ def create_invitation(membership, intended_user, intended_email=''):
     return invitation, raw_token
 
 
+def _invitation_email_body(
+    *, team, inviter_name, raw_token, signup_url, login_url, teams_url
+):
+    return (
+        f'{inviter_name} invited you to join {team.name} on STEW Log.\n\n'
+        'If you do not have an account, register here:\n'
+        f'{signup_url}\n\n'
+        'If you already have an account, sign in here:\n'
+        f'{login_url}\n\n'
+        'Verify this email address, then open Teams and enter the one-time '
+        'invitation code below. The code is intentionally not included in a URL.\n\n'
+        f'Invitation code: {raw_token}\n\n'
+        f'Teams: {teams_url}\n\n'
+        'This invitation expires automatically. If you were not expecting it, '
+        'you can ignore this email.'
+    )
+
+
+@transaction.atomic
+def create_and_email_invitation(
+    membership,
+    intended_email,
+    *,
+    signup_url,
+    login_url,
+    teams_url,
+):
+    invitation, raw_token = create_invitation(membership, intended_email)
+    try:
+        sent = send_mail(
+            subject=f'Invitation to join {invitation.team.name} on STEW Log',
+            message=_invitation_email_body(
+                team=invitation.team,
+                inviter_name=safe_display_name(membership.user),
+                raw_token=raw_token,
+                signup_url=signup_url,
+                login_url=login_url,
+                teams_url=teams_url,
+            ),
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[invitation.intended_email],
+            fail_silently=False,
+        )
+    except Exception as exc:
+        raise InvitationDeliveryError(
+            'The invitation email could not be sent. No invitation was created.'
+        ) from exc
+    if sent != 1:
+        raise InvitationDeliveryError(
+            'The invitation email could not be sent. No invitation was created.'
+        )
+    return invitation, raw_token
+
+
 def invitation_for_user_or_404(raw_token, user, *, lock=False):
     queryset = TeamInvitation.objects.select_related('team', 'intended_user')
     if lock:
@@ -286,10 +363,14 @@ def invitation_for_user_or_404(raw_token, user, *, lock=False):
     now = timezone.now()
     if (
         not invitation.team.is_active
-        or invitation.intended_user_id != user.pk
         or invitation.revoked_at is not None
         or invitation.accepted_at is not None
         or invitation.expires_at <= now
+    ):
+        raise Http404('Invitation not found.')
+    if (
+        invitation.intended_user_id is not None
+        and invitation.intended_user_id != user.pk
     ):
         raise Http404('Invitation not found.')
     if invitation.intended_email and not EmailAddress.objects.filter(
@@ -312,22 +393,29 @@ def accept_invitation(raw_token, user):
         team__is_active=True,
     ).exclude(team=invitation.team).exists():
         raise ValidationError('Leave your current team before joining another one.')
-    membership = TeamMembership.objects.select_for_update().get(
+    membership, _ = TeamMembership.objects.select_for_update().get_or_create(
         team=invitation.team,
         user=user,
+        defaults={
+            'role': TeamMembership.MEMBER,
+            'status': TeamMembership.INVITED,
+        },
     )
     membership.status = TeamMembership.ACTIVE
     membership.role = TeamMembership.MEMBER
     membership.joined_at = timezone.now()
     membership.save(update_fields=['status', 'role', 'joined_at', 'updated_at'])
+    invitation.intended_user = user
     invitation.accepted_by = user
     invitation.accepted_at = timezone.now()
-    invitation.save(update_fields=['accepted_by', 'accepted_at'])
+    invitation.save(update_fields=['intended_user', 'accepted_by', 'accepted_at'])
     TeamInvitation.objects.filter(
         team=invitation.team,
-        intended_user=user,
         accepted_at__isnull=True,
         revoked_at__isnull=True,
+    ).filter(
+        Q(intended_user=user)
+        | Q(intended_email__iexact=invitation.intended_email)
     ).exclude(pk=invitation.pk).update(revoked_at=timezone.now())
     return membership
 
@@ -335,8 +423,9 @@ def accept_invitation(raw_token, user):
 @transaction.atomic
 def decline_invitation(raw_token, user):
     invitation = invitation_for_user_or_404(raw_token, user, lock=True)
+    invitation.intended_user = user
     invitation.revoked_at = timezone.now()
-    invitation.save(update_fields=['revoked_at'])
+    invitation.save(update_fields=['intended_user', 'revoked_at'])
     TeamMembership.objects.filter(
         team=invitation.team,
         user=user,
@@ -358,11 +447,12 @@ def revoke_invitation(actor_membership, invitation_public_id):
         raise Http404('Invitation not found.') from exc
     invitation.revoked_at = timezone.now()
     invitation.save(update_fields=['revoked_at'])
-    TeamMembership.objects.filter(
-        team=invitation.team,
-        user=invitation.intended_user,
-        status=TeamMembership.INVITED,
-    ).update(status=TeamMembership.REMOVED)
+    if invitation.intended_user_id:
+        TeamMembership.objects.filter(
+            team=invitation.team,
+            user=invitation.intended_user,
+            status=TeamMembership.INVITED,
+        ).update(status=TeamMembership.REMOVED)
 
 
 def sync_sale_activity(sale):
@@ -580,7 +670,11 @@ def pending_invitation_views(team):
     return tuple(
         InvitationView(
             public_id=invitation.public_id,
-            display_name=safe_display_name(invitation.intended_user),
+            display_name=(
+                safe_display_name(invitation.intended_user)
+                if invitation.intended_user is not None
+                else invitation.intended_email
+            ),
             token_prefix=invitation.token_prefix,
             expires_at=invitation.expires_at,
         )

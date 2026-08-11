@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 import uuid
 
+from allauth.account.models import EmailAddress
 from allauth.account.internal.flows.email_verification import (
     get_email_verification_url,
 )
@@ -183,6 +184,51 @@ class DeploymentConfigurationTests(SimpleTestCase):
 
 
 class LocalSignupTests(TestCase):
+    def test_allauth_signup_requires_a_unique_email_address(self):
+        self.assertIn('email*', settings.ACCOUNT_SIGNUP_FIELDS)
+        self.assertTrue(settings.ACCOUNT_UNIQUE_EMAIL)
+
+        response = self.client.post(
+            '/accounts/signup/',
+            {
+                'username': 'missing-email-user',
+                'password1': 'A-strong-local-test-password-482!',
+                'password2': 'A-strong-local-test-password-482!',
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'This field is required.')
+        self.assertFalse(
+            User.objects.filter(username='missing-email-user').exists()
+        )
+
+        existing = User.objects.create_user(
+            username='existing-email-user',
+            email='shared@example.com',
+            password='test-password',
+        )
+        EmailAddress.objects.create(
+            user=existing,
+            email=existing.email,
+            verified=True,
+            primary=True,
+        )
+        response = self.client.post(
+            '/accounts/signup/',
+            {
+                'username': 'duplicate-email-user',
+                'email': 'SHARED@example.com',
+                'password1': 'A-strong-local-test-password-482!',
+                'password2': 'A-strong-local-test-password-482!',
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(
+            User.objects.filter(username='duplicate-email-user').exists()
+        )
+
     def test_allauth_signup_uses_shared_header_and_logo(self):
         response = self.client.get('/accounts/signup/')
 

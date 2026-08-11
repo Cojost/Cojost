@@ -8,7 +8,7 @@
 </div>
 
 {% if show_owner_read_only %}<div class="notice notice-warning"><strong>Team management is read-only.</strong> Your future Pro entitlement is not active. Existing members, activity, comments, and reactions are preserved.</div>{% endif %}
-{% if one_time_invitation_code %}<div class="notice notice-success"><label for="invitation-code"><strong>Copy this invitation code now</strong></label><input id="invitation-code" class="team-copy-field" type="text" readonly value="{{ one_time_invitation_code }}"><p>This complete code is shown once, never placed in a URL, and is not stored in recoverable form.</p></div>{% endif %}
+{% if one_time_invitation_code %}<div class="notice notice-success"><label for="invitation-code"><strong>Invitation email sent</strong></label><input id="invitation-code" class="team-copy-field" type="text" readonly value="{{ one_time_invitation_code }}"><p>The complete code was emailed and is shown here once as a backup. It is never placed in a URL or stored in recoverable form.</p></div>{% endif %}
 
 <section class="card">
     <div class="team-section-heading"><div><h3>{{ month_start|date:"F Y" }} progress</h3><p>Authoritative totals from shared sale unit counts.</p></div><form method="get" class="compact-form"><label for="team-month">Month</label><input id="team-month" type="month" name="month" value="{{ month_start|date:'Y-m' }}"><button class="button button-secondary" type="submit">View</button></form></div>
@@ -41,7 +41,7 @@
 
 {% if can_manage %}
 <div class="team-columns">
-<section class="card"><h3>Invite a registered user</h3><form method="post" action="{% url 'team_invite' team.public_id %}" class="form-card team-inline-form">{% csrf_token %}{{ invite_form.as_p }}<button class="button button-primary" type="submit">Create invitation</button></form><p class="card-description">The private code is shown once. Share it directly with the intended person.</p></section>
+<section class="card"><h3>Invite by email</h3><form method="post" action="{% url 'team_invite' team.public_id %}" class="form-card team-inline-form">{% csrf_token %}{{ invite_form.as_p }}<button class="button button-primary" type="submit">Send invitation</button></form><p class="card-description">The recipient can register or sign in, verify this address, and enter the one-time code. Codes are never placed in URLs.</p></section>
 <section class="card"><h3>Pending invitations</h3><ul class="team-member-list">{% for invitation in pending_invitations %}<li><div><strong>{{ invitation.display_name }}</strong><br><span class="card-description">Code prefix {{ invitation.token_prefix }}… · expires {{ invitation.expires_at|date:"M j, Y" }}</span></div><form method="post" action="{% url 'team_invitation_revoke' team.public_id invitation.public_id %}">{% csrf_token %}<button class="button button-danger" type="submit">Revoke</button></form></li>{% empty %}<li>No pending invitations.</li>{% endfor %}</ul></section>
 </div>
 {% endif %}

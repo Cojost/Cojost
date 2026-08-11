@@ -61,7 +61,21 @@ def can_use_teams(user):
         return False
     if get_team_entitlement(user).has_pro_access:
         return True
+    from django.db.models import Q
+    from django.utils import timezone
+
+    from allauth.account.models import EmailAddress
+
     from .models import TeamInvitation, TeamMembership
+
+    verified_emails = tuple(
+        email.lower()
+        for email in EmailAddress.objects.filter(user=user, verified=True)
+        .values_list('email', flat=True)
+    )
+    invitation_identity = Q(intended_user=user)
+    if verified_emails:
+        invitation_identity |= Q(intended_email__in=verified_emails)
 
     return (
         TeamMembership.objects.filter(
@@ -70,8 +84,10 @@ def can_use_teams(user):
             team__is_active=True,
         ).exists()
         or TeamInvitation.objects.filter(
-            intended_user=user,
+            invitation_identity,
             accepted_at__isnull=True,
             revoked_at__isnull=True,
+            expires_at__gt=timezone.now(),
+            team__is_active=True,
         ).exists()
     )

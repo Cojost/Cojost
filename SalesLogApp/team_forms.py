@@ -1,7 +1,6 @@
 from zoneinfo import available_timezones
 
 from django import forms
-from django.contrib.auth import get_user_model
 
 from .models import Team, TeamComment, TeamMembership, TeamReaction
 
@@ -39,24 +38,16 @@ class TeamGoalForm(forms.ModelForm):
 
 
 class TeamInviteForm(forms.Form):
-    username = forms.CharField(max_length=150)
     intended_email = forms.EmailField(
-        required=False,
-        label='Verified email (optional)',
-        help_text='If supplied, the signed-in recipient must have verified this address.',
+        label='Email address',
+        help_text=(
+            'We will send a one-time invitation code and registration link. '
+            'The recipient must verify this exact address before joining.'
+        ),
     )
 
-    def clean_username(self):
-        username = self.cleaned_data['username'].strip()
-        user_model = get_user_model()
-        try:
-            self.intended_user = user_model.objects.get(username__iexact=username)
-        except user_model.DoesNotExist as exc:
-            raise forms.ValidationError('No eligible registered account was found.') from exc
-        return username
-
     def clean_intended_email(self):
-        return self.cleaned_data.get('intended_email', '').strip().lower()
+        return self.cleaned_data['intended_email'].strip().lower()
 
 
 class InvitationCodeForm(forms.Form):

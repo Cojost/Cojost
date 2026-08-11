@@ -7,6 +7,7 @@ from django.contrib.auth.views import redirect_to_login
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.paginator import Paginator
 from django.db import transaction
+from django.db.models import Q
 from django.http import Http404, HttpResponseBadRequest
 from django.shortcuts import redirect, render
 from django.urls import reverse
@@ -26,13 +27,14 @@ from .team_forms import (
     TeamSettingsForm,
 )
 from .team_services import (
+    InvitationDeliveryError,
     accept_invitation,
     active_membership_for_user,
     as_member_view,
     as_team_view,
     build_feed_queryset,
     build_month_totals,
-    create_invitation,
+    create_and_email_invitation,
     create_team,
     decline_invitation,
     get_team_membership_or_404,
@@ -65,8 +67,16 @@ def team_home(request):
     membership = active_membership_for_user(request.user)
     if membership:
         return redirect('team_detail', team_id=membership.team.public_id)
+    verified_emails = tuple(
+        email.lower()
+        for email in request.user.emailaddress_set.filter(verified=True)
+        .values_list('email', flat=True)
+    )
+    invitation_identity = Q(intended_user=request.user)
+    if verified_emails:
+        invitation_identity |= Q(intended_email__in=verified_emails)
     pending = TeamInvitation.objects.select_related('team', 'created_by').filter(
-        intended_user=request.user,
+        invitation_identity,
         accepted_at__isnull=True,
         revoked_at__isnull=True,
         expires_at__gt=timezone.now(),
@@ -220,13 +230,19 @@ def team_invite(request, team_id):
     form = TeamInviteForm(request.POST)
     if form.is_valid():
         try:
-            _, raw_token = create_invitation(
+            _, raw_token = create_and_email_invitation(
                 membership,
-                form.intended_user,
                 form.cleaned_data['intended_email'],
+                signup_url=request.build_absolute_uri(reverse('account_signup')),
+                login_url=request.build_absolute_uri(reverse('account_login')),
+                teams_url=request.build_absolute_uri(
+                    reverse('team_invitation_accept')
+                ),
             )
         except ValidationError as exc:
             messages.error(request, '; '.join(exc.messages))
+        except InvitationDeliveryError as exc:
+            messages.error(request, str(exc))
         else:
             request.session['team_invitation_once'] = {
                 'team': str(membership.team.public_id),
@@ -234,10 +250,10 @@ def team_invite(request, team_id):
             }
             messages.success(
                 request,
-                'Invitation created. Copy the code now; it is not stored in recoverable form.',
+                'Invitation email sent. The one-time code is also shown here as a backup.',
             )
     else:
-        messages.error(request, 'Enter an eligible registered username and valid optional email.')
+        messages.error(request, 'Enter a valid email address.')
     return redirect('team_detail', team_id=membership.team.public_id)
 
 
