@@ -2,11 +2,12 @@ from django.dispatch import receiver
 from allauth.account.signals import user_signed_up
 from django.shortcuts import redirect
 from django.urls import reverse
-from .models import Commission 
+from .models import Commission, Sale
 from .models import UserProfile, PayPlanOnboarding
 from django.conf import settings
-from django.db.models.signals import post_save
+from django.db.models.signals import post_save, pre_delete
 from django.utils import timezone
+from djstripe.signals import webhook_post_process
 
 
 @receiver(user_signed_up)
@@ -93,3 +94,29 @@ def ensure_automotive_pay_plan(sender, instance, created, **kwargs):
             'questionnaire': {},
         },
     )
+
+
+@receiver(post_save, sender=Sale, dispatch_uid='teams_sync_sale_activity')
+def sync_team_activity_after_sale_save(sender, instance, **kwargs):
+    from .team_services import sync_sale_activity
+
+    sync_sale_activity(instance)
+
+
+@receiver(pre_delete, sender=Sale, dispatch_uid='teams_withdraw_sale_activity')
+def withdraw_team_activity_before_sale_delete(sender, instance, **kwargs):
+    from .team_services import withdraw_sale_activity
+
+    withdraw_sale_activity(instance)
+
+
+@receiver(
+    webhook_post_process,
+    dispatch_uid='saleslog_reconcile_billing_webhook',
+)
+def reconcile_billing_webhook(sender, instance, **kwargs):
+    if instance.event is None:
+        return
+    from .billing_webhooks import reconcile_billing_event
+
+    reconcile_billing_event(instance.event)

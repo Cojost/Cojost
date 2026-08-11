@@ -4,6 +4,8 @@ from .views import view_sales, add_sale, view_commission, edit_sale, delete_sale
 from django.views.generic.base import RedirectView
 from django.contrib.auth import views as auth_views
 from . import views
+from . import team_views
+from . import billing_views
 
 
 urlpatterns = [
@@ -179,6 +181,30 @@ urlpatterns = [
     path('activity-goals/history/print/', views.print_activity_history, name='print_activity_history'),
     path('profile/', views.profile, name='profile'),
     path('activity-goals/activity/<int:activity_id>/', views.activity_goals, name='edit_activity'),
+    path('billing/', billing_views.billing_overview, name='billing_overview'),
+    path('billing/checkout/start/', billing_views.billing_checkout_start, name='billing_checkout_start'),
+    path('billing/checkout/success/', billing_views.billing_checkout_success, name='billing_checkout_success'),
+    path('billing/checkout/cancel/', billing_views.billing_checkout_cancel, name='billing_checkout_cancel'),
+    path('billing/founder/redeem/', billing_views.billing_founder_redeem, name='billing_founder_redeem'),
+    path('billing/portal/', billing_views.billing_portal, name='billing_portal'),
+    path('teams/', team_views.team_home, name='team_home'),
+    path('teams/create/', team_views.team_create, name='team_create'),
+    path('teams/invitations/accept/', team_views.team_invitation_accept, name='team_invitation_accept'),
+    path('teams/<uuid:team_id>/', team_views.team_detail, name='team_detail'),
+    path('teams/<uuid:team_id>/settings/', team_views.team_settings, name='team_settings'),
+    path('teams/<uuid:team_id>/invitations/', team_views.team_invite, name='team_invite'),
+    path('teams/<uuid:team_id>/invitations/<uuid:invitation_id>/revoke/', team_views.team_invitation_revoke, name='team_invitation_revoke'),
+    path('teams/<uuid:team_id>/sharing/', team_views.team_sharing, name='team_sharing'),
+    path('teams/<uuid:team_id>/activity/<uuid:activity_id>/comments/', team_views.team_comment_add, name='team_comment_add'),
+    path('teams/<uuid:team_id>/activity/<uuid:activity_id>/comments/<uuid:comment_id>/edit/', team_views.team_comment_edit, name='team_comment_edit'),
+    path('teams/<uuid:team_id>/activity/<uuid:activity_id>/comments/<uuid:comment_id>/delete/', team_views.team_comment_delete, name='team_comment_delete'),
+    path('teams/<uuid:team_id>/activity/<uuid:activity_id>/comments/<uuid:comment_id>/hide/', team_views.team_comment_hide, name='team_comment_hide'),
+    path('teams/<uuid:team_id>/activity/<uuid:activity_id>/reactions/', team_views.team_reaction_toggle, name='team_reaction_toggle'),
+    path('teams/<uuid:team_id>/members/<uuid:membership_id>/remove/', team_views.team_member_remove, name='team_member_remove'),
+    path('teams/<uuid:team_id>/members/<uuid:membership_id>/transfer/', team_views.team_transfer_ownership, name='team_transfer_ownership'),
+    path('teams/<uuid:team_id>/members/<uuid:membership_id>/<str:action>/', team_views.team_member_role, name='team_member_role'),
+    path('teams/<uuid:team_id>/leave/', team_views.team_leave, name='team_leave'),
+    path('teams/<uuid:team_id>/deactivate/', team_views.team_deactivate, name='team_deactivate'),
 ]
 
 

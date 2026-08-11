@@ -22,6 +22,9 @@ from .models import (
     SandboxResult,
     SandboxRun,
     UserProfile,
+    BillingAccess,
+    BillingCheckoutAttempt,
+    FounderGrant,
     Vehicle,
     VehicleMake,
     VehicleModel,
@@ -137,6 +140,63 @@ admin.site.register(SandboxHypotheticalDeal)
 admin.site.register(SandboxRun)
 admin.site.register(SandboxResult)
 admin.site.register(ScenarioHistory)
+
+
+@admin.register(FounderGrant)
+class FounderGrantAdmin(admin.ModelAdmin):
+    list_display = (
+        'code_prefix', 'created_at', 'expires_at', 'revoked_at',
+        'redemption_count', 'redeemed_user', 'trial_days',
+    )
+    list_filter = ('entitlement_tier', 'created_at', 'revoked_at')
+    search_fields = ('code_prefix', 'redeemed_user__username')
+    exclude = ('code_digest',)
+    readonly_fields = (
+        'public_id', 'code_prefix', 'created_at', 'created_by',
+        'max_redemptions', 'redemption_count', 'redeemed_user',
+        'redeemed_at', 'trial_days', 'entitlement_tier',
+        'administrative_note',
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(BillingAccess)
+class BillingAccessAdmin(admin.ModelAdmin):
+    list_display = (
+        'user', 'introductory_benefit_kind',
+        'introductory_benefit_consumed_at', 'last_event_type',
+        'last_synchronized_at',
+    )
+    search_fields = ('user__username',)
+    readonly_fields = [field.name for field in BillingAccess._meta.fields]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(BillingCheckoutAttempt)
+class BillingCheckoutAttemptAdmin(admin.ModelAdmin):
+    list_display = (
+        'public_id', 'user', 'trial_kind', 'trial_days', 'status',
+        'reservation_expires_at', 'confirmed_at',
+    )
+    list_filter = ('status', 'trial_kind')
+    search_fields = ('user__username',)
+    readonly_fields = [field.name for field in BillingCheckoutAttempt._meta.fields]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(PayPlanRule)

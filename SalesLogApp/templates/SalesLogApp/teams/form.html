@@ -1,0 +1,16 @@
+{% extends 'SalesLogApp/base.html' %}
+{% block title %}{{ heading }} | STEW Log{% endblock %}
+{% block page_class %}teams-page{% endblock %}
+{% block content %}
+<div class="intro">
+    <h2>{{ heading }}</h2>
+    {% if privacy_note %}<p>Only display identity, sale date, and unit credit are shared. Financial and customer details stay private.</p>{% endif %}
+</div>
+{% if show_owner_read_only %}<div class="notice notice-warning"><strong>Team management is read-only.</strong> Your future Pro entitlement is not active. Existing membership and team history remain preserved.</div>{% endif %}
+<form method="post" class="card form-card">
+    {% csrf_token %}
+    {{ form.as_p }}
+    {% if not read_only %}<button class="button button-primary" type="submit">{{ submit_label }}</button>{% endif %}
+    {% if team %}<a class="button button-secondary" href="{% url 'team_detail' team.public_id %}">Back to team</a>{% else %}<a class="button button-secondary" href="{% url 'team_home' %}">Cancel</a>{% endif %}
+</form>
+{% endblock %}

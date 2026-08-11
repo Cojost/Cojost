@@ -32,6 +32,7 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('SalesLogApp/', include('SalesLogApp.urls')),
     path('accounts/', include('allauth.urls')),
+    path('stripe/', include('djstripe.urls', namespace='djstripe')),
     path(
         _avatar_route,
         sales_views.profile_avatar_file,

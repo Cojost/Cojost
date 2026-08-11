@@ -1,0 +1,34 @@
+{% extends 'SalesLogApp/base.html' %}
+{% block title %}Teams | STEW Log{% endblock %}
+{% block page_class %}teams-page{% endblock %}
+{% block content %}
+<div class="intro">
+    <h2>Teams</h2>
+    <p>Share unit progress and encouragement without sharing customer, deal, gross, commission, or pay-plan details.</p>
+</div>
+
+{% if pending_invitations %}
+<section class="card">
+    <h3>Pending invitations</h3>
+    {% for invitation in pending_invitations %}
+        <p><strong>{{ invitation.team_name }}</strong> invited by {{ invitation.inviter_name }}. Use the private invitation code you received before {{ invitation.expires_at|date:"M j, Y g:i A" }}.</p>
+    {% endfor %}
+</section>
+{% endif %}
+
+<section class="card">
+    <h3>Have an invitation code?</h3>
+    <form method="post" action="{% url 'team_invitation_accept' %}" class="compact-form">{% csrf_token %}{{ invitation_code_form.invitation_code.label_tag }} {{ invitation_code_form.invitation_code }}<button class="button button-primary" type="submit">Review invitation</button></form>
+</section>
+
+<section class="card team-empty-state">
+    {% if can_create_team %}
+        <h3>Start a team</h3>
+        <p>You can own one active team and invite registered STEW Log users.</p>
+        <a class="button button-primary" href="{% url 'team_create' %}">Create team</a>
+    {% else %}
+        <h3>Join by invitation</h3>
+        <p>Team creation is a future Pro feature. Basic members can join and participate in one team when invited.</p>
+    {% endif %}
+</section>
+{% endblock %}

@@ -1,3 +1,5 @@
+from django.conf import settings
+
 from .models import UserProfile
 
 
@@ -12,6 +14,8 @@ def appearance(request):
     profile = get_user_profile(request.user)
     return {
         'sales_profile': profile,
+        'billing_feature_enabled': settings.BILLING_FEATURE_ENABLED,
+        'teams_feature_enabled': settings.TEAMS_FEATURE_ENABLED,
         'appearance': {
             'theme_mode': profile.theme_mode,
             'header_color': profile.header_color,

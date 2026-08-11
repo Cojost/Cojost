@@ -1,0 +1,11 @@
+{% extends 'SalesLogApp/base.html' %}
+{% block title %}{{ heading }} | STEW Log{% endblock %}
+{% block page_class %}billing-page{% endblock %}
+{% block content %}
+<div class="intro"><h2>{{ heading }}</h2><p>{{ message }}</p></div>
+<section class="card">
+    <h3>Current synchronized status</h3>
+    <p role="status">{{ entitlement.subscription_status|capfirst }} — {{ entitlement.reason }}</p>
+    <a class="button button-secondary" href="{% url 'billing_overview' %}">Return to billing</a>
+</section>
+{% endblock %}

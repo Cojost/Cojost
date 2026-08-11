@@ -1,0 +1,52 @@
+{% extends 'SalesLogApp/base.html' %}
+{% block title %}Billing | STEW Log{% endblock %}
+{% block page_class %}billing-page{% endblock %}
+{% block content %}
+<div class="intro">
+    <h2>STEW Log subscription</h2>
+    <p><strong>$1.99 USD per month</strong> after your eligible introductory trial. A payment method is required at Checkout and billing begins automatically when the trial ends.</p>
+</div>
+
+{% if not configuration.ready %}
+<div class="notice notice-warning" role="status"><strong>Billing configuration unavailable.</strong> Checkout and the portal remain disabled. No credential values are displayed.</div>
+{% endif %}
+{% if not entitlement.billing_enforcement_enabled %}
+<div class="notice" role="status"><strong>Billing enforcement is off.</strong> Your existing application access is unchanged while subscription flows are tested.</div>
+{% endif %}
+
+<div class="billing-grid">
+<section class="card">
+    <h3>Current billing status</h3>
+    <dl class="billing-status-list">
+        <div><dt>Status</dt><dd>{{ billing.status|capfirst }}</dd></div>
+        <div><dt>Access tier</dt><dd>{{ entitlement.tier|capfirst }}</dd></div>
+        {% if billing.trial_end %}<div><dt>Trial ends</dt><dd>{{ billing.trial_end|date:"M j, Y g:i A T" }}</dd></div>{% endif %}
+        {% if billing.upcoming_billing_date %}<div><dt>Upcoming billing date</dt><dd>{{ billing.upcoming_billing_date|date:"M j, Y" }}</dd></div>{% endif %}
+    </dl>
+    <p>{{ billing.reason }}</p>
+    {% if entitlement.source == 'synchronization_pending' %}<p role="status">Synchronization is pending. Reaching the success page does not grant access.</p>{% endif %}
+    {% if billing.can_manage_billing %}<form method="post" action="{% url 'billing_portal' %}">{% csrf_token %}<button class="button button-secondary" type="submit">Manage billing in Stripe</button></form><p class="card-description">Use Stripe’s hosted portal for payment methods, invoices, and cancellation.</p>{% endif %}
+</section>
+
+<section class="card">
+    <h3>Start subscription</h3>
+    {% if billing.introductory_benefit_consumed %}
+        <p>Your introductory benefit has already been used. A new eligible subscription starts without another trial.</p>
+    {% elif billing.founder_redeemed %}
+        <p>Your server-verified founder grant provides a {{ billing.offered_trial_days }}-day trial.</p>
+    {% else %}
+        <p>Eligible accounts receive a {{ standard_trial_days }}-day introductory trial.</p>
+    {% endif %}
+    <p>A payment method is required. Stripe will bill $1.99 USD monthly when the trial ends unless you cancel through Stripe first.</p>
+    {% if billing.can_start_checkout %}<form method="post" action="{% url 'billing_checkout_start' %}">{% csrf_token %}<button class="button button-primary" type="submit">Continue to Stripe Checkout</button></form>{% else %}<button class="button button-primary" type="button" disabled>Checkout unavailable</button>{% endif %}
+</section>
+</div>
+
+{% if not billing.introductory_benefit_consumed and not billing.founder_redeemed %}
+<section class="card billing-founder-card">
+    <h3>Founder or Kickstarter code</h3>
+    <p>Eligible unique codes provide a {{ founder_trial_days }}-day introductory trial. Founder and standard trials cannot be combined.</p>
+    <form method="post" action="{% url 'billing_founder_redeem' %}" class="form-card billing-inline-form">{% csrf_token %}{{ founder_form.as_p }}<button class="button button-secondary" type="submit">Redeem founder code</button></form>
+</section>
+{% endif %}
+{% endblock %}

@@ -2002,6 +2002,247 @@ progress {
   }
 }
 
+.teams-page {
+  max-width: 1120px;
+}
+
+.billing-page {
+  max-width: 1040px;
+}
+
+.billing-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.billing-status-list {
+  margin: 0 0 1rem;
+}
+
+.billing-status-list div {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) 1.4fr;
+  gap: .75rem;
+  padding: .55rem 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.billing-status-list dt {
+  color: var(--secondary-text);
+  font-weight: 700;
+}
+
+.billing-status-list dd {
+  margin: 0;
+}
+
+.billing-inline-form {
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+}
+
+.team-heading,
+.team-section-heading,
+.team-activity-summary,
+.team-member-list li,
+.team-row-actions,
+.team-reactions,
+.team-comment-form,
+.team-pagination {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+}
+
+.team-heading,
+.team-section-heading,
+.team-member-list li,
+.team-pagination {
+  justify-content: space-between;
+}
+
+.team-heading h2,
+.team-section-heading h3,
+.team-member-list,
+.team-comment p {
+  margin-top: 0;
+}
+
+.team-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.team-copy-field {
+  box-sizing: border-box;
+  width: 100%;
+  margin-top: .5rem;
+  padding: .7rem;
+  color: var(--input-text);
+  background: var(--input-background);
+  border: 1px solid var(--border-color);
+  border-radius: 7px;
+}
+
+.team-totals-table {
+  min-width: 420px;
+}
+
+.team-current-user {
+  background: var(--information-background);
+}
+
+.team-initial {
+  display: inline-grid;
+  flex: 0 0 2rem;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  color: var(--action-text);
+  font-weight: 700;
+  background: var(--action-background);
+  border-radius: 50%;
+}
+
+.team-member-list {
+  padding: 0;
+  list-style: none;
+}
+
+.team-member-list li {
+  padding: .75rem 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.team-row-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.team-row-actions form,
+.team-reactions form {
+  margin: 0;
+}
+
+.team-inline-form {
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+}
+
+.team-feed {
+  margin-top: 1rem;
+}
+
+.team-activity-card {
+  margin-bottom: 1rem;
+}
+
+.team-activity-summary {
+  align-items: flex-start;
+}
+
+.team-reactions {
+  flex-wrap: wrap;
+  margin: 1rem 0;
+}
+
+.team-reaction {
+  padding: .45rem .65rem;
+  color: var(--primary-text);
+  background: var(--muted-surface);
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.team-reaction:hover,
+.team-reaction:focus-visible,
+.team-reaction.selected {
+  color: var(--information-text);
+  background: var(--information-background);
+  border-color: var(--information-border);
+}
+
+.team-comment {
+  margin-top: .75rem;
+  padding: .75rem;
+  background: var(--muted-surface);
+  border-radius: 7px;
+}
+
+.team-comment p {
+  color: var(--secondary-text);
+  font-size: .9rem;
+}
+
+.team-comment-form {
+  align-items: stretch;
+  margin-top: 1rem;
+}
+
+.team-comment-form textarea {
+  box-sizing: border-box;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: .65rem;
+  color: var(--input-text);
+  background: var(--input-background);
+  border: 1px solid var(--border-color);
+  border-radius: 7px;
+}
+
+.team-link-button {
+  padding: 0;
+  font: inherit;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.team-danger-zone {
+  border-color: var(--danger-border);
+}
+
+@media (max-width: 720px) {
+  .billing-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .billing-status-list div {
+    grid-template-columns: 1fr;
+    gap: .2rem;
+  }
+
+  .team-columns {
+    grid-template-columns: 1fr;
+  }
+
+  .team-heading,
+  .team-section-heading,
+  .team-member-list li,
+  .team-comment-form {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .team-row-actions {
+    justify-content: flex-start;
+  }
+
+  .team-row-actions .button,
+  .team-row-actions form,
+  .team-row-actions form button,
+  .team-comment-form .button {
+    width: 100%;
+  }
+}
+
 @media print {
   :root,
   html[data-theme="dark"],

@@ -1,6 +1,9 @@
-from django.core.checks import Warning, register
+from django.conf import settings
+from django.core.checks import Error, Warning, register
+from django.db import DatabaseError, connection
 
 from .pay_plan_intents.openai_provider import provider_configuration
+from .billing_configuration import billing_configuration
 
 
 @register()
@@ -31,3 +34,76 @@ def pay_plan_assistant_provider_check(app_configs, **kwargs):
         ),
         id='SalesLogApp.W001',
     )]
+
+
+@register()
+def billing_configuration_check(app_configs, **kwargs):
+    if not (
+        settings.BILLING_FEATURE_ENABLED
+        or settings.BILLING_ENFORCEMENT_ENABLED
+    ):
+        return []
+    configuration = billing_configuration()
+    if not configuration.ready:
+        message = (
+            'Billing configuration is not ready: '
+            + '; '.join(configuration.errors)
+            + '.'
+        )
+        if settings.BILLING_ENFORCEMENT_ENABLED:
+            return [Error(
+                message,
+                hint='Disable enforcement or configure the selected Stripe mode.',
+                id='SalesLogApp.E002',
+            )]
+        return [Warning(
+            message,
+            hint='Checkout remains unavailable until configuration is complete.',
+            id='SalesLogApp.W002',
+        )]
+
+    if settings.BILLING_ENFORCEMENT_ENABLED:
+        operational_errors = _billing_operational_errors()
+        if operational_errors:
+            return [Error(
+                'Billing enforcement prerequisites are incomplete: '
+                + '; '.join(operational_errors)
+                + '.',
+                hint=(
+                    'Disable enforcement until migrations are applied and a '
+                    'signed WebhookEndpoint exists for the selected Stripe mode.'
+                ),
+                id='SalesLogApp.E003',
+            )]
+    return []
+
+
+def _billing_operational_errors():
+    """Return non-secret reasons that enforcement cannot safely be enabled."""
+    from django.db.migrations.recorder import MigrationRecorder
+    from djstripe.models import WebhookEndpoint
+
+    try:
+        applied = set(
+            MigrationRecorder(connection).migration_qs.filter(
+                app__in=['SalesLogApp', 'djstripe']
+            ).values_list('app', 'name')
+        )
+        errors = []
+        if ('SalesLogApp', '0054_billing_foundation') not in applied:
+            errors.append('the billing migration is not applied')
+        if ('djstripe', '0003_2_11') not in applied:
+            errors.append('the required dj-stripe migration is not applied')
+        webhook_ready = WebhookEndpoint.objects.filter(
+            livemode=settings.STRIPE_LIVE_MODE,
+            status='enabled',
+            djstripe_validation_method='verify_signature',
+        ).exclude(secret='').exists()
+        if not webhook_ready:
+            errors.append(
+                'no enabled signature-verifying webhook endpoint exists for '
+                'the selected mode'
+            )
+        return errors
+    except DatabaseError:
+        return ['the billing database schema could not be inspected']

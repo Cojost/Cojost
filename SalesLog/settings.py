@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/5.0/ref/settings/
 from pathlib import Path
 import os
 import ipaddress
+import secrets
 import socket
 
 import dj_database_url
@@ -32,6 +33,20 @@ def env_bool(name, default=False):
     return value.strip().lower() in {'1', 'true', 'yes', 'on'}
 
 
+def env_strict_bool(name, default=False):
+    value = os.getenv(name)
+    if value is None:
+        return default
+    normalized = value.strip().lower()
+    if normalized in {'1', 'true'}:
+        return True
+    if normalized in {'0', 'false'}:
+        return False
+    raise ImproperlyConfigured(
+        f'{name} must be one of: true, false, 1, or 0.'
+    )
+
+
 def env_int(name, default, *, minimum=1):
     value = os.getenv(name)
     if value is None:
@@ -41,6 +56,21 @@ def env_int(name, default, *, minimum=1):
     except (TypeError, ValueError):
         return default
     return parsed if parsed >= minimum else default
+
+
+def env_bounded_int(name, default, *, minimum, maximum):
+    value = os.getenv(name)
+    if value is None:
+        return default
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ImproperlyConfigured(f'{name} must be an integer.') from exc
+    if not minimum <= parsed <= maximum:
+        raise ImproperlyConfigured(
+            f'{name} must be between {minimum} and {maximum}.'
+        )
+    return parsed
 
 
 def env_list(name):
@@ -91,11 +121,23 @@ PAY_PLAN_ASSISTANT_EVENT_RETENTION_DAYS = env_int(
     'PAY_PLAN_ASSISTANT_EVENT_RETENTION_DAYS', 30,
 )
 
+# Phase 2A Teams is dark-launched. This flag is deliberately strict so a
+# misspelled production value cannot accidentally enable a social surface.
+TEAMS_FEATURE_ENABLED = env_strict_bool('TEAMS_FEATURE_ENABLED', False)
+TEAMS_ENTITLEMENT_BACKEND = os.getenv(
+    'TEAMS_ENTITLEMENT_BACKEND',
+    'SalesLogApp.team_entitlements.billing_owned_entitlement',
+).strip()
+TEAMS_FOUNDER_USER_IDS = env_list('TEAMS_FOUNDER_USER_IDS')
+TEAMS_INVITATION_TTL_HOURS = env_int('TEAMS_INVITATION_TTL_HOURS', 168)
+
 SECRET_KEY = os.getenv('SECRET_KEY')
 if not SECRET_KEY:
     if not DEBUG:
         raise ImproperlyConfigured('SECRET_KEY must be set when DEBUG is false.')
-    SECRET_KEY = 'django-insecure-local-development-only-not-for-production'
+    # Keep local startup convenient without committing a reusable signing key.
+    # Set SECRET_KEY locally when stable development sessions are desired.
+    SECRET_KEY = secrets.token_urlsafe(50)
 
 ALLOWED_HOSTS = env_list('ALLOWED_HOSTS')
 CSRF_TRUSTED_ORIGINS = env_list('CSRF_TRUSTED_ORIGINS')
@@ -182,6 +224,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'SalesLogApp.billing_middleware.BillingEnforcementMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'allauth.account.middleware.AccountMiddleware',
@@ -314,13 +357,31 @@ AUTHENTICATION_BACKENDS = (
 
 )
 
-STRIPE_LIVE_PUBLIC_KEY = os.getenv('STRIPE_LIVE_PUBLIC_KEY', '')
-STRIPE_LIVE_SECRET_KEY = os.getenv('STRIPE_LIVE_SECRET_KEY', '')
-DJSTRIPE_WEBHOOK_SECRET = os.getenv('DJSTRIPE_WEBHOOK_SECRET', '')
+STRIPE_LIVE_MODE = env_strict_bool('STRIPE_LIVE_MODE', False)
+STRIPE_TEST_PUBLIC_KEY = os.getenv('STRIPE_TEST_PUBLIC_KEY', '').strip()
+STRIPE_TEST_SECRET_KEY = os.getenv('STRIPE_TEST_SECRET_KEY', '').strip()
+STRIPE_LIVE_PUBLIC_KEY = os.getenv('STRIPE_LIVE_PUBLIC_KEY', '').strip()
+STRIPE_LIVE_SECRET_KEY = os.getenv('STRIPE_LIVE_SECRET_KEY', '').strip()
+STRIPE_BASIC_MONTHLY_PRICE_ID = os.getenv(
+    'STRIPE_BASIC_MONTHLY_PRICE_ID', ''
+).strip()
 
-SITE_ID = 1
+BILLING_FEATURE_ENABLED = env_strict_bool('BILLING_FEATURE_ENABLED', False)
+BILLING_ENFORCEMENT_ENABLED = env_strict_bool(
+    'BILLING_ENFORCEMENT_ENABLED', False
+)
+BILLING_STANDARD_TRIAL_DAYS = env_bounded_int(
+    'BILLING_STANDARD_TRIAL_DAYS', 30, minimum=1, maximum=365
+)
+BILLING_FOUNDER_TRIAL_DAYS = env_bounded_int(
+    'BILLING_FOUNDER_TRIAL_DAYS', 90, minimum=1, maximum=365
+)
+BILLING_CHECKOUT_RESERVATION_MINUTES = 60
+BILLING_PAST_DUE_GRACE_DAYS = 7
 
 DJSTRIPE_FOREIGN_KEY_TO_FIELD = "id"
+DJSTRIPE_WEBHOOK_VALIDATION = "verify_signature"
+DJSTRIPE_SUBSCRIBER_CUSTOMER_KEY = "djstripe_subscriber"
 
 LOGIN_REDIRECT_URL = '/SalesLogApp/pay-plan/setup/'
 

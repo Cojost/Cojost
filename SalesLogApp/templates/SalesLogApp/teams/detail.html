@@ -1,0 +1,63 @@
+{% extends 'SalesLogApp/base.html' %}
+{% block title %}{{ team.name }} | STEW Log{% endblock %}
+{% block page_class %}teams-page{% endblock %}
+{% block content %}
+<div class="team-heading">
+    <div><h2>{{ team.name }}</h2><p>Unit progress in {{ team.timezone }}.</p></div>
+    {% if membership.role == 'owner' or membership.role == 'admin' %}<a class="button button-secondary" href="{% url 'team_settings' team.public_id %}">Team settings</a>{% endif %}
+</div>
+
+{% if show_owner_read_only %}<div class="notice notice-warning"><strong>Team management is read-only.</strong> Your future Pro entitlement is not active. Existing members, activity, comments, and reactions are preserved.</div>{% endif %}
+{% if one_time_invitation_code %}<div class="notice notice-success"><label for="invitation-code"><strong>Copy this invitation code now</strong></label><input id="invitation-code" class="team-copy-field" type="text" readonly value="{{ one_time_invitation_code }}"><p>This complete code is shown once, never placed in a URL, and is not stored in recoverable form.</p></div>{% endif %}
+
+<section class="card">
+    <div class="team-section-heading"><div><h3>{{ month_start|date:"F Y" }} progress</h3><p>Authoritative totals from shared sale unit counts.</p></div><form method="get" class="compact-form"><label for="team-month">Month</label><input id="team-month" type="month" name="month" value="{{ month_start|date:'Y-m' }}"><button class="button button-secondary" type="submit">View</button></form></div>
+    <div class="metric-grid"><div><span>Team units</span><strong>{{ team_total|floatformat:1 }}</strong></div>{% if team.monthly_unit_goal %}<div><span>Goal</span><strong>{{ team.monthly_unit_goal|floatformat:1 }}</strong></div><div><span>Remaining</span><strong>{{ units_remaining|floatformat:1 }}</strong></div>{% endif %}</div>
+    {% if team.monthly_unit_goal %}<p>{{ goal_percent|floatformat:1 }}% of team goal</p><progress max="100" value="{{ goal_progress_value }}"></progress>{% endif %}
+    <div class="table-wrap"><table class="data-table team-totals-table"><thead><tr>{% if team.display_mode == 'ranked' %}<th>Rank</th>{% endif %}<th>Member</th><th>Units</th></tr></thead><tbody>{% for total in totals %}<tr{% if total.is_self %} class="team-current-user"{% endif %}>{% if team.display_mode == 'ranked' %}<td>{{ total.rank }}</td>{% endif %}<td><span class="team-initial" aria-hidden="true">{{ total.initial }}</span> {{ total.display_name }}{% if total.is_self %} (you){% endif %}</td><td>{{ total.units|floatformat:1 }}</td></tr>{% empty %}<tr><td colspan="3" class="empty-state">No shared totals for this month.</td></tr>{% endfor %}</tbody></table></div>
+</section>
+
+<div class="team-columns">
+<section class="card">
+    <h3>Your sharing</h3>
+    <form method="post" action="{% url 'team_sharing' team.public_id %}" class="form-card team-inline-form">{% csrf_token %}{{ sharing_form.as_p }}<button class="button button-primary" type="submit">Update sharing</button></form>
+    <p class="card-description">Totals only hides individual activity. Pause all sharing also removes your units from team totals. Changes apply immediately.</p>
+</section>
+
+<section class="card">
+    <h3>Members</h3>
+    <ul class="team-member-list">
+    {% for member in members %}
+        <li><div><span class="team-initial" aria-hidden="true">{{ member.initial }}</span> <strong>{{ member.display_name }}</strong>{% if member.is_self %} (you){% endif %}<br><span class="card-description">{{ member.role_label }} · {{ member.sharing_label }}</span></div>
+        {% if can_manage and not member.is_self and member.role != 'owner' %}<div class="team-row-actions">
+            {% if can_manage_roles %}{% if member.role == 'member' %}<form method="post" action="{% url 'team_member_role' team.public_id member.public_id 'promote' %}">{% csrf_token %}<button class="button button-secondary" type="submit">Make admin</button></form>{% elif member.role == 'admin' %}<form method="post" action="{% url 'team_member_role' team.public_id member.public_id 'demote' %}">{% csrf_token %}<button class="button button-secondary" type="submit">Make member</button></form>{% endif %}<form method="post" action="{% url 'team_transfer_ownership' team.public_id member.public_id %}">{% csrf_token %}<button class="button button-secondary" type="submit">Transfer ownership</button></form>{% endif %}
+            <form method="post" action="{% url 'team_member_remove' team.public_id member.public_id %}">{% csrf_token %}<button class="button button-danger" type="submit">Remove</button></form>
+        </div>{% endif %}</li>
+    {% endfor %}
+    </ul>
+    {% if membership.role != 'owner' %}<form method="post" action="{% url 'team_leave' team.public_id %}">{% csrf_token %}<button class="button button-danger" type="submit">Leave team</button></form>{% endif %}
+</section>
+</div>
+
+{% if can_manage %}
+<div class="team-columns">
+<section class="card"><h3>Invite a registered user</h3><form method="post" action="{% url 'team_invite' team.public_id %}" class="form-card team-inline-form">{% csrf_token %}{{ invite_form.as_p }}<button class="button button-primary" type="submit">Create invitation</button></form><p class="card-description">The private code is shown once. Share it directly with the intended person.</p></section>
+<section class="card"><h3>Pending invitations</h3><ul class="team-member-list">{% for invitation in pending_invitations %}<li><div><strong>{{ invitation.display_name }}</strong><br><span class="card-description">Code prefix {{ invitation.token_prefix }}… · expires {{ invitation.expires_at|date:"M j, Y" }}</span></div><form method="post" action="{% url 'team_invitation_revoke' team.public_id invitation.public_id %}">{% csrf_token %}<button class="button button-danger" type="submit">Revoke</button></form></li>{% empty %}<li>No pending invitations.</li>{% endfor %}</ul></section>
+</div>
+{% endif %}
+
+<section class="team-feed" aria-labelledby="team-feed-heading">
+    <div class="intro"><h3 id="team-feed-heading">Team activity</h3><p>Only sale date and unit credit are shown.</p></div>
+    {% for activity in activity_page %}
+    <article class="card team-activity-card" id="activity-{{ activity.public_id }}">
+        <div class="team-activity-summary"><span class="team-initial" aria-hidden="true">{{ activity.actor_initial }}</span><div><strong>{{ activity.actor_name }}</strong> logged <strong>{{ activity.unit_credit|floatformat:1 }} unit{{ activity.unit_credit|pluralize }}</strong><br><time datetime="{{ activity.activity_date|date:'Y-m-d' }}">{{ activity.activity_date|date:"M j, Y" }}</time></div></div>
+        <div class="team-reactions" aria-label="Reactions">{% for reaction in activity.reactions %}<form method="post" action="{% url 'team_reaction_toggle' team.public_id activity.public_id %}">{% csrf_token %}<input type="hidden" name="code" value="{{ reaction.code }}"><button type="submit" class="team-reaction{% if reaction.reacted_by_me %} selected{% endif %}" aria-pressed="{{ reaction.reacted_by_me|yesno:'true,false' }}" title="{{ reaction.label }}">{{ reaction.emoji }} {{ reaction.label }}{% if reaction.count %} {{ reaction.count }}{% endif %}</button></form>{% endfor %}</div>
+        <div class="team-comments">{% for comment in activity.comments %}<div class="team-comment"><p><strong>{{ comment.author_name }}</strong> · {{ comment.created_at|date:"M j, g:i A" }}{% if comment.was_edited %} · edited{% endif %}</p><div>{{ comment.body|linebreaksbr }}</div>{% if comment.can_edit or comment.can_delete or comment.can_moderate %}<div class="team-row-actions">{% if comment.can_edit %}<a class="text-link" href="{% url 'team_comment_edit' team.public_id activity.public_id comment.public_id %}">Edit</a>{% endif %}{% if comment.can_delete %}<form method="post" action="{% url 'team_comment_delete' team.public_id activity.public_id comment.public_id %}">{% csrf_token %}<button class="text-link team-link-button" type="submit">Delete</button></form>{% endif %}{% if comment.can_moderate %}<form method="post" action="{% url 'team_comment_hide' team.public_id activity.public_id comment.public_id %}">{% csrf_token %}<button class="text-link team-link-button" type="submit">Hide</button></form>{% endif %}</div>{% endif %}</div>{% endfor %}</div>
+        <form method="post" action="{% url 'team_comment_add' team.public_id activity.public_id %}" class="team-comment-form">{% csrf_token %}{{ comment_form.body }}<button class="button button-secondary" type="submit">Comment</button></form>
+    </article>
+    {% empty %}<div class="card empty-state">No individually shared sale activity yet.</div>{% endfor %}
+    {% if activity_page.has_other_pages %}<nav class="team-pagination" aria-label="Activity pages">{% if activity_page.has_previous %}<a class="button button-secondary" href="?month={{ month_start|date:'Y-m' }}&amp;page={{ activity_page.previous_page_number }}">Previous</a>{% endif %}<span>Page {{ activity_page.number }} of {{ activity_page.paginator.num_pages }}</span>{% if activity_page.has_next %}<a class="button button-secondary" href="?month={{ month_start|date:'Y-m' }}&amp;page={{ activity_page.next_page_number }}">Next</a>{% endif %}</nav>{% endif %}
+</section>
+
+{% if can_manage_roles %}<section class="card team-danger-zone"><h3>Deactivate team</h3><p>Access stops immediately, while team history remains preserved.</p><form method="post" action="{% url 'team_deactivate' team.public_id %}">{% csrf_token %}<button class="button button-danger" type="submit">Deactivate team</button></form></section>{% endif %}
+{% endblock %}

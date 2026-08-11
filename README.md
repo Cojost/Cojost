@@ -32,3 +32,29 @@ This setup is development-only. Production security settings remain unchanged.
 Production provider rollout, rate limits, privacy-safe monitoring, incident
 shutoff, migration, and rollback are documented in
 [`docs/phase1e_pay_plan_assistant_operations.md`](docs/phase1e_pay_plan_assistant_operations.md).
+
+## Production domain and provider configuration
+
+The custom-domain checklist, exact Render environment names, provider status,
+callback URLs, safe health checks, and secret-handling guidance are documented
+in [`docs/production_domain_and_provider_audit.md`](docs/production_domain_and_provider_audit.md).
+
+Local development variable names and non-secret placeholders are available in
+[`.env.example`](.env.example). Django does not load `.env` files directly;
+VS Code or the launching terminal must inject them into the process.
+
+## Phase 2A Teams
+
+The invitation-only Teams architecture, privacy contract, entitlement boundary,
+disabled-by-default rollout, and deferred milestone design are documented in
+[`docs/phase2a_teams.md`](docs/phase2a_teams.md).
+
+## Stripe subscription foundation
+
+The disabled-by-default Checkout, Customer Portal, founder-trial, webhook,
+entitlement, and Teams integration design is documented in
+[`docs/stripe_subscription_foundation.md`](docs/stripe_subscription_foundation.md).
+Use the separate
+[`docs/stripe_test_to_live_runbook.md`](docs/stripe_test_to_live_runbook.md)
+before changing any billing flag. Automated verification mocks Stripe and makes
+no external payment request.

@@ -1,0 +1,19 @@
+{% extends 'SalesLogApp/base.html' %}
+{% block title %}Team invitation | STEW Log{% endblock %}
+{% block page_class %}teams-page{% endblock %}
+{% block content %}
+{% if team %}
+<div class="intro"><h2>Join {{ team.name }}</h2><p>{{ inviter_name }} invited you to share progress with this team.</p></div>
+{% if error %}<div class="notice notice-error">{{ error }}</div>{% endif %}
+<section class="card">
+    <h3>What teammates can see</h3>
+    <p>Your monthly unit total is shared by default. You can opt in to sharing your display identity, sale date, and unit credit in the feed.</p>
+    <h3>What stays private</h3>
+    <p>Customer names, deal numbers, gross, commission, adjustments, pay plans, documents, assistant conversations, and private goals are never shared.</p>
+    <div class="team-row-actions"><form method="post">{% csrf_token %}<input type="hidden" name="invitation_code" value="{{ invitation_code }}"><input type="hidden" name="action" value="accept"><button class="button button-primary" type="submit">Accept invitation</button></form><form method="post">{% csrf_token %}<input type="hidden" name="invitation_code" value="{{ invitation_code }}"><input type="hidden" name="action" value="decline"><button class="button button-secondary" type="submit">Decline</button></form><a class="button button-secondary" href="{% url 'team_home' %}">Not now</a></div>
+</section>
+{% else %}
+<div class="intro"><h2>Review a team invitation</h2><p>Enter the private code shared with you. Codes never appear in the URL.</p></div>
+<form method="post" class="card form-card">{% csrf_token %}{{ form.as_p }}<button class="button button-primary" type="submit">Review invitation</button></form>
+{% endif %}
+{% endblock %}
