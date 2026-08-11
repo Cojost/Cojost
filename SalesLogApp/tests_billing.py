@@ -9,8 +9,9 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ImproperlyConfigured
 from django.core.management import call_command
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 from django.test import Client, SimpleTestCase, TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
@@ -657,6 +658,30 @@ class BillingEntitlementAndWebhookTests(TestCase):
         self.assertEqual(access.introductory_benefit_consumed_at, consumed_at)
         self.assertEqual(access.introductory_benefit_kind, BillingAccess.STANDARD)
         self.assertEqual(attempt.status, BillingCheckoutAttempt.CONFIRMED)
+
+    def test_finalization_locks_attempt_without_nullable_founder_join(self):
+        attempt, _ = reserve_checkout_attempt(self.user)
+        trial_end = timezone.now() + timedelta(days=30)
+        subscription = self.subscription(
+            'trialing',
+            suffix='lock_without_founder_join',
+            trial_end=trial_end,
+            current_period_end=trial_end,
+            metadata={'billing_attempt': str(attempt.public_id)},
+        )
+
+        with CaptureQueriesContext(connection) as queries:
+            self.assertTrue(
+                finalize_introductory_benefit(attempt.public_id, subscription)
+            )
+
+        attempt_select = next(
+            query['sql']
+            for query in queries.captured_queries
+            if query['sql'].lstrip().upper().startswith('SELECT')
+            and 'billingcheckoutattempt' in query['sql'].lower()
+        )
+        self.assertNotIn('foundergrant', attempt_select.lower())
 
     def test_out_of_order_event_does_not_regress_latest_audit(self):
         subscription = self.subscription(

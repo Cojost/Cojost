@@ -190,9 +190,9 @@ def finalize_introductory_benefit(
     attempt_public_id, subscription, *, event_created_at=None
 ):
     try:
-        attempt = BillingCheckoutAttempt.objects.select_for_update().select_related(
-            'founder_grant'
-        ).get(public_id=attempt_public_id)
+        attempt = BillingCheckoutAttempt.objects.select_for_update().get(
+            public_id=attempt_public_id
+        )
     except (BillingCheckoutAttempt.DoesNotExist, ValueError, TypeError):
         return False
     subscriber_id = getattr(subscription.customer, 'subscriber_id', None)
