@@ -691,6 +691,10 @@ class ScenarioConversionForm(forms.Form):
 
 
 class SandboxHypotheticalDealForm(forms.Form):
+    DUPLICATE_DEAL_NUMBER_MESSAGE = (
+        'A hypothetical deal with this deal number already exists in this sandbox.'
+    )
+
     label = forms.CharField(max_length=150, required=False)
     customer = forms.CharField(max_length=100)
     dealNumber = forms.IntegerField(label='Scenario deal number')
@@ -712,9 +716,12 @@ class SandboxHypotheticalDealForm(forms.Form):
     )
     acquisition_source = forms.CharField(required=False, max_length=32)
 
-    def __init__(self, *args, instance=None, **kwargs):
+    def __init__(self, *args, sandbox=None, instance=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.instance = instance
+        self.sandbox = sandbox or (
+            instance.sandbox if instance is not None else None
+        )
         if instance is not None and not self.is_bound:
             self.initial.update({
                 'label': instance.label,
@@ -727,6 +734,21 @@ class SandboxHypotheticalDealForm(forms.Form):
                 'vehicle_condition': instance.vehicle_condition,
                 'acquisition_source': instance.acquisition_source,
             })
+
+    def clean_dealNumber(self):
+        deal_number = self.cleaned_data['dealNumber']
+        if self.sandbox is None:
+            return deal_number
+        from .models.sandbox import SandboxHypotheticalDeal
+        duplicates = SandboxHypotheticalDeal.objects.filter(
+            sandbox=self.sandbox,
+            dealNumber=deal_number,
+        )
+        if self.instance is not None:
+            duplicates = duplicates.exclude(pk=self.instance.pk)
+        if duplicates.exists():
+            raise forms.ValidationError(self.DUPLICATE_DEAL_NUMBER_MESSAGE)
+        return deal_number
 
     def save(self, *, sandbox):
         from .models.sandbox import SandboxHypotheticalDeal

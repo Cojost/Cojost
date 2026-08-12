@@ -50,7 +50,7 @@ from django.contrib.auth.models import User
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.core.exceptions import ObjectDoesNotExist, PermissionDenied, ValidationError
-from django.db import transaction
+from django.db import IntegrityError, connection, transaction
 from django.views.decorators.http import require_http_methods, require_POST
 from django.urls import reverse
 from django.utils.html import escape
@@ -109,6 +109,41 @@ from .sale_types import get_sale_type_handler
 
 
 logger = logging.getLogger(__name__)
+
+
+def _is_hypothetical_deal_number_conflict(exc):
+    cause = getattr(exc, '__cause__', None)
+    constraint_name = getattr(
+        getattr(cause, 'diag', None), 'constraint_name', None,
+    )
+    if constraint_name is not None:
+        return constraint_name == 'unique_sandbox_hypothetical_deal'
+    if connection.vendor == 'sqlite':
+        message = str(exc).lower()
+        return (
+            'unique constraint failed:' in message
+            and 'sandboxhypotheticaldeal.sandbox_id' in message
+            and 'sandboxhypotheticaldeal.dealnumber' in message
+        )
+    return False
+
+
+def _add_validation_error(form, exc):
+    if hasattr(exc, 'error_dict'):
+        for field_name, errors in exc.error_dict.items():
+            target = field_name if field_name in form.fields else None
+            for error in errors:
+                form.add_error(target, error)
+        return
+    form.add_error(None, exc)
+
+
+def _form_error_message(form, prefix):
+    return prefix + '; '.join(
+        str(error)
+        for errors in form.errors.values()
+        for error in errors
+    )
 
 def commission_required(view_func):
     @login_required
@@ -1710,6 +1745,7 @@ def commission_sandbox_detail(request, sandbox_id):
         'hypothetical_deals': sandbox.hypothetical_deals.all(),
         'replay_form': SandboxReplayForm(),
         'hypothetical_form': SandboxHypotheticalDealForm(
+            sandbox=sandbox,
             initial={'date': timezone.localdate(), 'count': Decimal('1')},
         ),
         'save_form': ScenarioSaveForm(initial={
@@ -1833,27 +1869,39 @@ def commission_sandbox_hypothetical(request, sandbox_id):
         return redirect(
             'commission_sandbox_detail', sandbox_id=sandbox.public_id,
         )
-    form = SandboxHypotheticalDealForm(request.POST)
+    form = SandboxHypotheticalDealForm(request.POST, sandbox=sandbox)
     if form.is_valid():
-        deal = form.save(sandbox=sandbox)
-        from .sandbox_services import SandboxCompiler
-        SandboxCompiler.invalidate(sandbox)
-        from .scenario_services import ScenarioHistoryService
-        ScenarioHistoryService.record(
-            request.user,
-            sandbox,
-            'hypothetical_sale_added',
-            'Hypothetical sale added.',
-            {'hypothetical_sale_id': deal.pk},
-        )
-        messages.success(request, 'Hypothetical deal added without creating a sale.')
-    else:
+        try:
+            with transaction.atomic():
+                deal = form.save(sandbox=sandbox)
+                from .sandbox_services import SandboxCompiler
+                SandboxCompiler.invalidate(sandbox)
+                from .scenario_services import ScenarioHistoryService
+                ScenarioHistoryService.record(
+                    request.user,
+                    sandbox,
+                    'hypothetical_sale_added',
+                    'Hypothetical sale added.',
+                    {'hypothetical_sale_id': deal.pk},
+                )
+        except ValidationError as exc:
+            _add_validation_error(form, exc)
+        except IntegrityError as exc:
+            if not _is_hypothetical_deal_number_conflict(exc):
+                raise
+            form.add_error(
+                'dealNumber',
+                SandboxHypotheticalDealForm.DUPLICATE_DEAL_NUMBER_MESSAGE,
+            )
+        else:
+            messages.success(
+                request,
+                'Hypothetical deal added without creating a sale.',
+            )
+    if form.errors:
         messages.error(
             request,
-            'Hypothetical deal was not added: '
-            + '; '.join(
-                error for errors in form.errors.values() for error in errors
-            ),
+            _form_error_message(form, 'Hypothetical deal was not added: '),
         )
     return redirect('commission_sandbox_detail', sandbox_id=sandbox.public_id)
 
@@ -1869,6 +1917,18 @@ def commission_sandbox_project(request, sandbox_id):
         )
     except ValidationError as exc:
         messages.error(request, '; '.join(exc.messages))
+    except Exception:
+        logger.exception(
+            'Unexpected sandbox projection failure.',
+            extra={
+                'sandbox_id': str(sandbox.public_id),
+                'sandbox_owner_id': sandbox.owner_id,
+            },
+        )
+        messages.error(
+            request,
+            'The projection could not be completed. Please try again.',
+        )
     else:
         messages.success(
             request,
@@ -2211,27 +2271,41 @@ def commission_sandbox_hypothetical_edit(
     )
     if request.method == 'POST':
         form = SandboxHypotheticalDealForm(
-            request.POST, instance=deal,
+            request.POST, sandbox=sandbox, instance=deal,
         )
         if form.is_valid():
-            form.save(sandbox=sandbox)
-            from .sandbox_services import SandboxCompiler
-            SandboxCompiler.invalidate(sandbox)
-            from .scenario_services import ScenarioHistoryService
-            ScenarioHistoryService.record(
-                request.user,
-                sandbox,
-                'hypothetical_sale_updated',
-                'Hypothetical sale updated.',
-                {'hypothetical_sale_id': deal.pk},
-            )
-            messages.success(request, 'Hypothetical deal updated.')
-            return redirect(
-                'commission_sandbox_detail',
-                sandbox_id=sandbox.public_id,
-            )
+            try:
+                with transaction.atomic():
+                    form.save(sandbox=sandbox)
+                    from .sandbox_services import SandboxCompiler
+                    SandboxCompiler.invalidate(sandbox)
+                    from .scenario_services import ScenarioHistoryService
+                    ScenarioHistoryService.record(
+                        request.user,
+                        sandbox,
+                        'hypothetical_sale_updated',
+                        'Hypothetical sale updated.',
+                        {'hypothetical_sale_id': deal.pk},
+                    )
+            except ValidationError as exc:
+                _add_validation_error(form, exc)
+            except IntegrityError as exc:
+                if not _is_hypothetical_deal_number_conflict(exc):
+                    raise
+                form.add_error(
+                    'dealNumber',
+                    SandboxHypotheticalDealForm.DUPLICATE_DEAL_NUMBER_MESSAGE,
+                )
+            else:
+                messages.success(request, 'Hypothetical deal updated.')
+                return redirect(
+                    'commission_sandbox_detail',
+                    sandbox_id=sandbox.public_id,
+                )
     else:
-        form = SandboxHypotheticalDealForm(instance=deal)
+        form = SandboxHypotheticalDealForm(
+            sandbox=sandbox, instance=deal,
+        )
     return render(request, 'commission_scenario_hypothetical_form.html', {
         'sandbox': sandbox,
         'deal': deal,

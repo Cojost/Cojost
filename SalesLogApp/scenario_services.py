@@ -97,7 +97,7 @@ def _owned_scenario(user, scenario, *, for_update=False):
         "source_scenario",
     )
     if for_update:
-        queryset = queryset.select_for_update()
+        queryset = queryset.select_for_update(of=("self",))
     if isinstance(scenario, CommissionSandbox):
         lookup = {"pk": scenario.pk}
     else:

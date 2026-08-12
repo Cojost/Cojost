@@ -1,8 +1,11 @@
 from datetime import timedelta
 from decimal import Decimal
+from unittest import skipUnless
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.db import connection
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -17,6 +20,7 @@ from .models import (
     SandboxRun,
     UserProfile,
 )
+from .forms import SandboxHypotheticalDealForm
 from .sandbox_services import SandboxManager, SandboxRuleEditor
 from .scenario_services import (
     ScenarioCalculationService,
@@ -127,6 +131,254 @@ class CommissionScenarioWorkflowTests(TestCase):
             backend=Decimal("1100.00"),
             date=self.sale_date,
             vehicle_condition="new",
+        )
+
+    def _hypothetical_payload(self, *, deal_number=889001, count="1"):
+        return {
+            "label": "Future deal",
+            "customer": "Scenario customer",
+            "dealNumber": str(deal_number),
+            "count": count,
+            "frontEnd": "2400.00",
+            "backend": "1100.00",
+            "date": self.sale_date.isoformat(),
+            "vehicle_condition": "new",
+            "acquisition_source": "",
+        }
+
+    def test_duplicate_hypothetical_post_is_validation_not_server_error(self):
+        deal_number = 889101
+        self._add_hypothetical(self.scenario, deal_number=deal_number)
+        history_count = self.scenario.history.count()
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse(
+                "commission_sandbox_hypothetical",
+                args=[self.scenario.public_id],
+            ),
+            self._hypothetical_payload(deal_number=deal_number),
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            SandboxHypotheticalDealForm.DUPLICATE_DEAL_NUMBER_MESSAGE,
+        )
+        self.assertEqual(
+            self.scenario.hypothetical_deals.filter(
+                dealNumber=deal_number,
+            ).count(),
+            1,
+        )
+        self.assertEqual(self.scenario.history.count(), history_count)
+
+    def test_same_hypothetical_deal_number_posts_to_different_sandboxes(self):
+        second = SandboxManager.create(
+            self.user,
+            self.source,
+            "Second projection",
+        )
+        deal_number = 889102
+        self.client.force_login(self.user)
+
+        for scenario in (self.scenario, second):
+            with self.subTest(scenario=scenario.scenario_name):
+                response = self.client.post(
+                    reverse(
+                        "commission_sandbox_hypothetical",
+                        args=[scenario.public_id],
+                    ),
+                    self._hypothetical_payload(deal_number=deal_number),
+                )
+                self.assertEqual(response.status_code, 302)
+
+        self.assertTrue(
+            self.scenario.hypothetical_deals.filter(
+                dealNumber=deal_number,
+            ).exists(),
+        )
+        self.assertTrue(
+            second.hypothetical_deals.filter(
+                dealNumber=deal_number,
+            ).exists(),
+        )
+
+    def test_hypothetical_unique_constraint_race_is_normal_validation(self):
+        deal_number = 889103
+        self._add_hypothetical(self.scenario, deal_number=deal_number)
+        history_count = self.scenario.history.count()
+        self.client.force_login(self.user)
+
+        with patch.object(
+            SandboxHypotheticalDealForm,
+            "clean_dealNumber",
+            return_value=deal_number,
+        ), patch.object(SandboxHypotheticalDeal, "full_clean"):
+            response = self.client.post(
+                reverse(
+                    "commission_sandbox_hypothetical",
+                    args=[self.scenario.public_id],
+                ),
+                self._hypothetical_payload(deal_number=deal_number),
+                follow=True,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            SandboxHypotheticalDealForm.DUPLICATE_DEAL_NUMBER_MESSAGE,
+        )
+        self.assertEqual(
+            self.scenario.hypothetical_deals.filter(
+                dealNumber=deal_number,
+            ).count(),
+            1,
+        )
+        self.assertEqual(self.scenario.history.count(), history_count)
+
+    def test_project_view_imported_plan_isolated_and_preserves_half_deal(self):
+        self.source.source_type = PayPlanVersion.SOURCE_UPLOAD
+        self.source.source_filename = "imported-plan.pdf"
+        self.source.save(update_fields=[
+            "source_type", "source_filename", "updated_at",
+        ])
+        imported_scenario = SandboxManager.create(
+            self.user,
+            self.source,
+            "Imported plan projection",
+        )
+        hypothetical = self._add_hypothetical(
+            imported_scenario,
+            deal_number=889104,
+        )
+        hypothetical.count = Decimal("0.5")
+        hypothetical.save(update_fields=["count", "updated_at"])
+        sale_snapshot = list(
+            Sale.objects.filter(user=self.user).values(
+                "pk", "dealNumber", "frontEnd", "backend", "count",
+            )
+        )
+        active_assignment_version = self.assignment.pay_plan_version_id
+        active_production_versions = list(
+            PayPlanVersion.objects.filter(
+                pay_plan=self.source.pay_plan,
+                status=PayPlanVersion.ACTIVE,
+                is_sandbox=False,
+            ).values_list("pk", flat=True)
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse(
+                "commission_sandbox_project",
+                args=[imported_scenario.public_id],
+            ),
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        run = imported_scenario.runs.get(mode=SandboxRun.PROJECTION)
+        result = run.results.get(hypothetical_deal=hypothetical)
+        self.assertEqual(result.sandbox_commission, Decimal("120.00"))
+        self.assertEqual(
+            list(
+                Sale.objects.filter(user=self.user).values(
+                    "pk", "dealNumber", "frontEnd", "backend", "count",
+                )
+            ),
+            sale_snapshot,
+        )
+        self.assignment.refresh_from_db()
+        self.assertEqual(
+            self.assignment.pay_plan_version_id,
+            active_assignment_version,
+        )
+        self.assertEqual(
+            list(
+                PayPlanVersion.objects.filter(
+                    pay_plan=self.source.pay_plan,
+                    status=PayPlanVersion.ACTIVE,
+                    is_sandbox=False,
+                ).values_list("pk", flat=True)
+            ),
+            active_production_versions,
+        )
+
+    def test_owned_scenario_lock_targets_self_and_keeps_owner_filter(self):
+        expected = object()
+        with patch.object(
+            CommissionSandbox.objects,
+            "select_related",
+        ) as select_related:
+            selected = select_related.return_value
+            locked = selected.select_for_update.return_value
+            locked.get.return_value = expected
+
+            result = ScenarioService.get(
+                self.user,
+                self.scenario.public_id,
+                for_update=True,
+            )
+
+        self.assertIs(result, expected)
+        select_related.assert_called_once_with(
+            "source_version__pay_plan",
+            "draft_version__pay_plan",
+            "source_scenario",
+        )
+        selected.select_for_update.assert_called_once_with(of=("self",))
+        locked.get.assert_called_once_with(
+            owner=self.user,
+            public_id=self.scenario.public_id,
+        )
+
+    @skipUnless(
+        connection.vendor == "postgresql",
+        "PostgreSQL is required for the nullable outer-join locking regression.",
+    )
+    def test_postgresql_recalculation_locks_scenario_with_null_outer_join(self):
+        self.assertIsNone(self.scenario.source_scenario_id)
+        hypothetical = self._add_hypothetical(
+            self.scenario,
+            deal_number=889105,
+        )
+
+        run = ScenarioCalculationService.recalculate(
+            self.user,
+            self.scenario,
+            mode=SandboxRun.PROJECTION,
+        )
+
+        self.assertEqual(run.results.get().hypothetical_deal_id, hypothetical.pk)
+
+    def test_project_view_logs_unexpected_failure_without_exposing_details(self):
+        self.client.force_login(self.user)
+        with patch(
+            "SalesLogApp.scenario_services."
+            "ScenarioCalculationService.recalculate",
+            side_effect=RuntimeError("private projection failure details"),
+        ), self.assertLogs("SalesLogApp.views", level="ERROR") as logs:
+            response = self.client.post(
+                reverse(
+                    "commission_sandbox_project",
+                    args=[self.scenario.public_id],
+                ),
+                follow=True,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "The projection could not be completed. Please try again.",
+        )
+        self.assertNotContains(response, "private projection failure details")
+        self.assertTrue(
+            any(
+                "Unexpected sandbox projection failure." in entry
+                for entry in logs.output
+            )
         )
 
     def test_save_updates_same_scenario_and_draft(self):
