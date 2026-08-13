@@ -38,6 +38,7 @@ class CommissionScenarioWorkflowTests(TestCase):
         self.user = get_user_model().objects.create_user(
             username="scenario-owner",
             password=self.password,
+            is_staff=True,
         )
         profile = self.user.sales_profile
         profile.commission_system = UserProfile.PAY_PLAN_V2
@@ -574,6 +575,7 @@ class CommissionScenarioWorkflowTests(TestCase):
         self.client.force_login(get_user_model().objects.create_user(
             username="scenario-url-intruder",
             password=self.password,
+            is_staff=True,
         ))
         scenario_args = [self.scenario.public_id]
         requests = (

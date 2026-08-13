@@ -21,7 +21,7 @@ class PayPlanRuleConditionEditTests(TestCase):
     def setUp(self):
         User = get_user_model()
         self.user = User.objects.create_user(
-            username='micheals-rule-owner', password='test-password',
+            username='micheals-rule-owner', password='test-password', is_staff=True,
         )
         self.other = User.objects.create_user(
             username='other-rule-owner', password='test-password',

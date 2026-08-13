@@ -1,77 +1,74 @@
 {% extends 'SalesLogApp/base.html' %}
-{% block title %}Review Replacement Pay Plan{% endblock %}
+{% load pay_plan_display %}
+{% block title %}Review Pay Plan Draft{% endblock %}
 {% block content %}
 <div class="intro">
-  <h2>Review {{ version.pay_plan.name }} — {{ version.version_name }}</h2>
-  <p>The existing plan remains active until this draft passes validation and you explicitly activate it.</p>
+  <h2>Review {{ version.pay_plan.name }}</h2>
+  <p>Your existing plan remains active until this draft passes validation and you explicitly activate it.</p>
 </div>
+
 <section class="card">
   <h3>Draft status</h3>
   <dl class="commission-grid">
     <div><dt>Status</dt><dd>{{ version.get_status_display }}</dd></div>
     <div><dt>Effective date</dt><dd>{{ version.effective_start_date }}</dd></div>
+    <div><dt>Filename</dt><dd>{{ version.source_filename|default:"No file name available" }}</dd></div>
+    {% if is_internal_user %}
     <div><dt>Source</dt><dd>{{ version.get_source_type_display }}</dd></div>
     <div><dt>Parser version</dt><dd>{{ version.parser_version|default:"Not recorded" }}</dd></div>
-    <div><dt>Filename</dt><dd>{{ version.source_filename|default:"None" }}</dd></div>
     <div><dt>Previous version</dt><dd>{{ version.previous_version|default:"None" }}</dd></div>
-  </dl>
-  {% if version.processing_errors %}<h4>Blocking errors</h4><ul>{% for error in version.processing_errors %}<li>{{ error }}</li>{% endfor %}</ul>{% endif %}
-  {% if version.processing_warnings %}<h4>Parser warnings</h4><ul>{% for warning in version.processing_warnings %}<li>{{ warning }}</li>{% endfor %}</ul>{% endif %}
-</section>
-{% if version.parser_version %}
-<section class="card">
-  <h3>Compiled automotive plan</h3>
-  <p class="card-description">This is the executable interpretation to confirm before activation.</p>
-  {% for rule in rules %}
-    {% if rule.rule_type == "front_gross_percentage" %}
-      <p><strong>New vehicles:</strong> {{ rule.configuration.rate }} of supplied front gross; pack ${{ rule.configuration.pack_amount }}.</p>
-    {% elif rule.rule_type == "tiered_minimum_commission" %}
-      <p><strong>New per-deal minimums:</strong> {{ rule.configuration.tiers }} using New units only.</p>
-    {% elif rule.rule_type == "progressive_unit_position_percentage" %}
-      <p><strong>Used vehicles:</strong> ${{ rule.configuration.pack_amount }} pack; {{ rule.configuration.tiers }}. Tier behavior: Non-retroactive.</p>
-    {% elif rule.rule_type == "back_gross_percentage" %}
-      <p><strong>F&amp;I:</strong> {{ rule.configuration.rate }} after a ${{ rule.configuration.pack_amount }} pack.</p>
-    {% elif rule.rule_type == "vehicle_spiff" %}
-      <p><strong>Demo bonus:</strong> ${{ rule.configuration.amount }} when the listed vehicle conditions match.</p>
     {% endif %}
-  {% endfor %}
+  </dl>
+  {% if draft_messages.errors %}<h4>Fix before activation</h4><ul>{% for error in draft_messages.errors %}<li>{{ error }}</li>{% endfor %}</ul>{% endif %}
+  {% if draft_messages.warnings %}<h4>Items to review</h4><ul>{% for warning in draft_messages.warnings %}<li>{{ warning }}</li>{% endfor %}</ul>{% endif %}
 </section>
-{% endif %}
-{% if plain_text_change %}
+
+{% if is_internal_user and plain_text_change %}
 <section class="card">
   <h3>Plain-language request</h3>
   <p><strong>You asked:</strong> {{ plain_text_change.request_text }}</p>
-  <h4>Proposed changes</h4>
   <ul>
     {% for action in plain_text_change.parsed_actions %}
     <li>
       {{ action.rule_name }}
       {% if action.action_type == "add_volume_tier" %}:
-        {{ action.minimum_units }}{% if action.maximum_units %}–{{ action.maximum_units }}{% else %}+{% endif %} units pays ${{ action.new_value }}
+        {{ action.minimum_units }}{% if action.maximum_units %}-{{ action.maximum_units }}{% else %}+{% endif %} units pays ${{ action.new_value }}
+      {% elif action.old_value %}: {{ action.old_value }} to {{ action.new_value }}
+      {% elif action.field_name %}: {{ action.action_type }} {{ action.field_name }}
       {% endif %}
-      {% if action.old_value %}: {{ action.old_value }} → {{ action.new_value }}{% endif %}
-      {% if action.field_name %}: {{ action.action_type }} {{ action.field_name }}{% endif %}
     </li>
     {% endfor %}
   </ul>
-  <p class="card-description">Only the listed items were changed. Activating this draft preserves the previous version for rollback.</p>
 </section>
 {% endif %}
+
 <section class="card">
-  <h3>Imported rules</h3>
+  <h3>What changed</h3>
+  {% if changes.added or changes.changed or changes.removed %}
+  <ul>
+    {% for name in changes.added %}<li>Added: {{ name }}</li>{% endfor %}
+    {% for name in changes.changed %}<li>Changed: {{ name }}</li>{% endfor %}
+    {% for name in changes.removed %}<li>Removed: {{ name }}</li>{% endfor %}
+  </ul>
+  {% else %}<p>No rule differences were found.</p>{% endif %}
+</section>
+
+<section class="card">
+  <h3>Pay-plan rules</h3>
   {% for rule in rules %}
     <article>
       <strong>{{ rule.name }}</strong>
-      {% load pay_plan_display %}
       <div>{{ rule|rule_summary }}</div>
-      {% if rule.conditions.all %}<div>Conditions: {% for condition in rule.conditions.all %}{{ condition.field_name }} {{ condition.operator }} {{ condition.value }}{% if not forloop.last %}; {% endif %}{% endfor %}</div>{% endif %}
-      <details class="advanced-details"><summary>Advanced details</summary><div>Type: <code>{{ rule.rule_type }}</code> | Scope: <code>{{ rule.calculation_scope }}</code> | Priority: {{ rule.sort_order }}</div><div>Configuration: <code>{{ rule.configuration }}</code></div></details>
-      <div><a class="text-link" href="{% url 'edit_pay_plan_rule' version.id rule.id %}">Edit Conditions</a></div>
+      {% if rule.conditions.all %}<div>Applies when: {% for condition in rule.conditions.all %}{{ condition|condition_summary }}{% if not forloop.last %} {% endif %}{% endfor %}</div>{% endif %}
+      {% if is_internal_user %}<details class="advanced-details"><summary>Advanced details</summary><div>Type: <code>{{ rule.rule_type }}</code> | Scope: <code>{{ rule.calculation_scope }}</code> | Priority: {{ rule.sort_order }}</div><div>Configuration: <code>{{ rule.configuration }}</code></div></details>{% endif %}
+      <div><a class="text-link" href="{% url 'edit_pay_plan_rule' version.id rule.id %}">Edit rule</a></div>
     </article>
   {% empty %}
-    <p class="notice">No usable rules were extracted. This draft cannot replace the active plan.</p>
+    <p class="notice">No usable rules were found. Add the missing rules before activating this draft.</p>
   {% endfor %}
 </section>
+
+{% if is_internal_user %}
 <section class="card">
   <h3>Sales preview</h3>
   <dl class="commission-grid">
@@ -81,18 +78,30 @@
     <div><dt>No matching rule</dt><dd>{{ preview.no_matching_rule_count }}</dd></div>
     <div><dt>Estimated total</dt><dd>${{ preview.estimated_total|floatformat:2 }}</dd></div>
   </dl>
-  <ul>{% for item in preview.results %}<li>Sale {{ item.sale_id }}: {{ item.status }}{% if item.errors %} — {{ item.errors|join:", " }}{% endif %}</li>{% endfor %}</ul>
 </section>
+{% endif %}
+
 <section class="card">
-  <h3>Edit Plan Manually</h3>
-  <p class="card-description">Add a validated rule when the document parser cannot safely recognize it. Never guess values—copy them from the source plan.</p>
-  <form method="post">{% csrf_token %}<input type="hidden" name="action" value="add_rule">{{ manual_rule_form.as_p }}<button class="button button-secondary" type="submit">Add Rule to Draft</button></form>
+  <h3>Add a rule</h3>
+  <p class="card-description">Use the fields below to correct a missing rule. Copy the values from your pay-plan document.</p>
+  <form method="post" novalidate>
+    {% csrf_token %}<input type="hidden" name="action" value="add_rule">
+    {{ manual_rule_form.non_field_errors }}
+    {{ manual_rule_form.as_p }}
+    <button class="button button-secondary" type="submit">Add rule to draft</button>
+  </form>
 </section>
+
 <section class="card">
-  <h3>Activate replacement</h3>
+  <h3>Finish review</h3>
+  {% if is_internal_user %}
   <form method="post">{% csrf_token %}<input type="hidden" name="action" value="activate">
     {% if version.processing_warnings %}<label><input type="checkbox" name="approve_warnings"> I reviewed and accept the noncritical parser warnings.</label>{% endif %}
-    <div class="actions"><a class="button button-secondary" href="{% url 'replace_pay_plan' %}">Upload Different File</a><a class="button button-secondary" href="{% url 'view_commission' %}">Cancel</a><button class="button button-primary" type="submit">Confirm and Activate</button></div>
+    <div class="actions"><a class="button button-secondary" href="{% url 'replace_pay_plan' %}">Upload Different File</a><a class="button button-secondary" href="{% url 'my_pay_plan' %}">Cancel</a><button class="button button-primary" type="submit">Confirm and Activate</button></div>
   </form>
+  {% else %}
+  <p>Continue to a final confirmation page. Opening that page does not activate the draft.</p>
+  <div class="actions"><a class="button button-secondary" href="{% url 'replace_pay_plan' %}">Upload a different file</a><a class="button button-secondary" href="{% url 'my_pay_plan' %}">Save for later</a><a class="button button-primary" href="{% url 'confirm_pay_plan_activation' version.id %}">Continue to confirmation</a></div>
+  {% endif %}
 </section>
 {% endblock %}

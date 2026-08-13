@@ -209,6 +209,257 @@ class PayPlanReplacementForm(forms.Form):
         return cleaned
 
 
+class BasicPayPlanReplacementForm(PayPlanReplacementForm):
+    """Document-only replacement form for the Basic customer workflow."""
+
+    pasted_text = None
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields.pop('pasted_text', None)
+
+    def clean(self):
+        cleaned = forms.Form.clean(self)
+        if not cleaned.get('documents'):
+            self.add_error(
+                'documents',
+                'Upload at least one supported pay-plan document.',
+            )
+        apply_from = cleaned.get('apply_from')
+        if apply_from == self.SELECTED_DATE and not cleaned.get('selected_date'):
+            self.add_error('selected_date', 'Select an effective date.')
+        today = timezone.localdate()
+        if apply_from == self.CURRENT_MONTH:
+            cleaned['effective_start_date'] = today.replace(day=1)
+        elif apply_from == self.FUTURE_ONLY:
+            from datetime import timedelta
+            cleaned['effective_start_date'] = today + timedelta(days=1)
+        else:
+            cleaned['effective_start_date'] = cleaned.get('selected_date')
+        effective_start = cleaned.get('effective_start_date')
+        if (
+            effective_start
+            and effective_start < today
+            and not cleaned.get('confirm_retroactive')
+        ):
+            self.add_error(
+                'confirm_retroactive',
+                'Confirm retroactive recalculation or choose future sales only.',
+            )
+        return cleaned
+
+
+class BasicPayPlanRuleForm(forms.Form):
+    FRONT_PERCENTAGE = 'front_percentage'
+    BACK_PERCENTAGE = 'back_percentage'
+    FLAT_AMOUNT = 'flat_amount'
+    MINIMUM = 'minimum'
+    MAXIMUM = 'maximum'
+    VOLUME_BONUS = 'volume_bonus'
+    VEHICLE_BONUS = 'vehicle_bonus'
+    DEDUCTION = 'deduction'
+    RULE_CHOICES = (
+        (FRONT_PERCENTAGE, 'Percentage of front-end gross'),
+        (BACK_PERCENTAGE, 'Percentage of back-end gross'),
+        (FLAT_AMOUNT, 'Flat amount per sale'),
+        (MINIMUM, 'Minimum commission per sale'),
+        (MAXIMUM, 'Maximum commission per sale'),
+        (VOLUME_BONUS, 'Monthly volume bonus'),
+        (VEHICLE_BONUS, 'Vehicle bonus'),
+        (DEDUCTION, 'Deduction per sale'),
+    )
+    RULE_TYPE_TO_KIND = {
+        'front_gross_percentage': FRONT_PERCENTAGE,
+        'back_gross_percentage': BACK_PERCENTAGE,
+        'flat_per_deal': FLAT_AMOUNT,
+        'minimum_commission': MINIMUM,
+        'maximum_commission': MAXIMUM,
+        'volume_bonus': VOLUME_BONUS,
+        'vehicle_spiff': VEHICLE_BONUS,
+        'deduction': DEDUCTION,
+    }
+
+    name = forms.CharField(
+        max_length=150,
+        label='Rule name',
+        help_text='Use the wording from your pay-plan document.',
+    )
+    rule_kind = forms.ChoiceField(
+        choices=RULE_CHOICES,
+        label='How this rule pays',
+    )
+    percentage = forms.DecimalField(
+        required=False,
+        min_value=Decimal('0.01'),
+        max_value=Decimal('100'),
+        max_digits=7,
+        decimal_places=4,
+        label='Percentage',
+        help_text='Enter 25 for 25%.',
+    )
+    amount = forms.DecimalField(
+        required=False,
+        min_value=Decimal('0.00'),
+        max_digits=12,
+        decimal_places=2,
+        label='Dollar amount',
+    )
+    minimum_units = forms.DecimalField(
+        required=False,
+        min_value=Decimal('0'),
+        max_digits=6,
+        decimal_places=1,
+        label='Units required',
+        help_text='Used only for a monthly volume bonus.',
+    )
+    vehicle_condition = forms.ChoiceField(
+        required=False,
+        choices=(
+            ('', 'All new and used vehicles'),
+            ('new', 'New vehicles only'),
+            ('used', 'Used vehicles only'),
+        ),
+        label='Eligible vehicles',
+    )
+
+    def __init__(self, *args, rule=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.rule = rule
+        if rule is None or self.is_bound:
+            return
+        kind = self.RULE_TYPE_TO_KIND.get(rule.rule_type)
+        configuration = rule.configuration or {}
+        initial = {
+            'name': rule.name,
+            'rule_kind': kind,
+        }
+        if kind in {self.FRONT_PERCENTAGE, self.BACK_PERCENTAGE}:
+            rate = Decimal(str(configuration.get('rate') or 0))
+            initial['percentage'] = rate * 100 if rate <= 1 else rate
+        elif kind == self.MINIMUM:
+            initial['amount'] = configuration.get('minimum_amount')
+        elif kind == self.MAXIMUM:
+            initial['amount'] = configuration.get('maximum_amount')
+        elif kind == self.VOLUME_BONUS:
+            tier = (configuration.get('tiers') or [{}])[0]
+            initial['amount'] = tier.get('amount')
+            initial['minimum_units'] = tier.get('minimum_units')
+            metric = configuration.get('unit_metric')
+            initial['vehicle_condition'] = {
+                'monthly_new_units': 'new',
+                'monthly_used_units': 'used',
+            }.get(metric, '')
+        else:
+            initial['amount'] = configuration.get('amount')
+        condition = rule.conditions.filter(
+            field_name='vehicle_condition', operator='equals',
+        ).order_by('sort_order', 'id').first()
+        if condition is not None:
+            initial['vehicle_condition'] = str(condition.value).lower()
+        self.initial.update(initial)
+        self.unsupported_rule = kind is None
+
+    def clean(self):
+        cleaned = super().clean()
+        if self.rule is not None and self.rule.rule_type not in self.RULE_TYPE_TO_KIND:
+            raise forms.ValidationError(
+                'This imported rule cannot be changed with the guided editor. '
+                'Leave it unchanged or upload a corrected document.'
+            )
+        kind = cleaned.get('rule_kind')
+        if kind in {self.FRONT_PERCENTAGE, self.BACK_PERCENTAGE}:
+            if cleaned.get('percentage') is None:
+                self.add_error('percentage', 'Enter the commission percentage.')
+        elif kind == self.VOLUME_BONUS:
+            if cleaned.get('amount') is None:
+                self.add_error('amount', 'Enter the bonus amount.')
+            if cleaned.get('minimum_units') is None:
+                self.add_error('minimum_units', 'Enter the units required.')
+        elif kind and cleaned.get('amount') is None:
+            self.add_error('amount', 'Enter the dollar amount.')
+        return cleaned
+
+    def rule_values(self):
+        kind = self.cleaned_data['rule_kind']
+        amount = self.cleaned_data.get('amount')
+        vehicle_condition = self.cleaned_data.get('vehicle_condition') or ''
+        conditions = []
+        if kind == self.FRONT_PERCENTAGE:
+            rule_type = 'front_gross_percentage'
+            scope = 'per_sale'
+            configuration = {
+                'rate': str(self.cleaned_data['percentage'] / Decimal('100')),
+                'gross_field': 'front_end_gross',
+            }
+        elif kind == self.BACK_PERCENTAGE:
+            rule_type = 'back_gross_percentage'
+            scope = 'per_sale'
+            configuration = {
+                'rate': str(self.cleaned_data['percentage'] / Decimal('100')),
+                'gross_field': 'back_end_gross',
+            }
+        elif kind == self.FLAT_AMOUNT:
+            rule_type, scope = 'flat_per_deal', 'per_sale'
+            configuration = {'amount': str(amount)}
+        elif kind == self.MINIMUM:
+            rule_type, scope = 'minimum_commission', 'per_sale'
+            configuration = {
+                'minimum_amount': str(amount),
+                'applies_to_categories': ['front_end', 'back_end', 'flat'],
+            }
+        elif kind == self.MAXIMUM:
+            rule_type, scope = 'maximum_commission', 'per_sale'
+            configuration = {
+                'maximum_amount': str(amount),
+                'applies_to_categories': ['front_end', 'back_end', 'flat'],
+            }
+        elif kind == self.VOLUME_BONUS:
+            rule_type, scope = 'volume_bonus', 'period'
+            configuration = {
+                'tiers': [{
+                    'minimum_units': str(self.cleaned_data['minimum_units']),
+                    'amount': str(amount),
+                }],
+                'tier_mode': 'highest_only',
+                'unit_metric': {
+                    'new': 'monthly_new_units',
+                    'used': 'monthly_used_units',
+                }.get(vehicle_condition, 'monthly_units'),
+            }
+        elif kind == self.VEHICLE_BONUS:
+            rule_type, scope = 'vehicle_spiff', 'per_sale'
+            configuration = {'amount': str(amount)}
+        else:
+            rule_type, scope = 'deduction', 'per_sale'
+            configuration = {'amount': str(amount)}
+        if vehicle_condition and scope == 'per_sale':
+            conditions.append({
+                'field_name': 'vehicle_condition',
+                'operator': 'equals',
+                'value': vehicle_condition,
+            })
+        return {
+            'name': self.cleaned_data['name'],
+            'rule_type': rule_type,
+            'calculation_scope': scope,
+            'configuration': configuration,
+            'conditions': conditions,
+        }
+
+
+class BasicPayPlanActivationForm(forms.Form):
+    confirm = forms.BooleanField(
+        label=(
+            'I confirm this reviewed draft should become the pay plan used '
+            'for future commission calculations.'
+        ),
+    )
+    approve_warnings = forms.BooleanField(
+        required=False,
+        label='I reviewed the non-blocking items shown above.',
+    )
+
+
 class ManualPayPlanRuleForm(forms.Form):
     name = forms.CharField(max_length=150)
     rule_type = forms.ChoiceField(choices=(

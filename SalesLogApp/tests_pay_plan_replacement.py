@@ -34,7 +34,7 @@ class PayPlanReplacementWorkflowTests(TestCase):
         self.addCleanup(self.override.disable)
         self.addCleanup(self.media.cleanup)
         self.user = get_user_model().objects.create_user(
-            username='replacement-owner', password='test-password',
+            username='replacement-owner', password='test-password', is_staff=True,
         )
         self.other = get_user_model().objects.create_user(
             username='replacement-other', password='test-password',

@@ -20,7 +20,9 @@
     {% if commission_diagnostics.excluded_count %}<div><dt>Sales needing review</dt><dd>{{ commission_diagnostics.excluded_count }}</dd></div>{% endif %}
   </dl>
   <div class="actions">
-    <details class="pay-plan-action-menu">
+    <a class="button button-primary" href="{% url 'my_pay_plan' %}">My Pay Plan</a>
+    {% if active_plan_summary.requirements.has_monthly_requirements %}<a class="button button-secondary" href="{% url 'pay_plan_eligibility' %}">Update monthly eligibility</a>{% endif %}
+    {% if user.is_staff or user.is_superuser %}<details class="pay-plan-action-menu">
       <summary class="button button-primary">View pay plan options</summary>
       <div class="pay-plan-action-list">
         <a href="{% url 'pay_plan_assistant' %}">Ask to change my plan</a>
@@ -31,7 +33,7 @@
         <a href="{% url 'commission_sandbox_index' %}">Commission Sandbox</a>
         <form method="post" action="{% url 'recalculate_pay_plan_commissions' %}">{% csrf_token %}<button type="submit">Update commission totals</button></form>
       </div>
-    </details>
+    </details>{% endif %}
   </div>
 </section>
 

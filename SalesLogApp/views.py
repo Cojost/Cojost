@@ -21,6 +21,9 @@ from .forms import (
     modelformset_factory,
     UserLoginForm,
     CustomUserCreationForm,
+    BasicPayPlanActivationForm,
+    BasicPayPlanReplacementForm,
+    BasicPayPlanRuleForm,
     ManualPayPlanRuleForm,
     PayPlanRuleConditionEditForm,
     PayPlanAssistantForm,
@@ -61,6 +64,7 @@ from .forms import AppearanceForm, AvatarForm
 from .profile_context import get_user_profile
 from .access import (
     get_or_create_onboarding,
+    internal_pay_plan_tool_required,
     legacy_commission_only,
     pay_plan_onboarding_required,
     sync_active_onboarding_assignment,
@@ -100,6 +104,7 @@ from .models import (
     PayPlanChangeRequest,
     PayPlanOnboarding,
     PayPlanRule,
+    PayPlanRuleCondition,
     PayPlanVersion,
     CommissionSandbox,
     SandboxRun,
@@ -109,6 +114,116 @@ from .sale_types import get_sale_type_handler
 
 
 logger = logging.getLogger(__name__)
+
+
+def _is_internal_pay_plan_user(user):
+    return user.is_staff or user.is_superuser
+
+
+def _resolved_manual_rule_errors(errors):
+    """Remove only parser errors that a valid manual rule can resolve."""
+
+    resolved_phrases = (
+        'no usable rules were extracted',
+        'active version had no rules to clone',
+    )
+    return [
+        error for error in (errors or [])
+        if not any(phrase in str(error).lower() for phrase in resolved_phrases)
+    ]
+
+
+def _create_guided_conditions(rule, conditions):
+    for order, values in enumerate(conditions, start=1):
+        condition = PayPlanRuleCondition(
+            rule=rule,
+            sort_order=order,
+            **values,
+        )
+        condition.full_clean()
+        condition.save()
+
+
+def _pay_plan_changes(version):
+    previous = version.previous_version
+    if previous is None:
+        return {'added': [rule.name for rule in version.rules.all()], 'changed': [], 'removed': []}
+
+    current_rules = {
+        str(rule.semantic_key): rule
+        for rule in version.rules.prefetch_related('conditions').all()
+    }
+    previous_rules = {
+        str(rule.semantic_key): rule
+        for rule in previous.rules.prefetch_related('conditions').all()
+    }
+    added = [rule.name for key, rule in current_rules.items() if key not in previous_rules]
+    removed = [rule.name for key, rule in previous_rules.items() if key not in current_rules]
+    changed = []
+    for key in current_rules.keys() & previous_rules.keys():
+        current = current_rules[key]
+        old = previous_rules[key]
+        current_conditions = [condition.as_dict() for condition in current.conditions.all()]
+        old_conditions = [condition.as_dict() for condition in old.conditions.all()]
+        if (
+            current.name != old.name
+            or current.rule_type != old.rule_type
+            or current.configuration != old.configuration
+            or current.is_active != old.is_active
+            or current_conditions != old_conditions
+        ):
+            changed.append(current.name)
+    return {'added': added, 'changed': changed, 'removed': removed}
+
+
+def _customer_draft_messages(version):
+    errors = []
+    for error in version.processing_errors or []:
+        lowered = str(error).lower()
+        if 'no usable rules' in lowered or 'no rules to clone' in lowered:
+            errors.append(
+                'No usable commission rules were found. Add the missing rules '
+                'below or upload a clearer document.'
+            )
+        else:
+            errors.append(
+                'A rule could not be validated. Compare each draft rule with '
+                'your document and correct the affected rule.'
+            )
+    warnings = []
+    for warning in version.processing_warnings or []:
+        lowered = str(warning).lower()
+        if 'ocr is not available' in lowered:
+            message = (
+                'Text could not be read automatically from an image. Add the '
+                'rules below or upload a text-based PDF.'
+            )
+        elif 'contains no extractable text' in lowered:
+            message = 'A document page had no readable text. Check the rules below carefully.'
+        elif 'pdf could not be read' in lowered:
+            message = 'A PDF could not be read safely. Try a clearer file or add the rules below.'
+        elif 'no commission rules were recognized' in lowered:
+            message = 'No commission rules were recognized. Add the missing rules below.'
+        elif 'confidence is below' in lowered:
+            message = 'The document needs a careful review before activation.'
+        elif lowered.startswith('compilation:'):
+            message = 'Some plan wording could not be converted into a rule. Compare the draft with your document.'
+        elif any(
+            phrase in lowered
+            for phrase in (
+                'nps survey-count', 'used-vehicle monthly deduction',
+                'draw recovery', 'holiday bonus fund',
+            )
+        ):
+            message = str(warning)
+        else:
+            message = (
+                'Some plan wording needs manual review. Compare the draft '
+                'rules with your document before activation.'
+            )
+        if message not in warnings:
+            warnings.append(message)
+    return {'errors': errors, 'warnings': warnings}
 
 
 def _is_hypothetical_deal_number_conflict(exc):
@@ -786,7 +901,7 @@ def register(request):
                 profile.commission_system = profile.PAY_PLAN_V2
                 profile.save(update_fields=['commission_system', 'updated_at'])
                 get_or_create_onboarding(user)
-                return redirect('pay_plan_setup')
+                return redirect('my_pay_plan')
             else:
                 form.add_error(None, 'Authentication failed.')
         else:
@@ -798,6 +913,9 @@ def register(request):
 
 @login_required
 def pay_plan_setup(request):
+    if not _is_internal_pay_plan_user(request.user):
+        messages.info(request, 'Use My Pay Plan to upload and review your pay plan.')
+        return redirect('my_pay_plan')
     onboarding = get_or_create_onboarding(request.user)
     if not uses_new_engine(request.user):
         return redirect('view_sales')
@@ -891,6 +1009,9 @@ def pay_plan_setup(request):
 
 @login_required
 def pay_plan_review(request):
+    if not _is_internal_pay_plan_user(request.user):
+        messages.info(request, 'Use My Pay Plan to review your pay-plan draft.')
+        return redirect('my_pay_plan')
     onboarding = get_or_create_onboarding(request.user)
     if not uses_new_engine(request.user):
         return redirect('view_sales')
@@ -982,42 +1103,101 @@ def pay_plan_review(request):
 
 
 @login_required
+def my_pay_plan(request):
+    if not uses_new_engine(request.user):
+        messages.info(
+            request,
+            'Your current commission settings are available on View Commission.',
+        )
+        return redirect('view_commission')
+    summary = CommissionEngineService.active_plan_summary(request.user)
+    active_version = None
+    active_version_id = summary.get('pay_plan_version_id')
+    if active_version_id:
+        active_version = get_object_or_404(
+            PayPlanVersion.objects.prefetch_related('rules__conditions'),
+            id=active_version_id,
+            pay_plan__owner_user=request.user,
+            is_sandbox=False,
+        )
+    draft = (
+        PayPlanVersion.objects.filter(
+            pay_plan__owner_user=request.user,
+            is_sandbox=False,
+            status__in=(PayPlanVersion.DRAFT, PayPlanVersion.REVIEW_REQUIRED),
+        )
+        .select_related('pay_plan', 'previous_version')
+        .prefetch_related('rules__conditions')
+        .order_by('-updated_at', '-id')
+        .first()
+    )
+    return render(request, 'my_pay_plan.html', {
+        'active_plan_summary': summary,
+        'active_version': active_version,
+        'active_rules': active_version.rules.all() if active_version else (),
+        'draft': draft,
+        'draft_changes': _pay_plan_changes(draft) if draft else None,
+        'draft_messages': _customer_draft_messages(draft) if draft else None,
+        'is_internal_user': _is_internal_pay_plan_user(request.user),
+    })
+
+
+@login_required
 def replace_pay_plan(request):
     if not uses_new_engine(request.user):
         messages.error(request, 'Replacement plans are available only for the new pay-plan engine.')
         return redirect('view_commission')
     summary = CommissionEngineService.active_plan_summary(request.user)
     initial_name = summary['plan'].name if summary.get('plan') else 'Automotive Pay Plan'
+    is_internal_user = _is_internal_pay_plan_user(request.user)
+    form_class = PayPlanReplacementForm if is_internal_user else BasicPayPlanReplacementForm
     if request.method == 'POST':
-        form = PayPlanReplacementForm(request.POST, request.FILES)
+        form = form_class(request.POST, request.FILES)
         if form.is_valid():
-            if form.cleaned_data.get('documents'):
-                version = create_replacement_draft(
-                    request.user,
-                    form.cleaned_data['documents'],
-                    form.cleaned_data['plan_name'],
-                    form.cleaned_data['effective_start_date'],
+            try:
+                if form.cleaned_data.get('documents'):
+                    version = create_replacement_draft(
+                        request.user,
+                        form.cleaned_data['documents'],
+                        form.cleaned_data['plan_name'],
+                        form.cleaned_data['effective_start_date'],
+                    )
+                else:
+                    version = create_pasted_replacement_draft(
+                        request.user,
+                        form.cleaned_data['pasted_text'],
+                        form.cleaned_data['plan_name'],
+                        form.cleaned_data['effective_start_date'],
+                    )
+            except ValidationError as exc:
+                form.add_error(None, '; '.join(exc.messages))
+            except Exception as exc:
+                logger.error(
+                    'Unexpected pay-plan upload failure for user_id=%s error_type=%s',
+                    request.user.pk,
+                    type(exc).__name__,
+                )
+                form.add_error(
+                    None,
+                    'We could not process that document. Check the file and try '
+                    'again. Your active pay plan was not changed.',
                 )
             else:
-                version = create_pasted_replacement_draft(
-                    request.user,
-                    form.cleaned_data['pasted_text'],
-                    form.cleaned_data['plan_name'],
-                    form.cleaned_data['effective_start_date'],
+                messages.success(
+                    request,
+                    'Your document was saved as a draft. Your current pay plan '
+                    'remains active until you review and activate the draft.',
                 )
-            messages.success(
-                request,
-                'Replacement uploaded as a draft. Your current plan remains active.',
-            )
-            return redirect('replacement_pay_plan_review', version_id=version.id)
+                return redirect('replacement_pay_plan_review', version_id=version.id)
     else:
-        form = PayPlanReplacementForm(initial={
+        form = form_class(initial={
             'plan_name': initial_name,
-            'apply_from': PayPlanReplacementForm.FUTURE_ONLY,
+            'apply_from': form_class.FUTURE_ONLY,
         })
     return render(request, 'pay_plan_replace.html', {
         'form': form,
         'active_plan_summary': summary,
+        'is_internal_user': is_internal_user,
     })
 
 
@@ -1067,7 +1247,18 @@ def edit_pay_plan_manually(request):
         )
     except ValidationError as exc:
         messages.error(request, '; '.join(exc.messages))
-        return redirect('view_commission')
+        return redirect('my_pay_plan')
+    except Exception as exc:
+        logger.error(
+            'Unexpected manual pay-plan draft failure for user_id=%s error_type=%s',
+            request.user.pk,
+            type(exc).__name__,
+        )
+        messages.error(
+            request,
+            'We could not create the edit draft. Your active pay plan was not changed.',
+        )
+        return redirect('my_pay_plan')
     messages.success(
         request,
         'A manual-edit draft was created. The active plan remains unchanged.',
@@ -1075,7 +1266,7 @@ def edit_pay_plan_manually(request):
     return redirect('replacement_pay_plan_review', version_id=version.id)
 
 
-@login_required
+@internal_pay_plan_tool_required
 def pay_plan_assistant(request):
     if not uses_new_engine(request.user):
         return redirect('view_commission')
@@ -1299,40 +1490,71 @@ def replacement_pay_plan_review(request, version_id):
         messages.error(request, 'Only draft versions can be reviewed for activation.')
         return redirect('pay_plan_history')
 
-    manual_form = ManualPayPlanRuleForm()
+    is_internal_user = _is_internal_pay_plan_user(request.user)
+    form_class = ManualPayPlanRuleForm if is_internal_user else BasicPayPlanRuleForm
+    manual_form = form_class()
     if request.method == 'POST':
         action = request.POST.get('action')
         if action == 'add_rule':
-            manual_form = ManualPayPlanRuleForm(request.POST)
+            manual_form = form_class(request.POST)
             if manual_form.is_valid():
-                with transaction.atomic():
-                    rule = PayPlanRule(
-                        pay_plan_version=version,
-                        name=manual_form.cleaned_data['name'],
-                        rule_type=manual_form.cleaned_data['rule_type'],
-                        calculation_scope=manual_form.cleaned_data['calculation_scope'],
-                        configuration=manual_form.cleaned_data['configuration'],
-                        sort_order=version.rules.count() + 1,
-                    )
-                    try:
+                try:
+                    with transaction.atomic():
+                        locked_version = get_object_or_404(
+                            PayPlanVersion.objects.select_for_update(of=('self',)),
+                            pk=version.pk,
+                            pay_plan__owner_user=request.user,
+                            is_sandbox=False,
+                            status__in=(
+                                PayPlanVersion.DRAFT,
+                                PayPlanVersion.REVIEW_REQUIRED,
+                            ),
+                        )
+                        if is_internal_user:
+                            values = {
+                                'name': manual_form.cleaned_data['name'],
+                                'rule_type': manual_form.cleaned_data['rule_type'],
+                                'calculation_scope': manual_form.cleaned_data['calculation_scope'],
+                                'configuration': manual_form.cleaned_data['configuration'],
+                                'conditions': manual_form.cleaned_data.get('conditions') or [],
+                            }
+                        else:
+                            values = manual_form.rule_values()
+                        conditions = values.pop('conditions')
+                        rule = PayPlanRule(
+                            pay_plan_version=locked_version,
+                            sort_order=locked_version.rules.count() + 1,
+                            **values,
+                        )
                         rule.full_clean()
                         rule.save()
-                        for order, condition in enumerate(
-                            manual_form.cleaned_data.get('conditions') or [], start=1,
-                        ):
-                            rule.conditions.create(sort_order=order, **condition)
-                    except (ValidationError, TypeError, KeyError) as exc:
-                        transaction.set_rollback(True)
-                        manual_form.add_error(None, str(exc))
-                    else:
-                        version.processing_errors = []
-                        version.processing_status = 'needs_review'
-                        version.save(update_fields=[
+                        _create_guided_conditions(rule, conditions)
+                        locked_version.processing_errors = _resolved_manual_rule_errors(
+                            locked_version.processing_errors,
+                        )
+                        locked_version.processing_status = 'needs_review'
+                        locked_version.save(update_fields=[
                             'processing_errors', 'processing_status', 'updated_at',
                         ])
-                        messages.success(request, 'Manual rule added to the draft.')
-                        return redirect('replacement_pay_plan_review', version_id=version.id)
+                except (ValidationError, TypeError, KeyError) as exc:
+                    manual_form.add_error(None, str(exc))
+                except Exception as exc:
+                    logger.error(
+                        'Unexpected pay-plan rule creation failure for user_id=%s version_id=%s error_type=%s',
+                        request.user.pk,
+                        version.pk,
+                        type(exc).__name__,
+                    )
+                    manual_form.add_error(
+                        None,
+                        'We could not save that rule. Check the values and try again.',
+                    )
+                else:
+                    messages.success(request, 'Rule added to the draft.')
+                    return redirect('replacement_pay_plan_review', version_id=version.id)
         elif action == 'activate':
+            if not is_internal_user:
+                return redirect('confirm_pay_plan_activation', version_id=version.id)
             warnings_approved = request.POST.get('approve_warnings') == 'on'
             try:
                 report = PayPlanActivationService.activate(
@@ -1341,6 +1563,17 @@ def replacement_pay_plan_review(request, version_id):
                 )
             except ValidationError as exc:
                 messages.error(request, '; '.join(exc.messages))
+            except Exception as exc:
+                logger.error(
+                    'Unexpected pay-plan activation failure for user_id=%s version_id=%s error_type=%s',
+                    request.user.pk,
+                    version.pk,
+                    type(exc).__name__,
+                )
+                messages.error(
+                    request,
+                    'We could not activate that pay plan. Your current plan remains active.',
+                )
             else:
                 messages.success(
                     request,
@@ -1351,11 +1584,13 @@ def replacement_pay_plan_review(request, version_id):
                 )
                 return redirect('view_commission')
 
-    preview = preview_version(request.user, version)
-    try:
-        plain_text_change = version.plain_text_change_request
-    except PayPlanChangeRequest.DoesNotExist:
-        plain_text_change = None
+    preview = preview_version(request.user, version) if is_internal_user else None
+    plain_text_change = None
+    if is_internal_user:
+        try:
+            plain_text_change = version.plain_text_change_request
+        except PayPlanChangeRequest.DoesNotExist:
+            pass
     return render(request, 'pay_plan_replacement_review.html', {
         'version': version,
         'rules': version.rules.prefetch_related('conditions').all(),
@@ -1363,6 +1598,62 @@ def replacement_pay_plan_review(request, version_id):
         'preview': preview,
         'manual_rule_form': manual_form,
         'plain_text_change': plain_text_change,
+        'changes': _pay_plan_changes(version),
+        'is_internal_user': is_internal_user,
+        'draft_messages': _customer_draft_messages(version),
+    })
+
+
+@login_required
+def confirm_pay_plan_activation(request, version_id):
+    version = get_object_or_404(
+        PayPlanVersion.objects.select_related('pay_plan', 'previous_version'),
+        id=version_id,
+        pay_plan__owner_user=request.user,
+        is_sandbox=False,
+        status__in=(PayPlanVersion.DRAFT, PayPlanVersion.REVIEW_REQUIRED),
+    )
+    form = BasicPayPlanActivationForm(request.POST or None)
+    if request.method == 'POST' and form.is_valid():
+        if version.processing_warnings and not form.cleaned_data['approve_warnings']:
+            form.add_error(
+                'approve_warnings',
+                'Confirm that you reviewed the items above before activation.',
+            )
+        else:
+            try:
+                PayPlanActivationService.activate(
+                    request.user,
+                    version,
+                    warnings_approved=form.cleaned_data['approve_warnings'],
+                    reason='User confirmed pay-plan activation',
+                )
+            except ValidationError as exc:
+                form.add_error(None, '; '.join(exc.messages))
+            except Exception as exc:
+                logger.error(
+                    'Unexpected pay-plan activation failure for user_id=%s version_id=%s error_type=%s',
+                    request.user.pk,
+                    version.pk,
+                    type(exc).__name__,
+                )
+                form.add_error(
+                    None,
+                    'We could not activate this pay plan. Your current plan remains active. '
+                    'Try again or review the draft for missing information.',
+                )
+            else:
+                messages.success(
+                    request,
+                    f'{version.pay_plan.name} is now your active pay plan.',
+                )
+                return redirect('my_pay_plan')
+    return render(request, 'pay_plan_activation_confirm.html', {
+        'version': version,
+        'rules': version.rules.prefetch_related('conditions').all(),
+        'changes': _pay_plan_changes(version),
+        'draft_messages': _customer_draft_messages(version),
+        'form': form,
     })
 
 
@@ -1372,7 +1663,10 @@ def pay_plan_history(request):
         pay_plan__owner_user=request.user,
         is_sandbox=False,
     ).select_related('pay_plan', 'previous_version').prefetch_related('documents')
-    return render(request, 'pay_plan_history.html', {'versions': versions})
+    return render(request, 'pay_plan_history.html', {
+        'versions': versions,
+        'is_internal_user': _is_internal_pay_plan_user(request.user),
+    })
 
 
 @login_required
@@ -1383,16 +1677,25 @@ def pay_plan_rules(request, version_id):
         pay_plan__owner_user=request.user,
         is_sandbox=False,
     )
+    is_internal_user = _is_internal_pay_plan_user(request.user)
     return render(request, 'pay_plan_rules.html', {
         'version': version,
         'rules': version.rules.prefetch_related('conditions').all(),
-        'can_edit_rules': True,
+        'can_edit_rules': (
+            is_internal_user
+            or version.status in {PayPlanVersion.DRAFT, PayPlanVersion.REVIEW_REQUIRED}
+        ),
+        'is_internal_user': is_internal_user,
     })
 
 
 @login_required
 def edit_pay_plan_rule(request, version_id, rule_id):
-    can_edit_any = request.user.has_perm('SalesLogApp.change_payplanrule')
+    is_internal_user = _is_internal_pay_plan_user(request.user)
+    can_edit_any = (
+        is_internal_user
+        and request.user.has_perm('SalesLogApp.change_payplanrule')
+    )
     queryset = PayPlanRule.objects.select_related(
         'pay_plan_version__pay_plan',
     ).prefetch_related('conditions').filter(
@@ -1407,65 +1710,126 @@ def edit_pay_plan_rule(request, version_id, rule_id):
         pk=rule_id,
         pay_plan_version_id=version_id,
     )
+    version = rule.pay_plan_version
+    if (
+        not is_internal_user
+        and version.status not in {PayPlanVersion.DRAFT, PayPlanVersion.REVIEW_REQUIRED}
+    ):
+        messages.info(
+            request,
+            'Active pay-plan rules cannot be changed directly. Create an edit draft first.',
+        )
+        return redirect('my_pay_plan')
+    form_class = PayPlanRuleConditionEditForm if is_internal_user else BasicPayPlanRuleForm
     if request.method == 'POST':
-        form = PayPlanRuleConditionEditForm(request.POST, rule=rule)
+        form = form_class(request.POST, rule=rule)
         if form.is_valid():
-            with transaction.atomic():
-                locked_queryset = PayPlanRule.objects.select_for_update().select_related(
-                    'pay_plan_version__pay_plan',
-                ).filter(pay_plan_version__is_sandbox=False)
-                if not can_edit_any:
-                    locked_queryset = locked_queryset.filter(
-                        pay_plan_version__pay_plan__owner_user=request.user,
+            try:
+                with transaction.atomic():
+                    locked_queryset = PayPlanRule.objects.select_for_update(
+                        of=('self',),
+                    ).select_related('pay_plan_version__pay_plan').filter(
+                        pay_plan_version__is_sandbox=False,
                     )
-                locked_rule = get_object_or_404(
-                    locked_queryset,
-                    pk=rule.pk,
-                    pay_plan_version_id=version_id,
-                )
-                locked_rule.full_clean()
-                vehicle_conditions = locked_rule.conditions.filter(
-                    field_name='vehicle_condition',
-                )
-                existing_order = (
-                    vehicle_conditions.order_by('sort_order', 'id')
-                    .values_list('sort_order', flat=True)
-                    .first()
-                )
-                vehicle_conditions.delete()
-                selected = form.cleaned_data['vehicle_condition']
-                if selected:
-                    from .commission_engine.validators import validate_condition
-                    condition_data = {
-                        'field_name': 'vehicle_condition',
-                        'operator': 'equals',
-                        'value': selected,
-                    }
-                    validate_condition(condition_data)
-                    locked_rule.conditions.create(
-                        **condition_data,
-                        sort_order=(
-                            existing_order
-                            if existing_order is not None
-                            else locked_rule.conditions.count() + 1
-                        ),
+                    if not can_edit_any:
+                        locked_queryset = locked_queryset.filter(
+                            pay_plan_version__pay_plan__owner_user=request.user,
+                        )
+                    if not is_internal_user:
+                        locked_queryset = locked_queryset.filter(
+                            pay_plan_version__status__in=(
+                                PayPlanVersion.DRAFT,
+                                PayPlanVersion.REVIEW_REQUIRED,
+                            ),
+                        )
+                    locked_rule = get_object_or_404(
+                        locked_queryset,
+                        pk=rule.pk,
+                        pay_plan_version_id=version_id,
                     )
-            messages.success(
-                request,
-                f'{rule.name} vehicle condition updated. Calculations now use '
-                'the saved condition.',
-            )
-            return redirect(
-                'edit_pay_plan_rule',
-                version_id=version_id,
-                rule_id=rule_id,
-            )
+                    if is_internal_user:
+                        locked_rule.full_clean()
+                        vehicle_conditions = locked_rule.conditions.filter(
+                            field_name='vehicle_condition',
+                        )
+                        existing_order = (
+                            vehicle_conditions.order_by('sort_order', 'id')
+                            .values_list('sort_order', flat=True)
+                            .first()
+                        )
+                        vehicle_conditions.delete()
+                        selected = form.cleaned_data['vehicle_condition']
+                        if selected:
+                            condition = PayPlanRuleCondition(
+                                rule=locked_rule,
+                                sort_order=(
+                                    existing_order
+                                    if existing_order is not None
+                                    else locked_rule.conditions.count() + 1
+                                ),
+                                field_name='vehicle_condition',
+                                operator='equals',
+                                value=selected,
+                            )
+                            condition.full_clean()
+                            condition.save()
+                    else:
+                        values = form.rule_values()
+                        conditions = values.pop('conditions')
+                        for field, value in values.items():
+                            setattr(locked_rule, field, value)
+                        locked_rule.full_clean()
+                        locked_rule.save(update_fields=[
+                            'name', 'rule_type', 'calculation_scope',
+                            'configuration', 'updated_at',
+                        ])
+                        locked_rule.conditions.all().delete()
+                        _create_guided_conditions(locked_rule, conditions)
+                        locked_version = locked_rule.pay_plan_version
+                        locked_version.processing_errors = _resolved_manual_rule_errors(
+                            locked_version.processing_errors,
+                        )
+                        locked_version.save(update_fields=[
+                            'processing_errors', 'updated_at',
+                        ])
+            except (ValidationError, TypeError, KeyError) as exc:
+                form.add_error(None, str(exc))
+            except Exception as exc:
+                logger.error(
+                    'Unexpected pay-plan rule edit failure for user_id=%s version_id=%s rule_id=%s error_type=%s',
+                    request.user.pk,
+                    version_id,
+                    rule_id,
+                    type(exc).__name__,
+                )
+                form.add_error(
+                    None,
+                    'We could not save that rule. Check the values and try again.',
+                )
+            else:
+                if is_internal_user:
+                    messages.success(
+                        request,
+                        f'{rule.name} applicability was updated.',
+                    )
+                    return redirect(
+                        'edit_pay_plan_rule',
+                        version_id=version_id,
+                        rule_id=rule_id,
+                    )
+                messages.success(request, f'{rule.name} was updated in the draft.')
+                return redirect(
+                    'replacement_pay_plan_review',
+                    version_id=version_id,
+                )
     else:
-        form = PayPlanRuleConditionEditForm(rule=rule)
+        form = form_class(rule=rule)
     return render(request, 'pay_plan_rule_edit.html', {
         'rule': rule,
-        'version': rule.pay_plan_version,
+        'version': version,
         'form': form,
+        'is_internal_user': is_internal_user,
+        'unsupported_rule': getattr(form, 'unsupported_rule', False),
     })
 
 
@@ -1585,6 +1949,7 @@ def _sandbox_or_404(request, sandbox_id):
 
 
 @login_required
+@internal_pay_plan_tool_required
 def commission_sandbox_index(request):
     if not uses_new_engine(request.user):
         messages.error(request, 'Commission Sandbox requires the pay-plan engine.')
@@ -1658,6 +2023,7 @@ def commission_sandbox_index(request):
 
 
 @login_required
+@internal_pay_plan_tool_required
 def commission_sandbox_compare(request):
     if not uses_new_engine(request.user):
         messages.error(request, 'Commission Sandbox requires the pay-plan engine.')
@@ -1722,6 +2088,7 @@ def commission_sandbox_compare(request):
 
 
 @login_required
+@internal_pay_plan_tool_required
 def commission_sandbox_detail(request, sandbox_id):
     sandbox = _sandbox_or_404(request, sandbox_id)
     latest_run = sandbox.runs.prefetch_related(
@@ -1760,6 +2127,7 @@ def commission_sandbox_detail(request, sandbox_id):
 
 
 @login_required
+@internal_pay_plan_tool_required
 def commission_sandbox_rule(request, sandbox_id, rule_id=None):
     sandbox = _sandbox_or_404(request, sandbox_id)
     if sandbox.status != CommissionSandbox.DRAFT:
@@ -1803,6 +2171,7 @@ def commission_sandbox_rule(request, sandbox_id, rule_id=None):
 
 @login_required
 @require_POST
+@internal_pay_plan_tool_required
 def commission_sandbox_rule_action(request, sandbox_id, rule_id, action):
     sandbox = _sandbox_or_404(request, sandbox_id)
     from .sandbox_services import SandboxRuleEditor
@@ -1827,6 +2196,7 @@ def commission_sandbox_rule_action(request, sandbox_id, rule_id, action):
 
 @login_required
 @require_POST
+@internal_pay_plan_tool_required
 def commission_sandbox_replay(request, sandbox_id):
     sandbox = _sandbox_or_404(request, sandbox_id)
     form = SandboxReplayForm(request.POST)
@@ -1862,6 +2232,7 @@ def commission_sandbox_replay(request, sandbox_id):
 
 @login_required
 @require_POST
+@internal_pay_plan_tool_required
 def commission_sandbox_hypothetical(request, sandbox_id):
     sandbox = _sandbox_or_404(request, sandbox_id)
     if sandbox.status != CommissionSandbox.DRAFT:
@@ -1908,6 +2279,7 @@ def commission_sandbox_hypothetical(request, sandbox_id):
 
 @login_required
 @require_POST
+@internal_pay_plan_tool_required
 def commission_sandbox_project(request, sandbox_id):
     sandbox = _sandbox_or_404(request, sandbox_id)
     from .scenario_services import ScenarioCalculationService
@@ -1939,6 +2311,7 @@ def commission_sandbox_project(request, sandbox_id):
 
 @login_required
 @require_POST
+@internal_pay_plan_tool_required
 def commission_sandbox_activate(request, sandbox_id):
     sandbox = _sandbox_or_404(request, sandbox_id)
     messages.error(
@@ -1951,6 +2324,7 @@ def commission_sandbox_activate(request, sandbox_id):
 
 @login_required
 @require_POST
+@internal_pay_plan_tool_required
 def commission_sandbox_archive(request, sandbox_id):
     sandbox = _sandbox_or_404(request, sandbox_id)
     from .scenario_services import ScenarioService
@@ -1968,6 +2342,7 @@ def commission_sandbox_archive(request, sandbox_id):
 
 @login_required
 @require_http_methods(['GET', 'POST'])
+@internal_pay_plan_tool_required
 def commission_sandbox_delete(request, sandbox_id):
     sandbox = _sandbox_or_404(request, sandbox_id)
     if request.method == 'POST':
@@ -1996,6 +2371,7 @@ def commission_sandbox_delete(request, sandbox_id):
 
 @login_required
 @require_POST
+@internal_pay_plan_tool_required
 def commission_sandbox_save(request, sandbox_id):
     sandbox = _sandbox_or_404(request, sandbox_id)
     form = ScenarioSaveForm(request.POST)
@@ -2024,6 +2400,7 @@ def commission_sandbox_save(request, sandbox_id):
 
 @login_required
 @require_http_methods(['GET', 'POST'])
+@internal_pay_plan_tool_required
 def commission_sandbox_save_as(request, sandbox_id):
     sandbox = _sandbox_or_404(request, sandbox_id)
     if request.method == 'POST':
@@ -2077,6 +2454,7 @@ def commission_sandbox_save_as(request, sandbox_id):
 
 @login_required
 @require_POST
+@internal_pay_plan_tool_required
 def commission_sandbox_duplicate(request, sandbox_id):
     sandbox = _sandbox_or_404(request, sandbox_id)
     from .scenario_services import ScenarioCloneService
@@ -2098,6 +2476,7 @@ def commission_sandbox_duplicate(request, sandbox_id):
 
 @login_required
 @require_http_methods(['GET', 'POST'])
+@internal_pay_plan_tool_required
 def commission_sandbox_rename(request, sandbox_id):
     sandbox = _sandbox_or_404(request, sandbox_id)
     if request.method == 'POST':
@@ -2132,6 +2511,7 @@ def commission_sandbox_rename(request, sandbox_id):
 
 @login_required
 @require_POST
+@internal_pay_plan_tool_required
 def commission_sandbox_restore(request, sandbox_id):
     sandbox = _sandbox_or_404(request, sandbox_id)
     from .scenario_services import ScenarioService
@@ -2150,6 +2530,7 @@ def commission_sandbox_restore(request, sandbox_id):
 
 @login_required
 @require_POST
+@internal_pay_plan_tool_required
 def commission_sandbox_recalculate(request, sandbox_id):
     sandbox = _sandbox_or_404(request, sandbox_id)
     from .scenario_services import ScenarioCalculationService
@@ -2172,6 +2553,7 @@ def commission_sandbox_recalculate(request, sandbox_id):
 
 @login_required
 @require_http_methods(['GET', 'POST'])
+@internal_pay_plan_tool_required
 def commission_sandbox_reset(request, sandbox_id):
     sandbox = _sandbox_or_404(request, sandbox_id)
     if request.method == 'POST':
@@ -2213,6 +2595,7 @@ def commission_sandbox_reset(request, sandbox_id):
 
 @login_required
 @require_http_methods(['GET', 'POST'])
+@internal_pay_plan_tool_required
 def commission_sandbox_convert(request, sandbox_id):
     sandbox = _sandbox_or_404(request, sandbox_id)
     if request.method == 'POST':
@@ -2256,6 +2639,7 @@ def commission_sandbox_convert(request, sandbox_id):
 
 @login_required
 @require_http_methods(['GET', 'POST'])
+@internal_pay_plan_tool_required
 def commission_sandbox_hypothetical_edit(
     request, sandbox_id, hypothetical_id,
 ):
@@ -2315,6 +2699,7 @@ def commission_sandbox_hypothetical_edit(
 
 @login_required
 @require_POST
+@internal_pay_plan_tool_required
 def commission_sandbox_hypothetical_delete(
     request, sandbox_id, hypothetical_id,
 ):

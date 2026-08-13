@@ -24,7 +24,7 @@ from .sandbox_services import (
 class CommissionSandboxTests(TestCase):
     def setUp(self):
         self.user = get_user_model().objects.create_user(
-            username='sandbox-owner', password='test-password',
+            username='sandbox-owner', password='test-password', is_staff=True,
         )
         profile = self.user.sales_profile
         profile.commission_system = UserProfile.PAY_PLAN_V2
@@ -252,7 +252,7 @@ class CommissionSandboxTests(TestCase):
 
     def test_other_user_cannot_access_or_edit_sandbox(self):
         other = get_user_model().objects.create_user(
-            username='sandbox-intruder', password='test-password',
+            username='sandbox-intruder', password='test-password', is_staff=True,
         )
         with self.assertRaises(PermissionDenied):
             SandboxManager.get_for_user(other, self.sandbox.public_id)

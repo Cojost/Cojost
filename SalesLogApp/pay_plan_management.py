@@ -91,6 +91,7 @@ def _create_version(user, plan_name, effective_start_date, source_type, source_f
     )
 
 
+@transaction.atomic
 def create_replacement_draft(user, uploaded_files, plan_name, effective_start_date):
     uploaded_files = list(uploaded_files)
     version = _create_version(
@@ -119,8 +120,15 @@ def create_replacement_draft(user, uploaded_files, plan_name, effective_start_da
             parser_version=PARSER_VERSION,
             last_processed_at=timezone.now(),
         ))
-    draft = build_upload_import_draft(documents, version.pay_plan.name)
-    result = apply_import_draft_to_version(version, draft, overwrite=True)
+    try:
+        draft = build_upload_import_draft(documents, version.pay_plan.name)
+        result = apply_import_draft_to_version(version, draft, overwrite=True)
+    except Exception:
+        # Database rollback does not remove blobs already written to storage.
+        # Remove only the new upload files created by this failed draft.
+        for document in documents:
+            document.file.delete(save=False)
+        raise
     warnings = list(draft.get('warnings') or [])
     if result['rejected_rules']:
         warnings.extend(result['rejected_rules'])
@@ -142,6 +150,7 @@ def create_replacement_draft(user, uploaded_files, plan_name, effective_start_da
     return version
 
 
+@transaction.atomic
 def create_pasted_replacement_draft(
     user, pasted_text, plan_name, effective_start_date,
 ):
@@ -175,6 +184,7 @@ def create_pasted_replacement_draft(
     return version
 
 
+@transaction.atomic
 def create_manual_draft(user, effective_start_date):
     current = _active_version_for_user(user)
     if current is None:
@@ -226,6 +236,7 @@ def create_manual_draft(user, effective_start_date):
     return version
 
 
+@transaction.atomic
 def reload_existing_document(user, document, effective_start_date):
     if document.user_id != user.id:
         raise ValidationError('The source document does not belong to this user.')

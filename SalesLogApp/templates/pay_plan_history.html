@@ -1,10 +1,24 @@
 {% extends 'SalesLogApp/base.html' %}
 {% block title %}Pay Plan History{% endblock %}
 {% block content %}
-<div class="intro"><h2>Pay Plan History</h2><p>Previous plans are retained for explanation and rollback safety.</p></div>
+<div class="intro"><h2>Pay Plan History</h2><p>Previous plans are retained so you can see what was active and when.</p></div>
 <section class="card">
-  <table class="data-table"><thead><tr><th>Plan</th><th>Version</th><th>Status</th><th>Effective</th><th>Source</th><th>Activated</th><th>Rules</th></tr></thead><tbody>
-  {% for version in versions %}<tr><td>{{ version.pay_plan.name }}</td><td>{{ version.version_name }}</td><td>{{ version.get_status_display }}</td><td>{{ version.effective_start_date }} – {{ version.effective_end_date|default:"Open" }}</td><td>{{ version.get_source_type_display }}{% if version.source_filename %}: {{ version.source_filename }}{% endif %}</td><td>{{ version.activated_at|default:"Not activated" }}</td><td><a href="{% url 'pay_plan_rules' version.id %}">View Rules</a></td></tr>{% empty %}<tr><td colspan="7">No versions found.</td></tr>{% endfor %}
-  </tbody></table>
+  <table class="data-table">
+    <thead><tr><th>Plan</th>{% if is_internal_user %}<th>Version</th>{% endif %}<th>Status</th><th>Effective</th>{% if is_internal_user %}<th>Source</th>{% endif %}<th>Activated</th><th>Rules</th></tr></thead>
+    <tbody>
+    {% for version in versions %}
+      <tr>
+        <td>{{ version.pay_plan.name }}</td>
+        {% if is_internal_user %}<td>{{ version.version_name }}</td>{% endif %}
+        <td>{{ version.get_status_display }}</td>
+        <td>{{ version.effective_start_date }} to {{ version.effective_end_date|default:"Open" }}</td>
+        {% if is_internal_user %}<td>{{ version.get_source_type_display }}{% if version.source_filename %}: {{ version.source_filename }}{% endif %}</td>{% endif %}
+        <td>{{ version.activated_at|default:"Not activated" }}</td>
+        <td><a href="{% url 'pay_plan_rules' version.id %}">View rules</a></td>
+      </tr>
+    {% empty %}<tr><td colspan="7">No pay-plan records found.</td></tr>{% endfor %}
+    </tbody>
+  </table>
 </section>
+<div class="actions"><a class="button button-secondary" href="{% url 'my_pay_plan' %}">Back to My Pay Plan</a></div>
 {% endblock %}

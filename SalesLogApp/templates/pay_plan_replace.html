@@ -2,8 +2,8 @@
 {% block title %}Upload Replacement Pay Plan{% endblock %}
 {% block content %}
 <div class="intro">
-  <h2>Upload Replacement Pay Plan</h2>
-  <p>Your current plan will remain active while the replacement is reviewed. After approval, eligible sales will be recalculated and the previous version will remain in plan history.</p>
+  <h2>{% if active_plan_summary.plan %}Upload a replacement pay plan{% else %}Upload your pay plan{% endif %}</h2>
+  <p>The document creates a private draft for you to review. Your current plan will not change until you explicitly activate the draft.</p>
 </div>
 <section class="card">
   <h3>Current plan</h3>
@@ -13,17 +13,18 @@
   {% csrf_token %}
   {{ form.non_field_errors }}
   {{ form.as_p }}
-  <div class="actions">
+  {% if is_internal_user %}<div class="actions">
     <button class="button button-secondary" id="paste-plan-text" type="button">Paste Text from Clipboard</button>
     <span id="pasted-file-message" class="field-help" aria-live="polite"></span>
-  </div>
+  </div>{% endif %}
   <div class="actions">
-    <a class="button button-secondary" href="{% url 'view_commission' %}">Cancel</a>
+    <a class="button button-secondary" href="{% url 'my_pay_plan' %}">Cancel</a>
     <button class="button button-primary" type="submit">Upload for Review</button>
   </div>
 </form>
 {% endblock %}
 {% block page_scripts %}
+{% if is_internal_user %}
 <script>
 (function () {
   const form = document.querySelector('form.form-card');
@@ -56,4 +57,5 @@
   });
 }());
 </script>
+{% endif %}
 {% endblock %}

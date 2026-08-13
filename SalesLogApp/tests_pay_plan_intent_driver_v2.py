@@ -273,7 +273,7 @@ class IntentDriverWorkflowTests(TestCase):
 
     def _user(self, username):
         user = get_user_model().objects.create_user(
-            username=username, password=self.password,
+            username=username, password=self.password, is_staff=True,
         )
         profile = user.sales_profile
         profile.commission_system = UserProfile.PAY_PLAN_V2

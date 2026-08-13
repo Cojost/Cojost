@@ -17,6 +17,7 @@ class PayPlanAssistantTests(TestCase):
         self.user = get_user_model().objects.create_user(
             username='plain-language-owner',
             password='test-password',
+            is_staff=True,
         )
         profile = self.user.sales_profile
         profile.commission_system = UserProfile.PAY_PLAN_V2

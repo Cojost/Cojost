@@ -41,6 +41,7 @@ class ThemeAppearanceTests(TestCase):
         cls.user = get_user_model().objects.create_user(
             username='theme-owner',
             password='theme-password',
+            is_staff=True,
         )
         profile = cls.user.sales_profile
         profile.commission_system = UserProfile.PAY_PLAN_V2

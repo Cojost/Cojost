@@ -33,6 +33,7 @@ class PayPlanOnboardingTests(TestCase):
         self.user = get_user_model().objects.create_user(
             username='onboarding-user',
             password='test-password',
+            is_staff=True,
         )
         self.client.force_login(self.user)
         self.onboarding = self.user.pay_plan_onboarding
@@ -42,7 +43,7 @@ class PayPlanOnboardingTests(TestCase):
     def test_incomplete_new_engine_user_is_gated_to_setup(self):
         response = self.client.get(reverse('view_sales'))
 
-        self.assertRedirects(response, reverse('pay_plan_setup'))
+        self.assertRedirects(response, reverse('my_pay_plan'))
 
     def test_legacy_user_cannot_enter_onboarding(self):
         self.user.sales_profile.commission_system = UserProfile.LEGACY
@@ -157,7 +158,7 @@ class PayPlanOnboardingTests(TestCase):
     def test_view_commission_redirects_incomplete_new_engine_user_to_setup(self):
         response = self.client.get(reverse('view_commission'))
 
-        self.assertRedirects(response, reverse('pay_plan_setup'))
+        self.assertRedirects(response, reverse('my_pay_plan'))
 
     def test_upload_rejects_unsupported_content_type(self):
         response = self.client.post(reverse('pay_plan_setup'), {

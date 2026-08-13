@@ -8,10 +8,11 @@
 {% endif %}
 {% for rule in rules %}
 <section class="card">
-  {% include "components/_rule_summary.html" with rule=rule %}
-  {% if can_edit_rules and rule.calculation_scope == "per_sale" %}<a class="button button-secondary" href="{% url 'edit_pay_plan_rule' version.id rule.id %}">Edit applicability</a>{% endif %}
+  {% include "components/_rule_summary.html" with rule=rule show_advanced=is_internal_user %}
+  {% if can_edit_rules and rule.calculation_scope == "per_sale" %}<a class="button button-secondary" href="{% url 'edit_pay_plan_rule' version.id rule.id %}">Edit rule</a>{% endif %}
 </section>
 {% empty %}
-<section class="card">{% include "components/_empty_state.html" with heading="No commission rules" description="This pay-plan version does not contain any rules." %}</section>
+<section class="card">{% include "components/_empty_state.html" with heading="No commission rules" description="This pay plan does not contain any rules." %}</section>
 {% endfor %}
+<div class="actions"><a class="button button-secondary" href="{% url 'my_pay_plan' %}">Back to My Pay Plan</a></div>
 {% endblock %}

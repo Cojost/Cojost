@@ -30,6 +30,7 @@
     <nav class="menu" aria-label="Main navigation">
         <a href="{% url 'view_sales' %}"{% if request.resolver_match.url_name == 'view_sales' %} class="active" aria-current="page"{% endif %}>Dashboard</a>
         <a href="{% url 'view_commission' %}"{% if request.resolver_match.url_name == 'view_commission' %} class="active" aria-current="page"{% endif %}>View Commission</a>
+        <a href="{% url 'my_pay_plan' %}"{% if request.resolver_match.url_name == 'my_pay_plan' %} class="active" aria-current="page"{% endif %}>My Pay Plan</a>
         <a href="{% url 'activity_goals' %}"{% if request.resolver_match.url_name == 'activity_goals' or request.resolver_match.url_name == 'edit_activity' %} class="active" aria-current="page"{% endif %}>Activity &amp; Goals</a>
         {% if billing_feature_enabled %}<a href="{% url 'billing_overview' %}"{% if request.resolver_match.url_name|slice:":8" == 'billing_' %} class="active" aria-current="page"{% endif %}>Billing</a>{% endif %}
         {% if teams_feature_enabled %}<a href="{% url 'team_home' %}"{% if request.resolver_match.url_name|slice:":5" == 'team_' %} class="active" aria-current="page"{% endif %}>Teams</a>{% endif %}

@@ -2,7 +2,7 @@
 <article class="rule-summary">
   <div class="rule-summary-heading">
     <h3>{{ rule|rule_heading }}</h3>
-    {% include "components/_status_badge.html" with label=rule.is_active|yesno:"Active,Inactive" status=rule.is_active|yesno:"active,inactive" %}
+    {% include "components/_status_badge.html" with label=rule.is_active|yesno:"Enabled,Disabled" status=rule.is_active|yesno:"active,inactive" %}
   </div>
   <p class="rule-summary-text">{{ rule|rule_explanation }}</p>
   {% if rule.description %}<p>{{ rule.description }}</p>{% endif %}
@@ -12,7 +12,7 @@
   {% else %}
     <p class="card-description">Applies without additional conditions.</p>
   {% endif %}
-  <details class="advanced-details">
+  {% if show_advanced %}<details class="advanced-details">
     <summary>Advanced details</summary>
     <dl>
       <div><dt>Rule type</dt><dd><code>{{ rule.rule_type }}</code></dd></div>
@@ -22,5 +22,5 @@
       <div><dt>Condition {{ forloop.counter }}</dt><dd><code>{{ condition.field_name }} {{ condition.operator }} {{ condition.value }}</code></dd></div>
       {% endfor %}
     </dl>
-  </details>
+  </details>{% endif %}
 </article>

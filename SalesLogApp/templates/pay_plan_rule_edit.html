@@ -1,12 +1,15 @@
 {% extends 'SalesLogApp/base.html' %}
+{% load pay_plan_display %}
 {% block title %}Edit Commission Rule{% endblock %}
 {% block content %}
 <div class="intro">
   <h2>Edit {{ rule.name }}</h2>
-  <p>{{ version.pay_plan.name }} — {{ version.version_name }}</p>
+  <p>{{ version.pay_plan.name }} draft</p>
 </div>
 <section class="card">
-  <h3>Rule details</h3>
+  <h3>Current rule</h3>
+  <p>{{ rule|rule_explanation }}</p>
+  {% if is_internal_user %}
   <dl class="commission-grid">
     <div><dt>Type</dt><dd>{{ rule.rule_type }}</dd></div>
     <div><dt>Scope</dt><dd>{{ rule.calculation_scope }}</dd></div>
@@ -14,24 +17,30 @@
     <div><dt>Active</dt><dd>{{ rule.is_active|yesno:"Yes,No" }}</dd></div>
   </dl>
   <p>Configuration: <code>{{ rule.configuration }}</code></p>
+  {% endif %}
 </section>
+{% if unsupported_rule %}
+<section class="card">
+  <p>This imported rule cannot be changed with the guided editor. Leave it unchanged or upload a corrected document.</p>
+  <a class="button button-secondary" href="{% url 'replacement_pay_plan_review' version.id %}">Back to draft</a>
+</section>
+{% else %}
 <form method="post" class="card form-card" novalidate>
   {% csrf_token %}
   {{ form.non_field_errors }}
   {{ form.as_p }}
+  {% if is_internal_user %}
   <h3>Other conditions preserved</h3>
   <ul>
     {% for condition in rule.conditions.all %}
-      {% if condition.field_name != "vehicle_condition" %}
-        <li>{{ condition.field_name }} {{ condition.operator }} {{ condition.value }}</li>
-      {% endif %}
-    {% empty %}
-      <li>No other conditions.</li>
-    {% endfor %}
+      {% if condition.field_name != "vehicle_condition" %}<li>{{ condition|condition_summary }}</li>{% endif %}
+    {% empty %}<li>No other conditions.</li>{% endfor %}
   </ul>
+  {% endif %}
   <div class="actions">
-    <a class="button button-secondary" href="{% url 'pay_plan_rules' version.id %}">Cancel</a>
-    <button class="button button-primary" type="submit">Save Condition</button>
+    <a class="button button-secondary" href="{% url 'replacement_pay_plan_review' version.id %}">Cancel</a>
+    <button class="button button-primary" type="submit">Save rule to draft</button>
   </div>
 </form>
+{% endif %}
 {% endblock %}

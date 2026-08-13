@@ -1,0 +1,56 @@
+{% extends 'SalesLogApp/base.html' %}
+{% load pay_plan_display %}
+{% block title %}Confirm Pay Plan{% endblock %}
+{% block content %}
+<div class="intro">
+  <div class="rule-summary-heading">
+    <h2>Confirm your pay plan</h2>
+    {% include "components/_status_badge.html" with label="Draft" status="draft" %}
+  </div>
+  <p>This pay plan is a <strong>Draft</strong> and has not been activated. Review the changes and rules before choosing whether to activate it.</p>
+</div>
+
+<section class="card">
+  <h3>What will change</h3>
+  <p><strong>{{ version.pay_plan.name }}</strong> will apply beginning {{ version.effective_start_date }}.</p>
+  {% if changes.added or changes.changed or changes.removed %}
+  <ul>
+    {% for name in changes.added %}<li>Added: {{ name }}</li>{% endfor %}
+    {% for name in changes.changed %}<li>Changed: {{ name }}</li>{% endfor %}
+    {% for name in changes.removed %}<li>Removed: {{ name }}</li>{% endfor %}
+  </ul>
+  {% else %}<p>No rule differences were found.</p>{% endif %}
+</section>
+
+<section class="card">
+  <h3>Rules in this draft</h3>
+  {% for rule in rules %}
+    {% include "components/_rule_summary.html" with rule=rule show_advanced=False %}
+  {% empty %}<p class="notice">No usable commission rules are available.</p>{% endfor %}
+</section>
+
+{% if draft_messages.errors %}
+<section class="card">
+  <h3>Fix before activation</h3>
+  <ul>{% for error in draft_messages.errors %}<li>{{ error }}</li>{% endfor %}</ul>
+</section>
+{% endif %}
+{% if draft_messages.warnings %}
+<section class="card">
+  <h3>Items to review</h3>
+  <ul>{% for warning in draft_messages.warnings %}<li>{{ warning }}</li>{% endfor %}</ul>
+</section>
+{% endif %}
+
+<form method="post" class="card form-card" novalidate>
+  {% csrf_token %}
+  {{ form.non_field_errors }}
+  <p>{{ form.confirm.errors }}{{ form.confirm }} {{ form.confirm.label_tag }}</p>
+  {% if version.processing_warnings %}<p>{{ form.approve_warnings.errors }}{{ form.approve_warnings }} {{ form.approve_warnings.label_tag }}</p>{% endif %}
+  <p>Your current plan will remain in plan history. If activation cannot be completed safely, no plan changes will be saved.</p>
+  <div class="actions">
+    <a class="button button-secondary" href="{% url 'replacement_pay_plan_review' version.id %}">Back to review</a>
+    <button class="button button-primary" type="submit"{% if version.processing_errors %} disabled{% endif %}>Activate this pay plan</button>
+  </div>
+</form>
+{% endblock %}

@@ -26,6 +26,7 @@ urlpatterns = [
     path('register/', register, name='register'),
     path('pay-plan/setup/', views.pay_plan_setup, name='pay_plan_setup'),
     path('pay-plan/setup/review/', views.pay_plan_review, name='pay_plan_review'),
+    path('commission/pay-plan/', views.my_pay_plan, name='my_pay_plan'),
     path('commission/pay-plan/replace/', views.replace_pay_plan, name='replace_pay_plan'),
     path('commission/pay-plan/reload/', views.reload_pay_plan, name='reload_pay_plan'),
     path(
@@ -42,6 +43,11 @@ urlpatterns = [
         'commission/pay-plan/review/<int:version_id>/',
         views.replacement_pay_plan_review,
         name='replacement_pay_plan_review',
+    ),
+    path(
+        'commission/pay-plan/review/<int:version_id>/activate/',
+        views.confirm_pay_plan_activation,
+        name='confirm_pay_plan_activation',
     ),
     path('commission/pay-plan/history/', views.pay_plan_history, name='pay_plan_history'),
     path(

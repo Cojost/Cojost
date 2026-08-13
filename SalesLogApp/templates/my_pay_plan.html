@@ -1,0 +1,64 @@
+{% extends 'SalesLogApp/base.html' %}
+{% load pay_plan_display %}
+{% block title %}My Pay Plan{% endblock %}
+{% block content %}
+{% include "components/_page_header.html" with heading="My Pay Plan" description="Review the rules used to calculate your commission and prepare changes without affecting your current plan." %}
+
+{% if active_version %}
+<section class="card">
+  <div class="rule-summary-heading">
+    <h3>Active pay plan</h3>
+    {% include "components/_status_badge.html" with label="Active" status="active" %}
+  </div>
+  <dl class="commission-grid">
+    <div><dt>Plan</dt><dd>{{ active_version.pay_plan.name }}</dd></div>
+    <div><dt>Effective date</dt><dd>{{ active_plan_summary.effective_start_date }}</dd></div>
+    <div><dt>Last updated</dt><dd>{{ active_version.updated_at|date:"M j, Y" }}</dd></div>
+    <div><dt>Rules</dt><dd>{{ active_plan_summary.active_rule_count }}</dd></div>
+  </dl>
+  <div class="actions">
+    <a class="button button-secondary" href="{% url 'pay_plan_rules' active_version.id %}">View all rules</a>
+    <form method="post" action="{% url 'edit_pay_plan_manually' %}">
+      {% csrf_token %}
+      <button class="button button-secondary" type="submit">Edit this plan</button>
+    </form>
+    <a class="button button-primary" href="{% url 'replace_pay_plan' %}">Upload replacement</a>
+  </div>
+</section>
+
+<section class="card">
+  <h3>How your commission is calculated</h3>
+  {% for rule in active_rules %}
+    {% include "components/_rule_summary.html" with rule=rule show_advanced=is_internal_user %}
+  {% empty %}
+    <p>No individual rules are listed for this plan.</p>
+  {% endfor %}
+</section>
+{% else %}
+<section class="card">
+  <h3>Set up your pay plan</h3>
+  <p>Upload your pay-plan document to create a private draft. Nothing becomes active until you review the rules and confirm activation.</p>
+  <a class="button button-primary" href="{% url 'replace_pay_plan' %}">Upload my pay plan</a>
+</section>
+{% endif %}
+
+{% if draft %}
+<section class="card">
+  <div class="rule-summary-heading">
+    <h3>Draft waiting for review</h3>
+    {% include "components/_status_badge.html" with label="Draft" status="draft" %}
+  </div>
+  <p><strong>{{ draft.pay_plan.name }}</strong> was last updated {{ draft.updated_at|date:"M j, Y" }}. It is not being used for commission calculations.</p>
+  {% if draft.processing_errors %}<p class="notice">This draft needs corrections before it can be activated.</p>{% endif %}
+  <div class="actions">
+    <a class="button button-primary" href="{% url 'replacement_pay_plan_review' draft.id %}">Continue reviewing draft</a>
+  </div>
+</section>
+{% endif %}
+
+<section class="card">
+  <h3>Plan records</h3>
+  <p>Past plans and activation records remain available for reference.</p>
+  <a class="button button-secondary" href="{% url 'pay_plan_history' %}">View plan history</a>
+</section>
+{% endblock %}

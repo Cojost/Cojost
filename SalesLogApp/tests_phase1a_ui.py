@@ -19,10 +19,10 @@ class Phase1AUserInterfaceTests(TestCase):
 
     def setUp(self):
         self.user = get_user_model().objects.create_user(
-            username='phase1a-owner', password=self.password,
+            username='phase1a-owner', password=self.password, is_staff=True,
         )
         self.other = get_user_model().objects.create_user(
-            username='phase1a-other', password=self.password,
+            username='phase1a-other', password=self.password, is_staff=True,
         )
         for user in (self.user, self.other):
             profile = user.sales_profile

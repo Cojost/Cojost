@@ -4,6 +4,7 @@ from functools import wraps
 from typing import Any, Callable
 
 from django.contrib.auth.decorators import login_required
+from django.contrib import messages
 from django.db import models, transaction
 from django.db.models import Min
 from django.shortcuts import redirect
@@ -131,7 +132,7 @@ def pay_plan_onboarding_required(view_func: Callable[..., Any]) -> Callable[...,
     @wraps(view_func)
     def wrapper(request, *args, **kwargs):
         if uses_new_engine(request.user) and not onboarding_is_complete(request.user):
-            return redirect('pay_plan_setup')
+            return redirect('my_pay_plan')
         return view_func(request, *args, **kwargs)
 
     return wrapper
@@ -150,5 +151,25 @@ def legacy_commission_only(view_func: Callable[..., Any]) -> Callable[..., Any]:
 
 def post_login_redirect(user: Any) -> str:
     if uses_new_engine(user) and not onboarding_is_complete(user):
-        return 'pay_plan_setup'
+        return 'my_pay_plan'
     return 'view_sales'
+
+
+def internal_pay_plan_tool_required(
+    view_func: Callable[..., Any],
+) -> Callable[..., Any]:
+    """Keep future Pro/internal pay-plan tools away from Basic accounts."""
+
+    @login_required
+    @wraps(view_func)
+    def wrapper(request, *args, **kwargs):
+        if not (request.user.is_staff or request.user.is_superuser):
+            messages.info(
+                request,
+                'This tool is not available for Basic accounts. Use My Pay Plan '
+                'to upload, review, or edit your plan.',
+            )
+            return redirect('my_pay_plan')
+        return view_func(request, *args, **kwargs)
+
+    return wrapper
