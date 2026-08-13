@@ -2,9 +2,9 @@
 {% block title %}Team invitation | STEW Log{% endblock %}
 {% block page_class %}teams-page{% endblock %}
 {% block content %}
+{% if error %}<div class="notice notice-error">{{ error }}</div>{% endif %}
 {% if team %}
 <div class="intro"><h2>Join {{ team.name }}</h2><p>{{ inviter_name }} invited you to share progress with this team.</p></div>
-{% if error %}<div class="notice notice-error">{{ error }}</div>{% endif %}
 <section class="card">
     <h3>What teammates can see</h3>
     <p>Your monthly unit total is shared by default. You can opt in to sharing your display identity, sale date, and unit credit in the feed.</p>

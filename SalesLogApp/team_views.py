@@ -1,5 +1,6 @@
 from decimal import Decimal
 from functools import wraps
+import logging
 
 from django.conf import settings
 from django.contrib import messages
@@ -48,6 +49,37 @@ from .team_services import (
     update_sharing_preference,
     visible_activity_or_404,
 )
+
+
+logger = logging.getLogger(__name__)
+
+INVITATION_VERIFICATION_MESSAGE = (
+    'This invitation could not be verified. Sign in with the invited email '
+    'address and make sure that address is verified.'
+)
+INVITATION_FAILURE_MESSAGE = (
+    'The invitation could not be processed. Please try again.'
+)
+
+
+def _log_sanitized_invitation_exception(action, user_id, exc):
+    message = 'Unexpected team invitation lifecycle failure.'
+    sanitized = RuntimeError(message)
+    logger.exception(
+        message,
+        extra={
+            'invitation_action': action,
+            'user_id': user_id,
+        },
+        exc_info=(RuntimeError, sanitized, exc.__traceback__),
+    )
+
+
+def _invitation_error_response(request, message, *, status):
+    return render(request, 'SalesLogApp/teams/invitation.html', {
+        'form': InvitationCodeForm(),
+        'error': message,
+    }, status=status)
 
 
 def teams_feature_required(view_func):
@@ -272,12 +304,37 @@ def team_invitation_accept(request):
     form = InvitationCodeForm(request.POST or None)
     invitation = None
     raw_token = None
+    action = request.POST.get('action')
     if request.method == 'POST' and form.is_valid():
         raw_token = form.cleaned_data['invitation_code']
-        invitation = invitation_for_user_or_404(raw_token, request.user)
-    if invitation is not None and request.POST.get('action') == 'accept':
+        try:
+            invitation = invitation_for_user_or_404(raw_token, request.user)
+        except Http404:
+            return _invitation_error_response(
+                request,
+                INVITATION_VERIFICATION_MESSAGE,
+                status=404,
+            )
+        except Exception as exc:
+            _log_sanitized_invitation_exception(
+                action if action in {'accept', 'decline'} else 'review',
+                request.user.pk,
+                exc,
+            )
+            return _invitation_error_response(
+                request,
+                INVITATION_FAILURE_MESSAGE,
+                status=500,
+            )
+    if invitation is not None and action == 'accept':
         try:
             membership = accept_invitation(raw_token, request.user)
+        except Http404:
+            return _invitation_error_response(
+                request,
+                INVITATION_VERIFICATION_MESSAGE,
+                status=404,
+            )
         except ValidationError as exc:
             return render(request, 'SalesLogApp/teams/invitation.html', {
                 'team': as_team_view(invitation.team),
@@ -286,10 +343,35 @@ def team_invitation_accept(request):
                 'form': form,
                 'invitation_code': raw_token,
             }, status=409)
+        except Exception as exc:
+            _log_sanitized_invitation_exception(
+                'accept', request.user.pk, exc,
+            )
+            return _invitation_error_response(
+                request,
+                INVITATION_FAILURE_MESSAGE,
+                status=500,
+            )
         messages.success(request, f'You joined {membership.team.name}.')
         return redirect('team_detail', team_id=membership.team.public_id)
-    if invitation is not None and request.POST.get('action') == 'decline':
-        decline_invitation(raw_token, request.user)
+    if invitation is not None and action == 'decline':
+        try:
+            decline_invitation(raw_token, request.user)
+        except Http404:
+            return _invitation_error_response(
+                request,
+                INVITATION_VERIFICATION_MESSAGE,
+                status=404,
+            )
+        except Exception as exc:
+            _log_sanitized_invitation_exception(
+                'decline', request.user.pk, exc,
+            )
+            return _invitation_error_response(
+                request,
+                INVITATION_FAILURE_MESSAGE,
+                status=500,
+            )
         messages.success(request, 'Invitation declined.')
         return redirect('team_home')
     context = {'form': form}

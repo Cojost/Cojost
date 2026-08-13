@@ -1,5 +1,6 @@
 from datetime import date, datetime, timedelta
 from decimal import Decimal
+from unittest import skipUnless
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
@@ -7,7 +8,7 @@ from allauth.account.models import EmailAddress
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ImproperlyConfigured, ValidationError
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 from django.test import Client, SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -15,6 +16,7 @@ from django.utils import timezone
 from SalesLog.settings import env_strict_bool
 
 from .models import (
+    Commission,
     Sale,
     Team,
     TeamActivity,
@@ -31,6 +33,7 @@ from .team_services import (
     create_and_email_invitation,
     create_invitation,
     create_team,
+    invitation_for_user_or_404,
     project_activity,
 )
 from .team_entitlements import (
@@ -145,6 +148,245 @@ class Phase2ATeamsTests(TestCase):
         response = self.client.get(reverse('team_invitation_accept'))
         self.assertEqual(response.status_code, 302)
         self.assertIn(reverse('account_login'), response.url)
+
+    def test_invitation_lock_targets_only_the_invitation_row(self):
+        invitation, raw = create_invitation(
+            self.owner_membership, self.outsider.email,
+        )
+        with patch.object(
+            TeamInvitation.objects, 'select_related',
+        ) as select_related:
+            selected = select_related.return_value
+            locked = selected.select_for_update.return_value
+            locked.get.return_value = invitation
+
+            result = invitation_for_user_or_404(
+                raw, self.outsider, lock=True,
+            )
+
+        self.assertEqual(result.pk, invitation.pk)
+        select_related.assert_called_once_with('team', 'intended_user')
+        selected.select_for_update.assert_called_once_with(of=('self',))
+        locked.get.assert_called_once_with(
+            token_digest=invitation.token_digest,
+        )
+
+    @skipUnless(
+        connection.vendor == 'postgresql',
+        'PostgreSQL is required for the nullable outer-join locking regression.',
+    )
+    def test_postgresql_locks_pending_invitation_with_null_intended_user(self):
+        invitation, raw = create_invitation(
+            self.owner_membership,
+            'postgresql.pending@example.com',
+        )
+        self.assertIsNone(invitation.intended_user_id)
+        invitee = get_user_model().objects.create_user(
+            username='postgresql-pending-invitee',
+            email=invitation.intended_email,
+            password='pass',
+        )
+        EmailAddress.objects.create(
+            user=invitee,
+            email=invitee.email,
+            verified=True,
+            primary=True,
+        )
+
+        locked = invitation_for_user_or_404(raw, invitee, lock=True)
+
+        self.assertEqual(locked.pk, invitation.pk)
+        self.assertIsNone(locked.intended_user)
+        self.assertIn('team', locked._state.fields_cache)
+
+    def test_nullable_invitation_accept_view_activates_exact_membership_only(self):
+        invitation, raw = create_invitation(
+            self.owner_membership,
+            'nullable.accept@example.com',
+        )
+        self.assertIsNone(invitation.intended_user_id)
+        invitee = get_user_model().objects.create_user(
+            username='nullable-accept-invitee',
+            email=invitation.intended_email,
+            password='pass',
+        )
+        EmailAddress.objects.create(
+            user=invitee,
+            email=invitee.email,
+            verified=True,
+            primary=True,
+        )
+        private_sale = self.make_sale(marker='PRIVATE-ACCEPTANCE-CUSTOMER')
+        commission, _ = Commission.objects.get_or_create(user=self.member)
+        commission.frontend_minimum = Decimal('987654.32')
+        commission.save(update_fields=['frontend_minimum'])
+        private_plan = self.member.pay_plans.first()
+        private_plan.name = 'PRIVATE ACCEPTANCE PAY PLAN'
+        private_plan.save(update_fields=['name', 'updated_at'])
+        unrelated_owner = get_user_model().objects.create_user(
+            username='unrelated-team-owner',
+        )
+        Team.objects.create(
+            owner=unrelated_owner,
+            name='PRIVATE UNRELATED TEAM',
+            timezone='UTC',
+        )
+        self.login(invitee)
+
+        response = self.client.post(reverse('team_invitation_accept'), {
+            'invitation_code': raw,
+            'action': 'accept',
+        })
+
+        self.assertRedirects(
+            response,
+            reverse('team_detail', args=[self.team.public_id]),
+            fetch_redirect_response=False,
+        )
+        invitation.refresh_from_db()
+        membership = TeamMembership.objects.get(
+            team=self.team,
+            user=invitee,
+        )
+        self.assertEqual(membership.status, TeamMembership.ACTIVE)
+        self.assertEqual(membership.role, TeamMembership.MEMBER)
+        self.assertEqual(invitation.intended_user, invitee)
+        self.assertEqual(invitation.accepted_by, invitee)
+        self.assertIsNotNone(invitation.accepted_at)
+        self.assertEqual(
+            TeamMembership.objects.filter(
+                user=invitee,
+                status=TeamMembership.ACTIVE,
+            ).count(),
+            1,
+        )
+
+        detail = self.client.get(response.url)
+        self.assertEqual(detail.status_code, 200)
+        self.assertNotContains(detail, private_sale.customer)
+        self.assertNotContains(detail, str(private_sale.dealNumber))
+        self.assertNotContains(detail, '987654.32')
+        self.assertNotContains(detail, private_plan.name)
+        self.assertNotContains(detail, 'PRIVATE UNRELATED TEAM')
+
+    def test_nullable_invitation_decline_view_revokes_without_membership(self):
+        invitation, raw = create_invitation(
+            self.owner_membership,
+            'nullable.decline@example.com',
+        )
+        self.assertIsNone(invitation.intended_user_id)
+        invitee = get_user_model().objects.create_user(
+            username='nullable-decline-invitee',
+            email=invitation.intended_email,
+            password='pass',
+        )
+        EmailAddress.objects.create(
+            user=invitee,
+            email=invitee.email,
+            verified=True,
+            primary=True,
+        )
+        self.login(invitee)
+
+        response = self.client.post(reverse('team_invitation_accept'), {
+            'invitation_code': raw,
+            'action': 'decline',
+        })
+
+        self.assertRedirects(
+            response,
+            reverse('team_home'),
+            fetch_redirect_response=False,
+        )
+        invitation.refresh_from_db()
+        self.assertEqual(invitation.intended_user, invitee)
+        self.assertIsNotNone(invitation.revoked_at)
+        self.assertFalse(TeamMembership.objects.filter(
+            team=self.team,
+            user=invitee,
+        ).exists())
+
+    def test_unavailable_invitation_uses_generic_non_enumerating_guidance(self):
+        invitation, raw = create_invitation(
+            self.owner_membership, self.outsider.email,
+        )
+        self.login(self.member)
+
+        for submitted_code in ('invalid-invitation-code', raw):
+            with self.subTest(valid_token=submitted_code == raw):
+                response = self.client.post(
+                    reverse('team_invitation_accept'),
+                    {
+                        'invitation_code': submitted_code,
+                        'action': 'accept',
+                    },
+                )
+                self.assertEqual(response.status_code, 404)
+                self.assertContains(
+                    response,
+                    'This invitation could not be verified.',
+                    status_code=404,
+                )
+                self.assertNotContains(
+                    response,
+                    submitted_code,
+                    status_code=404,
+                )
+                self.assertNotContains(
+                    response,
+                    invitation.intended_email,
+                    status_code=404,
+                )
+                self.assertNotContains(
+                    response,
+                    self.team.name,
+                    status_code=404,
+                )
+
+    def test_unexpected_accept_and_decline_errors_are_logged_without_secrets(self):
+        self.login(self.outsider)
+        for action, service_name in (
+            ('accept', 'accept_invitation'),
+            ('decline', 'decline_invitation'),
+        ):
+            invitation, raw = create_invitation(
+                self.owner_membership, self.outsider.email,
+            )
+            with (
+                patch(
+                    f'SalesLogApp.team_views.{service_name}',
+                    side_effect=RuntimeError(
+                        f'secret failure {raw} {invitation.intended_email}'
+                    ),
+                ),
+                self.assertLogs(
+                    'SalesLogApp.team_views', level='ERROR',
+                ) as captured,
+            ):
+                response = self.client.post(
+                    reverse('team_invitation_accept'),
+                    {
+                        'invitation_code': raw,
+                        'action': action,
+                    },
+                )
+
+            logs = '\n'.join(captured.output)
+            self.assertEqual(response.status_code, 500)
+            self.assertContains(
+                response,
+                'The invitation could not be processed. Please try again.',
+                status_code=500,
+            )
+            self.assertNotContains(response, raw, status_code=500)
+            self.assertNotContains(
+                response, invitation.intended_email, status_code=500,
+            )
+            self.assertNotIn(raw, logs)
+            self.assertNotIn(invitation.intended_email, logs)
+            invitation.refresh_from_db()
+            self.assertIsNone(invitation.accepted_at)
+            self.assertIsNone(invitation.revoked_at)
 
     def test_basic_member_cannot_create_but_can_use_an_invitation(self):
         self.assertTrue(can_use_teams(self.member))

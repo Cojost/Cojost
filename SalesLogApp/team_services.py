@@ -355,7 +355,7 @@ def create_and_email_invitation(
 def invitation_for_user_or_404(raw_token, user, *, lock=False):
     queryset = TeamInvitation.objects.select_related('team', 'intended_user')
     if lock:
-        queryset = queryset.select_for_update()
+        queryset = queryset.select_for_update(of=('self',))
     try:
         invitation = queryset.get(token_digest=_token_digest(raw_token))
     except TeamInvitation.DoesNotExist as exc:
