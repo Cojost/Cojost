@@ -24,6 +24,7 @@ from .forms import (
     BasicPayPlanActivationForm,
     BasicPayPlanReplacementForm,
     BasicPayPlanRuleForm,
+    AskStewQuestionForm,
     ManualPayPlanRuleForm,
     PayPlanRuleConditionEditForm,
     PayPlanAssistantForm,
@@ -53,6 +54,8 @@ from django.contrib.auth.models import User
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.core.exceptions import ObjectDoesNotExist, PermissionDenied, ValidationError
+from django.core import signing
+from django.core.signing import BadSignature, SignatureExpired
 from django.db import IntegrityError, connection, transaction
 from django.views.decorators.http import require_http_methods, require_POST
 from django.urls import reverse
@@ -62,6 +65,9 @@ from .models.vehicles import VehicleMake, VehicleModel, normalize_catalog_name
 from .forms import DailyActivityForm, MonthlyGoalForm
 from .forms import AppearanceForm, AvatarForm
 from .profile_context import get_user_profile
+from .ask_stew import AskStewAnswer, AskStewService
+from .ask_stew_entitlements import ask_stew_ai_required
+from .ask_stew_provider import ask_stew_provider_availability
 from .access import (
     get_or_create_onboarding,
     internal_pay_plan_tool_required,
@@ -1264,6 +1270,83 @@ def edit_pay_plan_manually(request):
         'A manual-edit draft was created. The active plan remains unchanged.',
     )
     return redirect('replacement_pay_plan_review', version_id=version.id)
+
+
+@ask_stew_ai_required
+@require_http_methods(['GET', 'POST'])
+def ask_stew_ai(request):
+    token_salt = f'ask-stew-submission:{request.user.pk}'
+
+    def new_submission_token():
+        return signing.dumps(uuid4().hex, salt=token_salt, compress=True)
+
+    form = (
+        AskStewQuestionForm(request.POST)
+        if request.method == 'POST'
+        else AskStewQuestionForm(initial={
+            'submission_token': new_submission_token(),
+        })
+    )
+    answer = None
+    submitted_question = ''
+    if request.method == 'POST' and form.is_valid():
+        token = form.cleaned_data['submission_token']
+        try:
+            signing.loads(token, salt=token_salt, max_age=3600)
+        except (BadSignature, SignatureExpired):
+            form.add_error(
+                None,
+                'This question form expired. Refresh the page and try again.',
+            )
+        else:
+            if request.session.get('ask_stew_last_submission_token') == token:
+                submitted_question = form.cleaned_data['question']
+                answer = AskStewAnswer(
+                    intent='clarification',
+                    answer=(
+                        'That question was already submitted. No duplicate request '
+                        'was sent. Start a new conversation or ask another question.'
+                    ),
+                    provider_status='not_requested',
+                )
+            else:
+                request.session['ask_stew_last_submission_token'] = token
+                submitted_question = form.cleaned_data['question']
+                try:
+                    answer = AskStewService.answer(
+                        request.user,
+                        submitted_question,
+                        submission_token=token,
+                    )
+                except Exception as exc:
+                    logger.error(
+                        'Unexpected Ask Stew explanation failure for user_id=%s error_type=%s',
+                        request.user.pk,
+                        type(exc).__name__,
+                    )
+                    answer = AskStewAnswer(
+                        intent='clarification',
+                        answer=(
+                            'I could not prepare that explanation safely. No account '
+                            'data was changed. Try a more specific question or try again.'
+                        ),
+                        provider_status='provider_unavailable',
+                    )
+            form = AskStewQuestionForm(initial={
+                'submission_token': new_submission_token(),
+            })
+    return render(request, 'ask_stew_ai.html', {
+        'form': form,
+        'answer': answer,
+        'submitted_question': submitted_question,
+        'provider_availability': ask_stew_provider_availability(request.user),
+        'starter_questions': (
+            'Explain my active pay plan.',
+            'What are my current-month commission totals?',
+            'How many credited units do I need for my next bonus?',
+            'Which eligibility information is still missing?',
+        ),
+    })
 
 
 @internal_pay_plan_tool_required

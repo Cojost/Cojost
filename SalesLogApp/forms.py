@@ -538,6 +538,25 @@ class PayPlanRuleConditionEditForm(forms.Form):
         return value
 
 
+class AskStewQuestionForm(forms.Form):
+    submission_token = forms.CharField(
+        max_length=256,
+        widget=forms.HiddenInput(),
+    )
+    question = forms.CharField(
+        label='What would you like Ask Stew AI to explain?',
+        max_length=1000,
+        strip=True,
+        widget=forms.Textarea(attrs={
+            'rows': 4,
+            'placeholder': (
+                'Example: How many credited units do I need for my next bonus?'
+            ),
+            'autocomplete': 'off',
+        }),
+    )
+
+
 class PayPlanAssistantForm(forms.Form):
     submission_token = forms.CharField(
         required=False,

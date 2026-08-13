@@ -84,24 +84,37 @@ class ProviderUsageRecorder:
         'not_needed': PayPlanAssistantUsageEvent.SUCCESS,
     }
 
-    def __init__(self, user, *, conversation_key='', model_name=''):
+    def __init__(
+        self,
+        user,
+        *,
+        conversation_key='',
+        model_name='',
+        prevent_duplicate_reference=False,
+    ):
         self.user = user
         self.conversation_ref = conversation_reference(conversation_key)
         self.model_name = (model_name or '')[:100]
+        self.prevent_duplicate_reference = prevent_duplicate_reference
 
     @staticmethod
     def _day_start():
         now = timezone.localtime()
         return now.replace(hour=0, minute=0, second=0, microsecond=0)
 
-    @transaction.atomic
-    def authorize_provider_attempt(self, configuration):
-        if not stable_rollout_eligible(self.user, configuration):
-            return ProviderAuthorization(False, 'rollout_excluded')
+    def _reserve_provider_attempt(self, configuration):
         # AuthenticationMiddleware exposes request.user through a
         # SimpleLazyObject. Lock the configured user model rather than the
         # proxy's Python type so the production request path is supported.
         get_user_model().objects.select_for_update().get(pk=self.user.pk)
+        if self.prevent_duplicate_reference and self.conversation_ref:
+            duplicate_exists = PayPlanAssistantUsageEvent.objects.filter(
+                user=self.user,
+                route=PayPlanAssistantUsageEvent.PROVIDER,
+                conversation_ref=self.conversation_ref,
+            ).exists()
+            if duplicate_exists:
+                return ProviderAuthorization(False, 'duplicate_submission')
         attempts = PayPlanAssistantUsageEvent.objects.filter(
             user=self.user,
             route=PayPlanAssistantUsageEvent.PROVIDER,
@@ -119,6 +132,24 @@ class ProviderUsageRecorder:
             conversation_ref=self.conversation_ref,
         )
         return ProviderAuthorization(True, 'authorized', event.pk)
+
+    @transaction.atomic
+    def authorize_provider_attempt(self, configuration):
+        if not stable_rollout_eligible(self.user, configuration):
+            return ProviderAuthorization(False, 'rollout_excluded')
+        return self._reserve_provider_attempt(configuration)
+
+    @transaction.atomic
+    def authorize_ask_stew_attempt(self, configuration):
+        """Reserve quota only after the centralized CX-3 entitlement passes."""
+
+        from .ask_stew_entitlements import ask_stew_ai_authorized
+
+        if not configuration.ready:
+            return ProviderAuthorization(False, 'configuration_error')
+        if not ask_stew_ai_authorized(self.user):
+            return ProviderAuthorization(False, 'rollout_excluded')
+        return self._reserve_provider_attempt(configuration)
 
     def record_deterministic(self, status, duration_ms):
         PayPlanAssistantUsageEvent.objects.create(

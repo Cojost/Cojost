@@ -35,6 +35,11 @@ urlpatterns = [
         name='edit_pay_plan_manually',
     ),
     path(
+        'commission/ask-stew/',
+        views.ask_stew_ai,
+        name='ask_stew_ai',
+    ),
+    path(
         'commission/pay-plan/assistant/',
         views.pay_plan_assistant,
         name='pay_plan_assistant',

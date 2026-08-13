@@ -121,6 +121,11 @@ PAY_PLAN_ASSISTANT_EVENT_RETENTION_DAYS = env_int(
     'PAY_PLAN_ASSISTANT_EVENT_RETENTION_DAYS', 30,
 )
 
+# CX-3 Ask Stew AI pilot access is deliberately independent from Stripe and
+# the legacy pay-plan-change assistant rollout. Only immutable user IDs listed
+# here receive customer access; an empty list denies every non-staff user.
+ASK_STEW_AI_PILOT_USER_IDS = env_list('ASK_STEW_AI_PILOT_USER_IDS')
+
 # Phase 2A Teams is dark-launched. This flag is deliberately strict so a
 # misspelled production value cannot accidentally enable a social surface.
 TEAMS_FEATURE_ENABLED = env_strict_bool('TEAMS_FEATURE_ENABLED', False)

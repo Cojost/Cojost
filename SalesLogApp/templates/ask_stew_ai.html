@@ -1,0 +1,86 @@
+{% extends 'SalesLogApp/base.html' %}
+{% block title %}Ask Stew AI{% endblock %}
+{% block page_class %}ask-stew-page{% endblock %}
+{% block content %}
+{% include "components/_page_header.html" with heading="Ask Stew AI" description="Get a plain-language explanation of information already recorded in your StewLog account." %}
+
+<section class="card">
+  <h2>What Ask Stew AI can explain</h2>
+  <p>Your current sales, active pay plan, calculated commission, bonus progress, and eligibility information.</p>
+  <div class="notice" role="note">
+    <strong>Read-only in this version</strong>
+    <p>Ask Stew AI cannot change your pay plan or other account data, and it cannot perform hypothetical commission projections.</p>
+  </div>
+  {% if not provider_availability.available %}
+  <div class="notice notice-warning" role="status">
+    <strong>AI wording is temporarily unavailable</strong>
+    <p>You can still ask questions. StewLog will answer directly from its verified calculations.</p>
+  </div>
+  {% endif %}
+</section>
+
+{% if answer %}
+<section class="card assistant-conversation-card" aria-labelledby="ask-stew-answer-heading">
+  <h2 id="ask-stew-answer-heading">Stew’s explanation</h2>
+  <div class="assistant-message assistant-message-user">
+    <strong>You</strong>
+    <p>{{ submitted_question }}</p>
+  </div>
+  <div class="assistant-message assistant-message-assistant" aria-live="polite">
+    <strong>Ask Stew AI</strong>
+    <p>{{ answer.answer|linebreaksbr }}</p>
+  </div>
+  {% if answer.notice %}<p class="notice notice-warning">{{ answer.notice }}</p>{% endif %}
+  <div class="actions">
+    <a class="button button-secondary" href="{% url 'ask_stew_ai' %}">Start a new conversation</a>
+  </div>
+</section>
+{% endif %}
+
+<form method="post" class="card form-card assistant-submission-form" id="ask-stew-form" novalidate>
+  {% csrf_token %}
+  {{ form.submission_token }}
+  <h2>{% if answer %}Ask another question{% else %}Ask a question{% endif %}</h2>
+  {{ form.non_field_errors }}
+  <p>{{ form.question.errors }}{{ form.question.label_tag }}{{ form.question }}</p>
+  <div class="actions">
+    <a class="button button-secondary" href="{% url 'view_commission' %}">Back to Commission</a>
+    <button class="button button-primary" type="submit" data-processing-label="Preparing explanation…">Ask Stew AI</button>
+  </div>
+</form>
+
+<section class="card" aria-labelledby="starter-questions-heading">
+  <h2 id="starter-questions-heading">Starter questions</h2>
+  <p class="card-description">Choose one to place it in the question box.</p>
+  <div class="ask-stew-starters">
+    {% for question in starter_questions %}
+    <button type="button" class="button button-secondary ask-stew-starter" data-question="{{ question }}">{{ question }}</button>
+    {% endfor %}
+  </div>
+  <p class="card-description">For a recorded sale, include the deal number shown in your Sales Log.</p>
+</section>
+{% endblock %}
+{% block page_scripts %}
+<script>
+  document.querySelectorAll('.ask-stew-starter').forEach((button) => {
+    button.addEventListener('click', () => {
+      const question = document.getElementById('id_question');
+      question.value = button.dataset.question;
+      question.focus();
+    });
+  });
+  document.getElementById('ask-stew-form').addEventListener('submit', (event) => {
+    const form = event.currentTarget;
+    if (form.classList.contains('is-processing')) {
+      event.preventDefault();
+      return;
+    }
+    form.classList.add('is-processing');
+    form.setAttribute('aria-busy', 'true');
+    form.querySelectorAll('button[type="submit"]').forEach((button) => {
+      button.disabled = true;
+      button.textContent = button.dataset.processingLabel || 'Preparing explanation…';
+    });
+  });
+</script>
+{% endblock %}

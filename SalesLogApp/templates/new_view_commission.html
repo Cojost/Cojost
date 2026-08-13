@@ -2,6 +2,7 @@
 {% block title %}View Commission{% endblock %}
 {% block content %}
 {% include "components/_page_header.html" with heading="View Commission" description="Your authoritative estimated earnings summary for the current pay period." %}
+{% if ask_stew_ai_authorized %}<section class="card ask-stew-entry" aria-labelledby="commission-ask-stew-heading"><h2 id="commission-ask-stew-heading">Ask Stew AI</h2><p>Ask for a read-only explanation of your current commission results, pay plan, bonuses, or eligibility.</p><a class="button button-primary" href="{% url 'ask_stew_ai' %}">Ask Stew AI</a></section>{% endif %}
 {% if commission_diagnostics.results %}
 <section class="card">
   <h3>{{ selected_month|date:'F Y' }} earnings</h3>

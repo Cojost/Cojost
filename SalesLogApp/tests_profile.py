@@ -41,11 +41,26 @@ class ProfileTests(TestCase):
     def test_profile_created_for_new_users(self):
         self.assertTrue(UserProfile.objects.filter(user=self.user).exists())
 
-    def test_missing_existing_profile_is_recreated_safely(self):
+    def test_missing_existing_profile_get_uses_unsaved_defaults(self):
         UserProfile.objects.filter(user=self.user).delete()
         self.client.force_login(self.user)
-        self.assertEqual(self.client.get(reverse('profile')).status_code, 200)
-        self.assertEqual(UserProfile.objects.filter(user=self.user).count(), 1)
+        response = self.client.get(reverse('profile'))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'header-theme-blue')
+        self.assertFalse(UserProfile.objects.filter(user=self.user).exists())
+
+    def test_missing_existing_profile_is_created_only_by_explicit_post(self):
+        UserProfile.objects.filter(user=self.user).delete()
+        self.client.force_login(self.user)
+        response = self.client.post(reverse('profile'), {
+            'form_type': 'appearance',
+            'theme_mode': 'dark',
+            'header_color': 'purple',
+        })
+        self.assertRedirects(response, reverse('profile'))
+        profile = UserProfile.objects.get(user=self.user)
+        self.assertEqual(profile.theme_mode, 'dark')
+        self.assertEqual(profile.header_color, 'purple')
 
     def test_profile_requires_login(self):
         self.assertEqual(self.client.get(reverse('profile')).status_code, 302)
