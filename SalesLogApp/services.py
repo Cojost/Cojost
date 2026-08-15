@@ -7,6 +7,10 @@ from django.db.models import Min, Sum
 from django.utils import timezone
 
 from .access import uses_new_engine
+from .archive_aggregation import (
+    ArchivedSaleAggregationAdapter,
+    archived_month_commission_totals,
+)
 from .commission_service import CommissionEngineService
 from .models.sales import (
     ArchivedSale,
@@ -86,13 +90,42 @@ def month_metrics(user, month_start):
     )
     sales = list(Sale.objects.filter(user=user, date__gte=start, date__lt=end))
     # Only explicitly owned archive rows are eligible.
-    archived = list(ArchivedSale.objects.filter(user=user, date__gte=start, date__lt=end))
-    totals = commission_totals(user, sales + archived)
+    archived_rows = list(
+        ArchivedSale.objects.filter(
+            user=user, date__gte=start, date__lt=end,
+        ).select_related('vehicle')
+    )
+    # archive_sale() preserves this stable identity and atomically deletes the
+    # live row. If malformed overlap nevertheless exists, retain the live row
+    # and exclude its archive counterpart rather than double-counting it.
+    live_identities = {
+        (sale.user_id, sale.sale_type, sale.dealNumber)
+        for sale in sales
+    }
+    archived_row_count = len(archived_rows)
+    archived_rows = [
+        sale for sale in archived_rows
+        if (sale.user_id, sale.sale_type, sale.dealNumber) not in live_identities
+    ]
+    duplicate_count = archived_row_count - len(archived_rows)
+    archived = [
+        ArchivedSaleAggregationAdapter(sale) for sale in archived_rows
+    ]
+    records = sales + archived
+    if archived:
+        totals = archived_month_commission_totals(user, records)
+    else:
+        totals = {
+            **commission_totals(user, sales),
+            'commission_complete': True,
+            'commission_source': 'live_sales',
+            'commission_diagnostic': '',
+        }
     total_gross = sum(
         (
             Decimal(str(sale.frontEnd or 0))
             + Decimal(str(sale.backend or 0))
-            for sale in sales + archived
+            for sale in records
         ),
         ZERO,
     )
@@ -102,6 +135,10 @@ def month_metrics(user, month_start):
     return {
         'leads': leads, 'calls': calls, 'units': units,
         'total_gross': total_gross, 'commission': totals['total'],
+        'commission_complete': totals['commission_complete'],
+        'commission_source': totals['commission_source'],
+        'commission_diagnostic': totals['commission_diagnostic'],
+        'duplicate_archive_count': duplicate_count,
         'lead_to_unit_rate': units / leads if leads else None,
         'calls_per_lead': calls / leads if leads else None,
         'calls_per_unit': calls / units if units else None,
@@ -136,13 +173,29 @@ def forecast(user, month_start, current, target_units, target_commission):
     historical_leads = sum((m['leads'] for m in completed), ZERO)
     historical_calls = sum((m['calls'] for m in completed), ZERO)
     historical_units = sum((m['units'] for m in completed), ZERO)
-    historical_commission = sum((m['commission'] for m in completed), ZERO)
+    commission_history_complete = all(
+        m.get('commission_complete', True) for m in completed
+    )
+    historical_commission = sum(
+        (m['commission'] for m in completed if m['commission'] is not None),
+        ZERO,
+    )
     remaining_units = max(target_units - current['units'], ZERO)
-    remaining_commission = max(target_commission - current['commission'], ZERO)
+    commission_complete = current.get('commission_complete', True)
+    remaining_commission = (
+        max(target_commission - current['commission'], ZERO)
+        if commission_complete and current['commission'] is not None else None
+    )
     result = {
         'remaining_units': remaining_units,
         'remaining_commission': remaining_commission,
-        'available': bool(historical_leads and historical_units and historical_commission),
+        'available': bool(
+            commission_complete
+            and commission_history_complete
+            and historical_leads
+            and historical_units
+            and historical_commission
+        ),
     }
     if not result['available']:
         return result
@@ -221,10 +274,12 @@ def activity_month_context(user, month_start):
     unit_percent = (
         current['units'] / target_units * 100 if target_units else ZERO
     )
-    commission_percent = (
-        current['commission'] / target_commission * 100
-        if target_commission else ZERO
-    )
+    commission_percent = None
+    if current['commission_complete']:
+        commission_percent = (
+            current['commission'] / target_commission * 100
+            if target_commission else ZERO
+        )
     gross_percent = (
         current['total_gross'] / target_total_gross * 100
         if target_total_gross else ZERO
@@ -245,8 +300,9 @@ def activity_month_context(user, month_start):
         'gross_percent': gross_percent,
         'gross_progress': min(max(gross_percent, ZERO), Decimal('100')),
         'commission_percent': commission_percent,
-        'commission_progress': min(
-            max(commission_percent, ZERO), Decimal('100')
+        'commission_progress': (
+            min(max(commission_percent, ZERO), Decimal('100'))
+            if commission_percent is not None else None
         ),
         'month_activity': month_activity,
         'recent_activity': month_activity[:14],
@@ -268,8 +324,9 @@ def activity_history_context(user, start_month, end_month):
             'gross_reached': bool(
                 goal and metric['total_gross'] >= goal.target_total_gross
             ),
-            'financial_reached': bool(
-                goal and metric['commission'] >= goal.target_commission
+            'financial_reached': (
+                bool(goal and metric['commission'] >= goal.target_commission)
+                if metric['commission_complete'] else None
             ),
         })
         history.append(metric)

@@ -104,6 +104,7 @@ class CommissionEngineService:
         cls, user: Any, sale: Any,
         monthly_metrics: dict[str, Any] | None = None,
         version: Any | None = None,
+        allow_historical_version: bool = False,
     ) -> SaleCommissionDiagnostic:
         from .models import Commission, UserProfile
 
@@ -170,7 +171,11 @@ class CommissionEngineService:
                 )
 
         previewing = version.status in {version.DRAFT, version.REVIEW_REQUIRED}
-        if version.status != version.ACTIVE and not previewing:
+        historical = (
+            allow_historical_version
+            and version.status in {version.ACTIVE, version.INACTIVE}
+        )
+        if version.status != version.ACTIVE and not previewing and not historical:
             return SaleCommissionDiagnostic(
                 status=STATUS_INACTIVE_PLAN,
                 plan_id=version.pay_plan_id,
@@ -186,7 +191,7 @@ class CommissionEngineService:
                 calculate_sale_commission_for_version(
                     user, sale, version, monthly_metrics,
                 )
-                if previewing
+                if previewing or historical
                 else calculate_sale_commission_v2(user, sale, monthly_metrics)
             )
         except CommissionEngineError as exc:
@@ -331,11 +336,19 @@ class CommissionEngineService:
         )
 
     @classmethod
-    def calculate_sales(cls, user: Any, sales: list[Any]) -> dict[str, Any]:
+    def calculate_sales(
+        cls, user: Any, sales: list[Any], *,
+        allow_historical_versions: bool = False,
+    ) -> dict[str, Any]:
         sales = list(sales)
         monthly_metrics = build_period_context(sales) if sales else {}
         results = [
-            cls.calculate_sale(user, sale, monthly_metrics)
+            cls.calculate_sale(
+                user,
+                sale,
+                monthly_metrics,
+                allow_historical_version=allow_historical_versions,
+            )
             for sale in sales
         ]
         calculated = [item for item in results if item.calculated]
