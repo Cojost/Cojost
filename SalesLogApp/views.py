@@ -57,7 +57,7 @@ from django.core.exceptions import ObjectDoesNotExist, PermissionDenied, Validat
 from django.core import signing
 from django.core.signing import BadSignature, SignatureExpired
 from django.db import IntegrityError, connection, transaction
-from django.views.decorators.http import require_http_methods, require_POST
+from django.views.decorators.http import require_GET, require_http_methods, require_POST
 from django.urls import reverse
 from django.utils.html import escape
 from .models.sales import DailyActivity, MonthlyGoal
@@ -69,6 +69,7 @@ from .ask_stew import AskStewAnswer, AskStewService
 from .ask_stew_entitlements import ask_stew_ai_required
 from .ask_stew_provider import ask_stew_provider_availability
 from .access import (
+    activity_goals_pro_required,
     get_or_create_onboarding,
     internal_pay_plan_tool_required,
     legacy_commission_only,
@@ -318,7 +319,9 @@ def _history_range(request, selected_month):
     return start, end
 
 
+@activity_goals_pro_required
 @pay_plan_onboarding_required
+@require_http_methods(['GET', 'POST'])
 def activity_goals(request, activity_id=None):
     user = request.user
     selected_month = _selected_month(request)
@@ -344,11 +347,19 @@ def activity_goals(request, activity_id=None):
         goal_form = MonthlyGoalForm(request.POST, instance=goal, month_start=selected_month)
         if goal_form.is_valid():
             month = goal_form.cleaned_data['month']
-            MonthlyGoal.objects.update_or_create(
-                user=user, month_start=month,
-                defaults={'target_units': goal_form.cleaned_data['target_units'],
-                          'target_commission': goal_form.cleaned_data['target_commission']},
-            )
+            with transaction.atomic():
+                MonthlyGoal.objects.update_or_create(
+                    user=user, month_start=month,
+                    defaults={
+                        'target_units': goal_form.cleaned_data['target_units'],
+                        'target_total_gross': (
+                            goal_form.cleaned_data['target_total_gross']
+                        ),
+                        'target_commission': (
+                            goal_form.cleaned_data['target_commission']
+                        ),
+                    },
+                )
             messages.success(request, 'Monthly goals saved.')
             return redirect(f"{reverse('activity_goals')}?month={month:%Y-%m}")
     else:
@@ -430,7 +441,9 @@ def print_sales(request):
     return render(request, 'reports/print_sales.html', context)
 
 
+@activity_goals_pro_required
 @pay_plan_onboarding_required
+@require_GET
 def print_activity_goals(request):
     selected_month = _selected_month(request)
     context = activity_month_context(request.user, selected_month)
@@ -442,7 +455,9 @@ def print_activity_goals(request):
     return render(request, 'reports/print_activity_goals.html', context)
 
 
+@activity_goals_pro_required
 @pay_plan_onboarding_required
+@require_GET
 def print_activity_history(request):
     selected_month = _selected_month(request)
     history_start, history_end = _history_range(request, selected_month)

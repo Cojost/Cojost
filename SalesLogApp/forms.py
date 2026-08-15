@@ -1301,9 +1301,16 @@ class VehicleForm(forms.Form):
 
 
 class DailyActivityForm(forms.ModelForm):
+    MAX_ACTIVITY_VALUE = 2147483647
+
     class Meta:
         model = DailyActivity
         fields = ['date', 'leads_taken', 'phone_calls_made']
+        labels = {
+            'date': 'Activity date',
+            'leads_taken': 'Leads taken',
+            'phone_calls_made': 'Phone calls made',
+        }
         widgets = {
             'date': forms.DateInput(attrs={'type': 'date'}),
             'leads_taken': forms.NumberInput(attrs={'min': 0}),
@@ -1321,18 +1328,39 @@ class DailyActivityForm(forms.ModelForm):
             raise forms.ValidationError('Activity dates cannot be in the future.')
         return value
 
+    def _clean_activity_value(self, field_name):
+        value = self.cleaned_data[field_name]
+        if value > self.MAX_ACTIVITY_VALUE:
+            raise forms.ValidationError('Enter a smaller whole number.')
+        return value
+
+    def clean_leads_taken(self):
+        return self._clean_activity_value('leads_taken')
+
+    def clean_phone_calls_made(self):
+        return self._clean_activity_value('phone_calls_made')
+
 
 class MonthlyGoalForm(forms.ModelForm):
     month = forms.DateField(
+        label='Goal month',
         input_formats=['%Y-%m'],
         widget=forms.DateInput(format='%Y-%m', attrs={'type': 'month'}),
     )
 
     class Meta:
         model = MonthlyGoal
-        fields = ['target_units', 'target_commission']
+        fields = ['target_units', 'target_total_gross', 'target_commission']
+        labels = {
+            'target_units': 'Unit goal',
+            'target_total_gross': 'Total gross goal',
+            'target_commission': 'Commission goal',
+        }
         widgets = {
             'target_units': forms.NumberInput(attrs={'min': 0, 'step': '0.5'}),
+            'target_total_gross': forms.NumberInput(
+                attrs={'min': 0, 'step': '0.01'}
+            ),
             'target_commission': forms.NumberInput(attrs={'min': 0, 'step': '0.01'}),
         }
 
@@ -1345,6 +1373,21 @@ class MonthlyGoalForm(forms.ModelForm):
     def clean_month(self):
         value = self.cleaned_data['month']
         return value.replace(day=1)
+
+    def _clean_nonnegative_target(self, field_name):
+        value = self.cleaned_data[field_name]
+        if value < 0:
+            raise forms.ValidationError('Enter a value of zero or greater.')
+        return value
+
+    def clean_target_units(self):
+        return self._clean_nonnegative_target('target_units')
+
+    def clean_target_total_gross(self):
+        return self._clean_nonnegative_target('target_total_gross')
+
+    def clean_target_commission(self):
+        return self._clean_nonnegative_target('target_commission')
 
 
 class AppearanceForm(forms.ModelForm):

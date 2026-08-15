@@ -1,5 +1,7 @@
 from datetime import timedelta
 from decimal import Decimal
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from django.contrib.auth.models import User
 from django.test import TestCase
@@ -11,6 +13,12 @@ from .models.sales import Commission, DailyActivity, MonthlyGoal, Sale
 
 class PrintReportTests(TestCase):
     def setUp(self):
+        self.entitlement_patch = patch(
+            'SalesLogApp.billing_entitlements.get_billing_entitlement',
+            return_value=SimpleNamespace(has_pro_access=True),
+        )
+        self.entitlement_patch.start()
+        self.addCleanup(self.entitlement_patch.stop)
         self.user = User.objects.create_user('report-owner', password='pw')
         self.other = User.objects.create_user('report-other', password='pw')
         self.commission = Commission.objects.create(
@@ -90,6 +98,8 @@ class PrintReportTests(TestCase):
         self.assertNotContains(response, 'Month History')
         self.assertNotContains(response, '>99<', html=False)
         self.assertNotContains(response, '<form', html=False)
+        self.assertContains(response, 'Total gross')
+        self.assertNotContains(response, 'Estimated forecast')
 
     def test_history_report_contains_only_history_content(self):
         self.client.force_login(self.user)

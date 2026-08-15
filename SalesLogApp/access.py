@@ -3,6 +3,7 @@ from __future__ import annotations
 from functools import wraps
 from typing import Any, Callable
 
+from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db import models, transaction
@@ -170,6 +171,42 @@ def internal_pay_plan_tool_required(
                 'to upload, review, or edit your plan.',
             )
             return redirect('my_pay_plan')
+        return view_func(request, *args, **kwargs)
+
+    return wrapper
+
+
+def activity_goals_authorized(user: Any) -> bool:
+    """Return the centralized SC-1 Pro entitlement decision."""
+
+    if user is None or not getattr(user, 'is_authenticated', False):
+        return False
+    if user.is_staff or user.is_superuser:
+        return True
+
+    from .billing_entitlements import get_billing_entitlement
+
+    return get_billing_entitlement(user).has_pro_access
+
+
+def activity_goals_pro_required(
+    view_func: Callable[..., Any],
+) -> Callable[..., Any]:
+    @login_required
+    @wraps(view_func)
+    def wrapper(request, *args, **kwargs):
+        if not activity_goals_authorized(request.user):
+            messages.info(
+                request,
+                'Activity & Goals is a Pro feature. Upgrade to Pro to set '
+                'goals and track daily activity.',
+            )
+            if (
+                settings.BILLING_FEATURE_ENABLED
+                or settings.BILLING_ENFORCEMENT_ENABLED
+            ):
+                return redirect('billing_overview')
+            return redirect('profile')
         return view_func(request, *args, **kwargs)
 
     return wrapper

@@ -88,11 +88,20 @@ def month_metrics(user, month_start):
     # Only explicitly owned archive rows are eligible.
     archived = list(ArchivedSale.objects.filter(user=user, date__gte=start, date__lt=end))
     totals = commission_totals(user, sales + archived)
+    total_gross = sum(
+        (
+            Decimal(str(sale.frontEnd or 0))
+            + Decimal(str(sale.backend or 0))
+            for sale in sales + archived
+        ),
+        ZERO,
+    )
     leads = Decimal(activity_totals['leads'] or 0)
     calls = Decimal(activity_totals['calls'] or 0)
     units = totals['units']
     return {
-        'leads': leads, 'calls': calls, 'units': units, 'commission': totals['total'],
+        'leads': leads, 'calls': calls, 'units': units,
+        'total_gross': total_gross, 'commission': totals['total'],
         'lead_to_unit_rate': units / leads if leads else None,
         'calls_per_lead': calls / leads if leads else None,
         'calls_per_unit': calls / units if units else None,
@@ -206,11 +215,9 @@ def activity_month_context(user, month_start):
         user=user, month_start=selected_month
     ).first()
     target_units = goal.target_units if goal else ZERO
+    target_total_gross = goal.target_total_gross if goal else ZERO
     target_commission = goal.target_commission if goal else ZERO
     current = month_metrics(user, selected_month)
-    projection = forecast(
-        user, selected_month, current, target_units, target_commission
-    )
     unit_percent = (
         current['units'] / target_units * 100 if target_units else ZERO
     )
@@ -218,10 +225,9 @@ def activity_month_context(user, month_start):
         current['commission'] / target_commission * 100
         if target_commission else ZERO
     )
-    selling_days = remaining_selling_days(selected_month)
-    daily_pace = (
-        Decimal(projection['recommended_remaining_leads']) / selling_days
-        if projection.get('available') and selling_days else None
+    gross_percent = (
+        current['total_gross'] / target_total_gross * 100
+        if target_total_gross else ZERO
     )
     start, end = month_bounds(selected_month)
     month_activity = DailyActivity.objects.filter(
@@ -231,15 +237,17 @@ def activity_month_context(user, month_start):
         'selected_month': selected_month,
         'goal': goal,
         'current': current,
-        'forecast': projection,
         'target_units': target_units,
+        'target_total_gross': target_total_gross,
         'target_commission': target_commission,
         'unit_percent': unit_percent,
-        'unit_progress': min(unit_percent, Decimal('100')),
+        'unit_progress': min(max(unit_percent, ZERO), Decimal('100')),
+        'gross_percent': gross_percent,
+        'gross_progress': min(max(gross_percent, ZERO), Decimal('100')),
         'commission_percent': commission_percent,
-        'commission_progress': min(commission_percent, Decimal('100')),
-        'daily_pace': daily_pace,
-        'remaining_selling_days': selling_days,
+        'commission_progress': min(
+            max(commission_percent, ZERO), Decimal('100')
+        ),
         'month_activity': month_activity,
         'recent_activity': month_activity[:14],
         'commission_instance': Commission.objects.filter(user=user).first(),
@@ -257,6 +265,9 @@ def activity_history_context(user, start_month, end_month):
             'month': cursor,
             'goal': goal,
             'unit_reached': bool(goal and metric['units'] >= goal.target_units),
+            'gross_reached': bool(
+                goal and metric['total_gross'] >= goal.target_total_gross
+            ),
             'financial_reached': bool(
                 goal and metric['commission'] >= goal.target_commission
             ),

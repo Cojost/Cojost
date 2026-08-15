@@ -1,5 +1,6 @@
 from django.conf import settings
 
+from .access import activity_goals_authorized
 from .ask_stew_entitlements import ask_stew_ai_authorized
 from .models import UserProfile
 
@@ -18,6 +19,7 @@ def appearance(request):
         'billing_feature_enabled': settings.BILLING_FEATURE_ENABLED,
         'teams_feature_enabled': settings.TEAMS_FEATURE_ENABLED,
         'ask_stew_ai_authorized': ask_stew_ai_authorized(request.user),
+        'activity_goals_authorized': activity_goals_authorized(request.user),
         'appearance': {
             'theme_mode': profile.theme_mode,
             'header_color': profile.header_color,

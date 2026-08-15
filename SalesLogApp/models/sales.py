@@ -350,6 +350,9 @@ class MonthlyGoal(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     month_start = models.DateField()
     target_units = models.DecimalField(max_digits=8, decimal_places=1, default=0)
+    target_total_gross = models.DecimalField(
+        max_digits=12, decimal_places=2, default=0
+    )
     target_commission = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -362,6 +365,10 @@ class MonthlyGoal(models.Model):
             ),
             models.CheckConstraint(
                 condition=models.Q(target_units__gte=0), name='goal_units_nonnegative'
+            ),
+            models.CheckConstraint(
+                condition=models.Q(target_total_gross__gte=0),
+                name='goal_gross_nonnegative',
             ),
             models.CheckConstraint(
                 condition=models.Q(target_commission__gte=0),
