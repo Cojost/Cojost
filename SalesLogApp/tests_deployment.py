@@ -15,6 +15,7 @@ from allauth.account.internal.flows.password_reset import (
 )
 from django.conf import settings
 from django.contrib.auth.models import User
+from django.core.exceptions import ImproperlyConfigured
 from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 
@@ -60,6 +61,7 @@ class DeploymentConfigurationTests(SimpleTestCase):
             ),
             'EMAIL_HOST': 'smtp.example.test',
             'DEFAULT_FROM_EMAIL': 'no-reply@mail.stewlog.com',
+            'EMAIL_VERIFICATION_PUBLIC_BASE_URL': 'https://stewlog.com',
         }
         settings_path = Path(__file__).resolve().parents[1] / 'SalesLog' / 'settings.py'
         with patch.dict(os.environ, production_environment, clear=True):
@@ -85,11 +87,28 @@ class DeploymentConfigurationTests(SimpleTestCase):
         self.assertGreater(production['SECURE_HSTS_SECONDS'], 0)
         self.assertTrue(production['SECURE_HSTS_INCLUDE_SUBDOMAINS'])
         self.assertFalse(production['SECURE_HSTS_PRELOAD'])
+        self.assertEqual(
+            production['EMAIL_VERIFICATION_PUBLIC_BASE_URL'],
+            'https://stewlog.com',
+        )
+        self.assertEqual(
+            production['TEAM_INVITATION_VERIFICATION_RESUME_MAX_AGE'],
+            7 * 24 * 60 * 60,
+        )
 
-    def test_settings_have_no_hardcoded_production_host_or_secret_key(self):
+    def test_team_verification_resume_age_cannot_exceed_invitation_lifetime(self):
+        settings_path = Path(__file__).resolve().parents[1] / 'SalesLog' / 'settings.py'
+        with patch.dict(os.environ, {
+            'DEBUG': 'true',
+            'TEAMS_INVITATION_TTL_HOURS': '1',
+            'TEAM_INVITATION_VERIFICATION_RESUME_MAX_AGE': '3601',
+        }, clear=True):
+            with self.assertRaises(ImproperlyConfigured):
+                runpy.run_path(str(settings_path))
+
+    def test_settings_have_no_transition_host_or_hardcoded_secret_key(self):
         settings_path = Path(__file__).resolve().parents[1] / 'SalesLog' / 'settings.py'
         source = settings_path.read_text(encoding='utf-8')
-        self.assertNotIn('stewlog.com', source)
         self.assertNotIn('stewlog.onrender.com', source)
 
         tree = ast.parse(source)

@@ -9,6 +9,7 @@ from .sales import (
     SaleType,
 )
 from .profile import UserProfile
+from .email_operations import EmailVerificationDispatch
 from .pay_plans import (
     Industry,
     PayPlan,

@@ -15,7 +15,23 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods, require_POST
 
-from .models import Team, TeamComment, TeamInvitation, TeamMembership, TeamReaction
+from .account_adapter import TEAM_INVITATION_RESUME_SESSION_KEY
+from .email_verification import (
+    MISSING_ADDRESS,
+    UNVERIFIED_ADDRESS,
+    build_verification_request,
+    dispatch_verification_email,
+    has_verified_email,
+    validate_production_email_delivery_configuration,
+)
+from .models import (
+    EmailVerificationDispatch,
+    Team,
+    TeamComment,
+    TeamInvitation,
+    TeamMembership,
+    TeamReaction,
+)
 from .team_entitlements import can_create_team, get_team_entitlement
 from .team_forms import (
     ReactionForm,
@@ -28,17 +44,25 @@ from .team_forms import (
     TeamSettingsForm,
 )
 from .team_services import (
+    InvalidInvitationResumeReference,
     InvitationDeliveryError,
     accept_invitation,
+    accept_invitation_from_resume_digest,
     active_membership_for_user,
     as_member_view,
     as_team_view,
     build_feed_queryset,
     build_month_totals,
     create_and_email_invitation,
+    create_invitation_review_reference,
+    create_invitation_verification_resume_reference,
     create_team,
     decline_invitation,
+    decline_invitation_from_resume_digest,
+    digest_from_invitation_review_reference,
+    digest_from_invitation_verification_resume_reference,
     get_team_membership_or_404,
+    invitation_for_resume_digest_or_404,
     invitation_for_user_or_404,
     pending_invitation_views,
     project_activity,
@@ -60,6 +84,23 @@ INVITATION_VERIFICATION_MESSAGE = (
 INVITATION_FAILURE_MESSAGE = (
     'The invitation could not be processed. Please try again.'
 )
+LEGACY_INVITATION_RESUME_CODE_SESSION_KEY = 'team_invitation_resume_code'
+INVITATION_RESUME_REFERENCE_SESSION_KEY = (
+    'team_invitation_verification_resume_reference'
+)
+INVITATION_REVIEW_REFERENCE_SESSION_KEY = 'team_invitation_review_reference'
+TEAM_VERIFICATION_SENT_MESSAGE = (
+    'Please verify your email before joining a team. '
+    'We\u2019ve sent you a new verification link.'
+)
+TEAM_VERIFICATION_REQUIRED_MESSAGE = (
+    'Please verify your email before joining a team. Review your account '
+    'email settings, then try again.'
+)
+INVITATION_RESUME_FAILURE_MESSAGE = (
+    'This invitation could not be resumed. Reopen the original invitation '
+    'and try again.'
+)
 
 
 def _log_sanitized_invitation_exception(action, user_id, exc):
@@ -80,6 +121,65 @@ def _invitation_error_response(request, message, *, status):
         'form': InvitationCodeForm(),
         'error': message,
     }, status=status)
+
+
+def _clear_invitation_resume_state(request):
+    request.session.pop(LEGACY_INVITATION_RESUME_CODE_SESSION_KEY, None)
+    request.session.pop(INVITATION_RESUME_REFERENCE_SESSION_KEY, None)
+    request.session.pop(INVITATION_REVIEW_REFERENCE_SESSION_KEY, None)
+    request.session.pop(TEAM_INVITATION_RESUME_SESSION_KEY, None)
+
+
+def _invitation_resume_error_response(request):
+    _clear_invitation_resume_state(request)
+    return _invitation_error_response(
+        request,
+        INVITATION_RESUME_FAILURE_MESSAGE,
+        status=404,
+    )
+
+
+def _team_verification_required_response(request, raw_token=None):
+    verification_message = TEAM_VERIFICATION_REQUIRED_MESSAGE
+    try:
+        validate_production_email_delivery_configuration()
+        resume_reference = (
+            create_invitation_verification_resume_reference(raw_token)
+            if raw_token
+            else None
+        )
+        request.session.pop(LEGACY_INVITATION_RESUME_CODE_SESSION_KEY, None)
+        request.session.pop(INVITATION_REVIEW_REFERENCE_SESSION_KEY, None)
+        if raw_token:
+            request.session[INVITATION_RESUME_REFERENCE_SESSION_KEY] = (
+                resume_reference
+            )
+        request.session[TEAM_INVITATION_RESUME_SESSION_KEY] = True
+        verification_request = build_verification_request(
+            user=request.user,
+            base_url=settings.EMAIL_VERIFICATION_PUBLIC_BASE_URL,
+            session_values={TEAM_INVITATION_RESUME_SESSION_KEY: True},
+        )
+        result = dispatch_verification_email(
+            user=request.user,
+            request=verification_request,
+            source=EmailVerificationDispatch.TEAM_JOIN,
+        )
+    except Exception as exc:
+        _log_sanitized_invitation_exception(
+            'verification_resend',
+            request.user.pk,
+            exc,
+        )
+    else:
+        if result.category in {UNVERIFIED_ADDRESS, MISSING_ADDRESS} and (
+            result.outcome in {'sent', 'skipped'}
+        ):
+            verification_message = TEAM_VERIFICATION_SENT_MESSAGE
+    return render(request, 'SalesLogApp/teams/invitation.html', {
+        'verification_required': True,
+        'verification_message': verification_message,
+    }, status=403)
 
 
 def teams_feature_required(view_func):
@@ -304,9 +404,91 @@ def team_invitation_accept(request):
     form = InvitationCodeForm(request.POST or None)
     invitation = None
     raw_token = None
+    resume_digest = None
+    resume_review = False
     action = request.POST.get('action')
     if request.method == 'POST' and form.is_valid():
         raw_token = form.cleaned_data['invitation_code']
+    if LEGACY_INVITATION_RESUME_CODE_SESSION_KEY in request.session:
+        return _invitation_resume_error_response(request)
+    if not has_verified_email(request.user):
+        return _team_verification_required_response(request, raw_token)
+
+    resume_requested = request.session.pop(
+        TEAM_INVITATION_RESUME_SESSION_KEY,
+        None,
+    )
+    if request.method == 'GET':
+        request.session.pop(INVITATION_REVIEW_REFERENCE_SESSION_KEY, None)
+        resume_reference = request.session.pop(
+            INVITATION_RESUME_REFERENCE_SESSION_KEY,
+            None,
+        )
+        if resume_reference is not None or resume_requested is not None:
+            if resume_reference is None or resume_requested is not True:
+                return _invitation_resume_error_response(request)
+            try:
+                resume_digest = (
+                    digest_from_invitation_verification_resume_reference(
+                        resume_reference
+                    )
+                )
+                invitation = invitation_for_resume_digest_or_404(
+                    resume_digest,
+                    request.user,
+                )
+                request.session[INVITATION_REVIEW_REFERENCE_SESSION_KEY] = (
+                    create_invitation_review_reference(resume_digest)
+                )
+                resume_review = True
+            except (InvalidInvitationResumeReference, Http404):
+                return _invitation_resume_error_response(request)
+            except Exception as exc:
+                _log_sanitized_invitation_exception(
+                    'verification_resume',
+                    request.user.pk,
+                    exc,
+                )
+                return _invitation_error_response(
+                    request,
+                    INVITATION_FAILURE_MESSAGE,
+                    status=500,
+                )
+    else:
+        request.session.pop(INVITATION_RESUME_REFERENCE_SESSION_KEY, None)
+        if raw_token is not None:
+            request.session.pop(INVITATION_REVIEW_REFERENCE_SESSION_KEY, None)
+        elif action in {'accept', 'decline'}:
+            review_reference = request.session.pop(
+                INVITATION_REVIEW_REFERENCE_SESSION_KEY,
+                None,
+            )
+            try:
+                resume_digest = digest_from_invitation_review_reference(
+                    review_reference
+                )
+                invitation = invitation_for_resume_digest_or_404(
+                    resume_digest,
+                    request.user,
+                )
+                resume_review = True
+            except (InvalidInvitationResumeReference, Http404):
+                return _invitation_resume_error_response(request)
+            except Exception as exc:
+                _log_sanitized_invitation_exception(
+                    'verification_review',
+                    request.user.pk,
+                    exc,
+                )
+                return _invitation_error_response(
+                    request,
+                    INVITATION_FAILURE_MESSAGE,
+                    status=500,
+                )
+        else:
+            request.session.pop(INVITATION_REVIEW_REFERENCE_SESSION_KEY, None)
+
+    if raw_token is not None:
         try:
             invitation = invitation_for_user_or_404(raw_token, request.user)
         except Http404:
@@ -328,7 +510,14 @@ def team_invitation_accept(request):
             )
     if invitation is not None and action == 'accept':
         try:
-            membership = accept_invitation(raw_token, request.user)
+            membership = (
+                accept_invitation_from_resume_digest(
+                    resume_digest,
+                    request.user,
+                )
+                if resume_review
+                else accept_invitation(raw_token, request.user)
+            )
         except Http404:
             return _invitation_error_response(
                 request,
@@ -336,12 +525,20 @@ def team_invitation_accept(request):
                 status=404,
             )
         except ValidationError as exc:
+            if resume_review:
+                try:
+                    request.session[INVITATION_REVIEW_REFERENCE_SESSION_KEY] = (
+                        create_invitation_review_reference(resume_digest)
+                    )
+                except InvalidInvitationResumeReference:
+                    return _invitation_resume_error_response(request)
             return render(request, 'SalesLogApp/teams/invitation.html', {
                 'team': as_team_view(invitation.team),
                 'inviter_name': safe_display_name(invitation.created_by),
                 'error': '; '.join(exc.messages),
                 'form': form,
-                'invitation_code': raw_token,
+                'invitation_code': raw_token if not resume_review else None,
+                'resume_review': resume_review,
             }, status=409)
         except Exception as exc:
             _log_sanitized_invitation_exception(
@@ -356,7 +553,13 @@ def team_invitation_accept(request):
         return redirect('team_detail', team_id=membership.team.public_id)
     if invitation is not None and action == 'decline':
         try:
-            decline_invitation(raw_token, request.user)
+            if resume_review:
+                decline_invitation_from_resume_digest(
+                    resume_digest,
+                    request.user,
+                )
+            else:
+                decline_invitation(raw_token, request.user)
         except Http404:
             return _invitation_error_response(
                 request,
@@ -379,7 +582,8 @@ def team_invitation_accept(request):
         context.update({
             'team': as_team_view(invitation.team),
             'inviter_name': safe_display_name(invitation.created_by),
-            'invitation_code': raw_token,
+            'invitation_code': raw_token if not resume_review else None,
+            'resume_review': resume_review,
         })
     return render(request, 'SalesLogApp/teams/invitation.html', context)
 

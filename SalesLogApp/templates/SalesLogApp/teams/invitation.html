@@ -3,14 +3,26 @@
 {% block page_class %}teams-page{% endblock %}
 {% block content %}
 {% if error %}<div class="notice notice-error">{{ error }}</div>{% endif %}
-{% if team %}
+{% if verification_required %}
+<div class="intro">
+    <h2>Verify your email to join a team</h2>
+    <p>{{ verification_message }}</p>
+</div>
+<section class="card">
+    <p>After verifying, return here to continue. Your invitation will still need to be valid.</p>
+    <div class="team-row-actions">
+        <a class="button button-primary" href="{% url 'team_invitation_accept' %}">Check verification and continue</a>
+        <a class="button button-secondary" href="{% url 'account_email' %}">Email settings</a>
+    </div>
+</section>
+{% elif team %}
 <div class="intro"><h2>Join {{ team.name }}</h2><p>{{ inviter_name }} invited you to share progress with this team.</p></div>
 <section class="card">
     <h3>What teammates can see</h3>
     <p>Your monthly unit total is shared by default. You can opt in to sharing your display identity, sale date, and unit credit in the feed.</p>
     <h3>What stays private</h3>
     <p>Customer names, deal numbers, gross, commission, adjustments, pay plans, documents, assistant conversations, and private goals are never shared.</p>
-    <div class="team-row-actions"><form method="post">{% csrf_token %}<input type="hidden" name="invitation_code" value="{{ invitation_code }}"><input type="hidden" name="action" value="accept"><button class="button button-primary" type="submit">Accept invitation</button></form><form method="post">{% csrf_token %}<input type="hidden" name="invitation_code" value="{{ invitation_code }}"><input type="hidden" name="action" value="decline"><button class="button button-secondary" type="submit">Decline</button></form><a class="button button-secondary" href="{% url 'team_home' %}">Not now</a></div>
+    <div class="team-row-actions"><form method="post">{% csrf_token %}{% if not resume_review %}<input type="hidden" name="invitation_code" value="{{ invitation_code }}">{% endif %}<input type="hidden" name="action" value="accept"><button class="button button-primary" type="submit">Accept invitation</button></form><form method="post">{% csrf_token %}{% if not resume_review %}<input type="hidden" name="invitation_code" value="{{ invitation_code }}">{% endif %}<input type="hidden" name="action" value="decline"><button class="button button-secondary" type="submit">Decline</button></form><a class="button button-secondary" href="{% url 'team_home' %}">Not now</a></div>
 </section>
 {% else %}
 <div class="intro"><h2>Review a team invitation</h2><p>Enter the private code shared with you. Codes never appear in the URL.</p></div>

@@ -15,6 +15,7 @@ import os
 import ipaddress
 import secrets
 import socket
+from urllib.parse import urlsplit
 
 import dj_database_url
 from django.core.exceptions import ImproperlyConfigured
@@ -135,6 +136,30 @@ TEAMS_ENTITLEMENT_BACKEND = os.getenv(
 ).strip()
 TEAMS_FOUNDER_USER_IDS = env_list('TEAMS_FOUNDER_USER_IDS')
 TEAMS_INVITATION_TTL_HOURS = env_int('TEAMS_INVITATION_TTL_HOURS', 168)
+_team_invitation_ttl_seconds = TEAMS_INVITATION_TTL_HOURS * 60 * 60
+TEAM_INVITATION_VERIFICATION_RESUME_MAX_AGE = env_bounded_int(
+    'TEAM_INVITATION_VERIFICATION_RESUME_MAX_AGE',
+    min(_team_invitation_ttl_seconds, 7 * 24 * 60 * 60),
+    minimum=1,
+    maximum=7 * 24 * 60 * 60,
+)
+if TEAM_INVITATION_VERIFICATION_RESUME_MAX_AGE > _team_invitation_ttl_seconds:
+    raise ImproperlyConfigured(
+        'TEAM_INVITATION_VERIFICATION_RESUME_MAX_AGE cannot exceed the '
+        'configured team invitation lifetime.'
+    )
+EMAIL_VERIFICATION_RESEND_COOLDOWN_MINUTES = env_bounded_int(
+    'EMAIL_VERIFICATION_RESEND_COOLDOWN_MINUTES',
+    60,
+    minimum=3,
+    maximum=1440,
+)
+EMAIL_VERIFICATION_PENDING_STALE_MINUTES = env_bounded_int(
+    'EMAIL_VERIFICATION_PENDING_STALE_MINUTES',
+    15,
+    minimum=1,
+    maximum=1440,
+)
 
 SECRET_KEY = os.getenv('SECRET_KEY')
 if not SECRET_KEY:
@@ -403,6 +428,27 @@ ACCOUNT_SIGNUP_FIELDS = [
 ]
 ACCOUNT_UNIQUE_EMAIL = True
 ACCOUNT_EMAIL_VERIFICATION = 'optional'
+ACCOUNT_ADAPTER = 'SalesLogApp.account_adapter.StewLogAccountAdapter'
+EMAIL_VERIFICATION_PUBLIC_BASE_URL = os.getenv(
+    'EMAIL_VERIFICATION_PUBLIC_BASE_URL',
+    'http://localhost:8000' if DEBUG else '',
+).strip().rstrip('/')
+
+if not DEBUG:
+    verification_base = urlsplit(EMAIL_VERIFICATION_PUBLIC_BASE_URL)
+    if (
+        EMAIL_VERIFICATION_PUBLIC_BASE_URL != 'https://stewlog.com'
+        or verification_base.scheme != 'https'
+        or not verification_base.hostname
+        or verification_base.hostname not in ALLOWED_HOSTS
+        or verification_base.path not in {'', '/'}
+        or verification_base.query
+        or verification_base.fragment
+    ):
+        raise ImproperlyConfigured(
+            'EMAIL_VERIFICATION_PUBLIC_BASE_URL must be the canonical StewLog '
+            'HTTPS origin in production.'
+        )
 
 # Email
 EMAIL_BACKEND = os.getenv(
@@ -414,11 +460,12 @@ EMAIL_BACKEND = os.getenv(
     ),
 )
 EMAIL_HOST = os.getenv('EMAIL_HOST', '')
-EMAIL_PORT = int(os.getenv('EMAIL_PORT', '587'))
+EMAIL_PORT = env_bounded_int('EMAIL_PORT', 587, minimum=1, maximum=65535)
 EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '')
 EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
 EMAIL_USE_TLS = env_bool('EMAIL_USE_TLS', True)
-EMAIL_TIMEOUT = int(os.getenv('EMAIL_TIMEOUT', '10'))
+EMAIL_USE_SSL = env_bool('EMAIL_USE_SSL', False)
+EMAIL_TIMEOUT = env_bounded_int('EMAIL_TIMEOUT', 10, minimum=1, maximum=300)
 DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'webmaster@localhost')
 
 if (

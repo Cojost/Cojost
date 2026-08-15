@@ -1,5 +1,6 @@
 import hashlib
 import hmac
+import re
 import secrets
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -9,6 +10,7 @@ from zoneinfo import ZoneInfo
 from allauth.account.models import EmailAddress
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.core import signing
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.mail import send_mail
 from django.core.validators import validate_email
@@ -40,6 +42,21 @@ REACTION_EMOJI = {
 
 class InvitationDeliveryError(Exception):
     """Raised when an invitation cannot be delivered without leaking details."""
+
+
+class InvalidInvitationResumeReference(Exception):
+    """Raised for an invalid non-raw invitation resume reference."""
+
+
+INVITATION_RESUME_REFERENCE_VERSION = 1
+INVITATION_VERIFICATION_RESUME_SIGNING_SALT = (
+    'SalesLogApp.team-invitation.email-verification-resume.v1'
+)
+INVITATION_REVIEW_SIGNING_SALT = (
+    'SalesLogApp.team-invitation.review-action.v1'
+)
+INVITATION_REFERENCE_MAX_LENGTH = 256
+_TOKEN_DIGEST_PATTERN = re.compile(r'\A[0-9a-f]{64}\Z')
 
 
 @dataclass(frozen=True)
@@ -224,6 +241,110 @@ def _token_digest(raw_token):
     ).hexdigest()
 
 
+def _resume_reference_max_age():
+    value = getattr(
+        settings,
+        'TEAM_INVITATION_VERIFICATION_RESUME_MAX_AGE',
+        None,
+    )
+    invitation_lifetime = settings.TEAMS_INVITATION_TTL_HOURS * 60 * 60
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or value < 1
+        or value > 7 * 24 * 60 * 60
+        or value > invitation_lifetime
+    ):
+        raise InvalidInvitationResumeReference(
+            'The invitation resume reference is invalid.'
+        )
+    return value
+
+
+def _validated_token_digest(token_digest):
+    if (
+        not isinstance(token_digest, str)
+        or not _TOKEN_DIGEST_PATTERN.fullmatch(token_digest)
+    ):
+        raise InvalidInvitationResumeReference(
+            'The invitation resume reference is invalid.'
+        )
+    return token_digest
+
+
+def _sign_invitation_reference(token_digest, *, salt):
+    _resume_reference_max_age()
+    payload = {
+        'version': INVITATION_RESUME_REFERENCE_VERSION,
+        'digest': _validated_token_digest(token_digest),
+    }
+    return signing.TimestampSigner(salt=salt).sign_object(
+        payload,
+        serializer=signing.JSONSerializer,
+        compress=False,
+    )
+
+
+def _digest_from_invitation_reference(reference, *, salt):
+    if (
+        not isinstance(reference, str)
+        or not reference
+        or len(reference) > INVITATION_REFERENCE_MAX_LENGTH
+    ):
+        raise InvalidInvitationResumeReference(
+            'The invitation resume reference is invalid.'
+        )
+    try:
+        payload = signing.TimestampSigner(salt=salt).unsign_object(
+            reference,
+            serializer=signing.JSONSerializer,
+            max_age=_resume_reference_max_age(),
+        )
+    except (signing.BadSignature, TypeError, ValueError):
+        raise InvalidInvitationResumeReference(
+            'The invitation resume reference is invalid.'
+        ) from None
+    if (
+        type(payload) is not dict
+        or set(payload) != {'version', 'digest'}
+        or type(payload['version']) is not int
+        or payload['version'] != INVITATION_RESUME_REFERENCE_VERSION
+    ):
+        raise InvalidInvitationResumeReference(
+            'The invitation resume reference is invalid.'
+        )
+    return _validated_token_digest(payload['digest'])
+
+
+def create_invitation_verification_resume_reference(raw_token):
+    """Return a timestamped reference containing only the canonical digest."""
+    return _sign_invitation_reference(
+        _token_digest(raw_token),
+        salt=INVITATION_VERIFICATION_RESUME_SIGNING_SALT,
+    )
+
+
+def digest_from_invitation_verification_resume_reference(reference):
+    return _digest_from_invitation_reference(
+        reference,
+        salt=INVITATION_VERIFICATION_RESUME_SIGNING_SALT,
+    )
+
+
+def create_invitation_review_reference(token_digest):
+    return _sign_invitation_reference(
+        token_digest,
+        salt=INVITATION_REVIEW_SIGNING_SALT,
+    )
+
+
+def digest_from_invitation_review_reference(reference):
+    return _digest_from_invitation_reference(
+        reference,
+        salt=INVITATION_REVIEW_SIGNING_SALT,
+    )
+
+
 @transaction.atomic
 def create_invitation(membership, intended_email):
     require_management(membership)
@@ -352,12 +473,12 @@ def create_and_email_invitation(
     return invitation, raw_token
 
 
-def invitation_for_user_or_404(raw_token, user, *, lock=False):
+def _invitation_for_digest_or_404(token_digest, user, *, lock=False):
     queryset = TeamInvitation.objects.select_related('team', 'intended_user')
     if lock:
         queryset = queryset.select_for_update(of=('self',))
     try:
-        invitation = queryset.get(token_digest=_token_digest(raw_token))
+        invitation = queryset.get(token_digest=token_digest)
     except TeamInvitation.DoesNotExist as exc:
         raise Http404('Invitation not found.') from exc
     now = timezone.now()
@@ -379,12 +500,32 @@ def invitation_for_user_or_404(raw_token, user, *, lock=False):
         verified=True,
     ).exists():
         raise Http404('Invitation not found.')
+    if TeamMembership.objects.filter(
+        team=invitation.team,
+        user=user,
+        status=TeamMembership.ACTIVE,
+    ).exists():
+        raise Http404('Invitation not found.')
     return invitation
 
 
-@transaction.atomic
-def accept_invitation(raw_token, user):
-    invitation = invitation_for_user_or_404(raw_token, user, lock=True)
+def invitation_for_user_or_404(raw_token, user, *, lock=False):
+    return _invitation_for_digest_or_404(
+        _token_digest(raw_token),
+        user,
+        lock=lock,
+    )
+
+
+def invitation_for_resume_digest_or_404(token_digest, user, *, lock=False):
+    try:
+        token_digest = _validated_token_digest(token_digest)
+    except InvalidInvitationResumeReference as exc:
+        raise Http404('Invitation not found.') from exc
+    return _invitation_for_digest_or_404(token_digest, user, lock=lock)
+
+
+def _accept_locked_invitation(invitation, user):
     get_user_model().objects.select_for_update().get(pk=user.pk)
     Team.objects.select_for_update().get(pk=invitation.team_id)
     if TeamMembership.objects.select_for_update().filter(
@@ -421,8 +562,22 @@ def accept_invitation(raw_token, user):
 
 
 @transaction.atomic
-def decline_invitation(raw_token, user):
+def accept_invitation(raw_token, user):
     invitation = invitation_for_user_or_404(raw_token, user, lock=True)
+    return _accept_locked_invitation(invitation, user)
+
+
+@transaction.atomic
+def accept_invitation_from_resume_digest(token_digest, user):
+    invitation = invitation_for_resume_digest_or_404(
+        token_digest,
+        user,
+        lock=True,
+    )
+    return _accept_locked_invitation(invitation, user)
+
+
+def _decline_locked_invitation(invitation, user):
     invitation.intended_user = user
     invitation.revoked_at = timezone.now()
     invitation.save(update_fields=['intended_user', 'revoked_at'])
@@ -431,6 +586,22 @@ def decline_invitation(raw_token, user):
         user=user,
         status=TeamMembership.INVITED,
     ).update(status=TeamMembership.DECLINED)
+
+
+@transaction.atomic
+def decline_invitation(raw_token, user):
+    invitation = invitation_for_user_or_404(raw_token, user, lock=True)
+    _decline_locked_invitation(invitation, user)
+
+
+@transaction.atomic
+def decline_invitation_from_resume_digest(token_digest, user):
+    invitation = invitation_for_resume_digest_or_404(
+        token_digest,
+        user,
+        lock=True,
+    )
+    _decline_locked_invitation(invitation, user)
 
 
 @transaction.atomic

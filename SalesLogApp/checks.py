@@ -4,6 +4,10 @@ from django.db import DatabaseError, connection
 
 from .pay_plan_intents.openai_provider import provider_configuration
 from .billing_configuration import billing_configuration
+from .email_verification import (
+    ProductionEmailConfigurationError,
+    validate_production_email_delivery_configuration,
+)
 
 
 @register()
@@ -75,6 +79,24 @@ def billing_configuration_check(app_configs, **kwargs):
                 ),
                 id='SalesLogApp.E003',
             )]
+    return []
+
+
+@register(deploy=True)
+def email_verification_delivery_check(app_configs, **kwargs):
+    if settings.DEBUG:
+        return []
+    try:
+        validate_production_email_delivery_configuration()
+    except ProductionEmailConfigurationError:
+        return [Error(
+            'Production email delivery configuration failed safe preflight.',
+            hint=(
+                'Configure the supported SMTP backend, a public SMTP host, '
+                'encrypted transport, and a syntactically valid non-local sender.'
+            ),
+            id='SalesLogApp.E004',
+        )]
     return []
 
 
