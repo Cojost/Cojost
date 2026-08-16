@@ -69,6 +69,7 @@ from .ask_stew import AskStewAnswer, AskStewService
 from .ask_stew_entitlements import ask_stew_ai_required
 from .ask_stew_provider import ask_stew_provider_availability
 from .access import (
+    activity_goals_authorized,
     activity_goals_pro_required,
     get_or_create_onboarding,
     internal_pay_plan_tool_required,
@@ -85,6 +86,7 @@ from .services import (
 )
 from .selling_calendar import SellingDayCalendarError
 from .stew_coach_calendar import owner_selling_calendar
+from .stew_coach_nudges import active_nudges
 from .stew_coach_phrasing import (
     StewCoachPhrasingError,
     deterministic_coach_message,
@@ -132,7 +134,9 @@ from .models import (
     CommissionSandbox,
     SandboxRun,
     SellingDayClosure,
+    StewCoachNudgeDismissal,
 )
+from .models.nudges import NUDGE_KEYS
 from .models.sales import SaleType
 from .sale_types import get_sale_type_handler
 
@@ -444,6 +448,44 @@ def _apply_coach_phrase_post(request, context):
         coach['token'] = _new_coach_phrase_token(request.user)
 
 
+def _stew_nudges_context(user, projection, next_name):
+    """SC-5 in-app nudges; fail closed to no nudges on any error."""
+
+    try:
+        nudges = active_nudges(user, projection)
+    except Exception as exc:
+        logger.warning(
+            'Stew Coach nudges unavailable for user_id=%s error_type=%s',
+            getattr(user, 'pk', None),
+            type(exc).__name__,
+        )
+        nudges = ()
+    return {'stew_nudges': nudges, 'stew_nudges_next': next_name}
+
+
+@login_required
+@require_http_methods(['POST'])
+def dismiss_stew_nudge(request):
+    """Dismiss one owner-scoped nudge for one month."""
+
+    nudge_key = str(request.POST.get('nudge_key', ''))[:32]
+    month = _selected_month(request)
+    destination = (
+        'view_sales'
+        if request.POST.get('next') == 'view_sales' else 'activity_goals'
+    )
+    if nudge_key in NUDGE_KEYS:
+        try:
+            StewCoachNudgeDismissal.objects.get_or_create(
+                user=request.user,
+                nudge_key=nudge_key,
+                month_start=month,
+            )
+        except (IntegrityError, ValidationError):
+            pass
+    return redirect(f"{reverse(destination)}?month={month:%Y-%m}")
+
+
 @activity_goals_pro_required
 @pay_plan_onboarding_required
 @require_http_methods(['GET', 'POST'])
@@ -537,6 +579,9 @@ def activity_goals(request, activity_id=None):
         and request.POST.get('form_type') == 'coach_phrase'
     ):
         _apply_coach_phrase_post(request, context)
+    context.update(_stew_nudges_context(
+        user, context['stew_coach'], 'activity_goals',
+    ))
     context.update({
         'activity_form': form, 'goal_form': goal_form, 'selected_month': selected_month,
         'closure_form': closure_form,
@@ -597,6 +642,13 @@ def view_sales(request):
         'nps_projection_form': nps_projection_form,
         'nps_projection': nps_projection,
     })
+    if activity_goals_authorized(request.user):
+        stew_context = _stew_coach_context(request.user, selected_month)
+        context.update(_stew_nudges_context(
+            request.user, stew_context['stew_coach'], 'view_sales',
+        ))
+    else:
+        context.update({'stew_nudges': (), 'stew_nudges_next': 'view_sales'})
     request.session['total_count'] = float(context['total_count'])
     return render(request, 'view_sales.html', context)
 

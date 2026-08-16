@@ -1,0 +1,11 @@
+{% for nudge in stew_nudges %}
+<div class="notice{% if nudge.level == 'warning' %} notice-warning{% endif %} stew-nudge" role="status">
+  <p>{{ nudge.message }}</p>
+  <form method="post" action="{% url 'dismiss_stew_nudge' %}">{% csrf_token %}
+    <input type="hidden" name="nudge_key" value="{{ nudge.key }}">
+    <input type="hidden" name="month" value="{{ selected_month|date:'Y-m' }}">
+    <input type="hidden" name="next" value="{{ stew_nudges_next }}">
+    <button class="button button-secondary" type="submit">Dismiss</button>
+  </form>
+</div>
+{% endfor %}

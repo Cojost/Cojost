@@ -1,4 +1,5 @@
 from .calendar import SellingDayClosure
+from .nudges import StewCoachNudgeDismissal
 from .sales import (
     ArchivedSale,
     BonusLevel,

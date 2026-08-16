@@ -188,6 +188,7 @@ urlpatterns = [
     path('edit_bonus/', register, name='edit_bonus'),
     path('add_bonus/', views.add_bonus, name='add_bonus'),
     path('activity-goals/', views.activity_goals, name='activity_goals'),
+    path('stew-nudges/dismiss/', views.dismiss_stew_nudge, name='dismiss_stew_nudge'),
     path('activity-goals/print/', views.print_activity_goals, name='print_activity_goals'),
     path('activity-goals/history/print/', views.print_activity_history, name='print_activity_history'),
     path('profile/', views.profile, name='profile'),
