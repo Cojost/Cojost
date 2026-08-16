@@ -14,7 +14,7 @@ from .models.sales import (
 from django.forms import modelformset_factory
 from django.contrib.auth.forms import AuthenticationForm, UserCreationForm
 from django.contrib.auth.models import User
-from .models import UserProfile
+from .models import SellingDayClosure, UserProfile
 from .models.vehicles import (
     STOCK_VALIDATOR, VIN_VALIDATOR, Vehicle, VehicleMake, VehicleModel,
     display_catalog_name, next_vehicle_year, normalize_catalog_name,
@@ -1388,6 +1388,30 @@ class MonthlyGoalForm(forms.ModelForm):
 
     def clean_target_commission(self):
         return self._clean_nonnegative_target('target_commission')
+
+
+class SellingDayClosureForm(forms.ModelForm):
+    class Meta:
+        model = SellingDayClosure
+        fields = ['date', 'label']
+        labels = {
+            'date': 'Closure date',
+            'label': 'Label (optional)',
+        }
+        widgets = {
+            'date': forms.DateInput(attrs={'type': 'date'}),
+            'label': forms.TextInput(
+                attrs={'placeholder': 'e.g. Independence Day'}
+            ),
+        }
+
+    def clean_date(self):
+        value = self.cleaned_data['date']
+        if value.weekday() == 6:
+            raise forms.ValidationError(
+                'Sundays are always closed and cannot be added.'
+            )
+        return value
 
 
 class AppearanceForm(forms.ModelForm):
