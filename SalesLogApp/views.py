@@ -85,6 +85,11 @@ from .services import (
 )
 from .selling_calendar import SellingDayCalendarError
 from .stew_coach_calendar import owner_selling_calendar
+from .stew_coach_phrasing import (
+    StewCoachPhrasingError,
+    deterministic_coach_message,
+    phrase_coach_message,
+)
 from .stew_coach_presentation import (
     present_projection,
     unavailable_projection_context,
@@ -354,7 +359,89 @@ def _stew_coach_context(user, selected_month):
         projection = present_projection(result)
     except (SellingDayCalendarError, StewCoachProjectionError):
         projection = unavailable_projection_context()
-    return {'stew_coach': projection, 'closures': closures}
+    return {
+        'stew_coach': projection,
+        'closures': closures,
+        'stew_coach_message': _stew_coach_message_context(user, projection),
+    }
+
+
+def _coach_phrase_token_salt(user):
+    return f'stew-coach-phrase:{user.pk}'
+
+
+def _new_coach_phrase_token(user):
+    return signing.dumps(
+        uuid4().hex, salt=_coach_phrase_token_salt(user), compress=True,
+    )
+
+
+def _stew_coach_message_context(user, projection):
+    """SC-4 deterministic coach message; the provider is never called on GET."""
+
+    text = None
+    if projection.get('available'):
+        try:
+            text = deterministic_coach_message(projection)
+        except StewCoachPhrasingError:
+            text = None
+    availability = ask_stew_provider_availability(user)
+    ai_available = bool(text) and availability['available']
+    return {
+        'text': text,
+        'notice': '',
+        'provider_used': False,
+        'ai_available': ai_available,
+        'token': _new_coach_phrase_token(user) if ai_available else '',
+    }
+
+
+def _apply_coach_phrase_post(request, context):
+    """Apply an SC-4 AI-wording request; every failure keeps verified text."""
+
+    coach = context.get('stew_coach_message') or {}
+    projection = context.get('stew_coach') or {}
+    if not coach.get('text') or not projection.get('available'):
+        return
+    token = str(request.POST.get('submission_token', ''))[:256]
+    try:
+        signing.loads(
+            token,
+            salt=_coach_phrase_token_salt(request.user),
+            max_age=3600,
+        )
+    except (BadSignature, SignatureExpired):
+        coach['notice'] = (
+            'This coaching request expired. Refresh the page and try again.'
+        )
+        return
+    if request.session.get('stew_coach_last_phrase_token') == token:
+        coach['notice'] = (
+            'That coaching request was already processed. No duplicate AI '
+            'request was sent.'
+        )
+        return
+    request.session['stew_coach_last_phrase_token'] = token
+    try:
+        result = phrase_coach_message(
+            request.user, projection, submission_token=token,
+        )
+    except Exception as exc:
+        logger.error(
+            'Unexpected Stew Coach phrasing failure for user_id=%s error_type=%s',
+            request.user.pk,
+            type(exc).__name__,
+        )
+        coach['notice'] = (
+            'AI wording is temporarily unavailable. This coaching note comes '
+            'directly from StewLog\u2019s verified projections.'
+        )
+        return
+    coach['text'] = result.message
+    coach['notice'] = result.notice
+    coach['provider_used'] = result.provider_used
+    if coach.get('ai_available'):
+        coach['token'] = _new_coach_phrase_token(request.user)
 
 
 @activity_goals_pro_required
@@ -445,6 +532,11 @@ def activity_goals(request, activity_id=None):
     history_start, history_end = _history_range(request, selected_month)
     context.update(activity_history_context(user, history_start, history_end))
     context.update(_stew_coach_context(user, selected_month))
+    if (
+        request.method == 'POST'
+        and request.POST.get('form_type') == 'coach_phrase'
+    ):
+        _apply_coach_phrase_post(request, context)
     context.update({
         'activity_form': form, 'goal_form': goal_form, 'selected_month': selected_month,
         'closure_form': closure_form,
