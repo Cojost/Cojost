@@ -1468,6 +1468,12 @@ progress {
   color: var(--warning-text);
 }
 
+.status-behind {
+  border-color: var(--error-border);
+  background: var(--error-background);
+  color: var(--error-text);
+}
+
 .status-inactive,
 .status-archived,
 .scenario-status-archived {

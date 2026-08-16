@@ -1,3 +1,4 @@
+from .calendar import SellingDayClosure
 from .sales import (
     ArchivedSale,
     BonusLevel,

@@ -62,7 +62,7 @@ from django.urls import reverse
 from django.utils.html import escape
 from .models.sales import DailyActivity, MonthlyGoal
 from .models.vehicles import VehicleMake, VehicleModel, normalize_catalog_name
-from .forms import DailyActivityForm, MonthlyGoalForm
+from .forms import DailyActivityForm, MonthlyGoalForm, SellingDayClosureForm
 from .forms import AppearanceForm, AvatarForm
 from .profile_context import get_user_profile
 from .ask_stew import AskStewAnswer, AskStewService
@@ -80,7 +80,18 @@ from .access import (
 from .services import (
     activity_history_context,
     activity_month_context,
+    month_bounds,
     sales_month_context,
+)
+from .selling_calendar import SellingDayCalendarError
+from .stew_coach_calendar import owner_selling_calendar
+from .stew_coach_presentation import (
+    present_projection,
+    unavailable_projection_context,
+)
+from .stew_coach_projection import (
+    StewCoachProjectionError,
+    StewCoachProjectionService,
 )
 from .commission_service import CommissionEngineService, CommissionHelpContext
 from .nps_projection import NPSSurveyProjectionService
@@ -115,6 +126,7 @@ from .models import (
     PayPlanVersion,
     CommissionSandbox,
     SandboxRun,
+    SellingDayClosure,
 )
 from .models.sales import SaleType
 from .sale_types import get_sale_type_handler
@@ -319,6 +331,32 @@ def _history_range(request, selected_month):
     return start, end
 
 
+def _stew_coach_context(user, selected_month):
+    """Build the SC-3 presentation context; fail closed on any error."""
+
+    month_start, next_month = month_bounds(selected_month)
+    month_end = next_month - timedelta(days=1)
+    closures = list(
+        SellingDayClosure.objects.filter(
+            user=user, date__gte=month_start, date__lte=month_end,
+        ).order_by('date')
+    )
+    try:
+        calendar = owner_selling_calendar(
+            user, month_start=month_start, month_end=month_end,
+        )
+        result = StewCoachProjectionService.calculate(
+            owner=user,
+            month_start=month_start,
+            as_of_date=timezone.localdate(),
+            calendar=calendar,
+        )
+        projection = present_projection(result)
+    except (SellingDayCalendarError, StewCoachProjectionError):
+        projection = unavailable_projection_context()
+    return {'stew_coach': projection, 'closures': closures}
+
+
 @activity_goals_pro_required
 @pay_plan_onboarding_required
 @require_http_methods(['GET', 'POST'])
@@ -364,11 +402,52 @@ def activity_goals(request, activity_id=None):
             return redirect(f"{reverse('activity_goals')}?month={month:%Y-%m}")
     else:
         goal_form = MonthlyGoalForm(instance=goal, month_start=selected_month)
+    if request.method == 'POST' and request.POST.get('form_type') == 'closure':
+        closure_form = SellingDayClosureForm(request.POST)
+        if closure_form.is_valid():
+            closure = closure_form.save(commit=False)
+            closure.user = user
+            try:
+                closure.save()
+            except (IntegrityError, ValidationError):
+                messages.error(
+                    request,
+                    'That closure date is already on your selling calendar.',
+                )
+            else:
+                messages.success(request, 'Selling-day closure added.')
+            return redirect(
+                f"{reverse('activity_goals')}?month={selected_month:%Y-%m}"
+            )
+    else:
+        closure_form = SellingDayClosureForm()
+    if (
+        request.method == 'POST'
+        and request.POST.get('form_type') == 'closure_delete'
+    ):
+        try:
+            closure_id = int(request.POST.get('closure_id', ''))
+        except (TypeError, ValueError):
+            closure_id = None
+        deleted = 0
+        if closure_id is not None:
+            deleted, _unused = SellingDayClosure.objects.filter(
+                pk=closure_id, user=user,
+            ).delete()
+        if deleted:
+            messages.success(request, 'Selling-day closure removed.')
+        else:
+            messages.error(request, 'That closure could not be removed.')
+        return redirect(
+            f"{reverse('activity_goals')}?month={selected_month:%Y-%m}"
+        )
     context = activity_month_context(user, selected_month)
     history_start, history_end = _history_range(request, selected_month)
     context.update(activity_history_context(user, history_start, history_end))
+    context.update(_stew_coach_context(user, selected_month))
     context.update({
         'activity_form': form, 'goal_form': goal_form, 'selected_month': selected_month,
+        'closure_form': closure_form,
     })
     return render(request, 'activity_goals.html', context)
 
