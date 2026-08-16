@@ -526,6 +526,22 @@ a:hover {
   padding: 12px 16px;
 }
 
+.stew-nudge {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.stew-nudge p {
+  margin: 0;
+}
+
+.stew-nudge form {
+  margin: 0;
+}
+
 .notice a,
 .messages a,
 .scenario-notice a,
