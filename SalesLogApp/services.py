@@ -10,6 +10,7 @@ from .access import uses_new_engine
 from .archive_aggregation import (
     ArchivedSaleAggregationAdapter,
     archived_month_commission_totals,
+    load_owned_sale_records,
 )
 from .commission_service import CommissionEngineService
 from .models.sales import (
@@ -82,45 +83,36 @@ def commission_totals(user, sales):
             'adjustments': adjustments, 'total': front + back + bonus + adjustments}
 
 
+def reporting_commission_totals(user, records):
+    """Use the accepted live/archive reporting policy for a record collection."""
+
+    records = list(records)
+    if any(
+        isinstance(record, ArchivedSaleAggregationAdapter)
+        for record in records
+    ):
+        return archived_month_commission_totals(user, records)
+    return {
+        **commission_totals(user, records),
+        'commission_complete': True,
+        'commission_source': 'live_sales',
+        'commission_diagnostic': '',
+    }
+
+
 def month_metrics(user, month_start):
     start, end = month_bounds(month_start)
     activity = DailyActivity.objects.filter(user=user, date__gte=start, date__lt=end)
     activity_totals = activity.aggregate(
         leads=Sum('leads_taken'), calls=Sum('phone_calls_made')
     )
-    sales = list(Sale.objects.filter(user=user, date__gte=start, date__lt=end))
-    # Only explicitly owned archive rows are eligible.
-    archived_rows = list(
-        ArchivedSale.objects.filter(
-            user=user, date__gte=start, date__lt=end,
-        ).select_related('vehicle')
+    record_set = load_owned_sale_records(
+        user,
+        start_date=start,
+        end_date=end,
     )
-    # archive_sale() preserves this stable identity and atomically deletes the
-    # live row. If malformed overlap nevertheless exists, retain the live row
-    # and exclude its archive counterpart rather than double-counting it.
-    live_identities = {
-        (sale.user_id, sale.sale_type, sale.dealNumber)
-        for sale in sales
-    }
-    archived_row_count = len(archived_rows)
-    archived_rows = [
-        sale for sale in archived_rows
-        if (sale.user_id, sale.sale_type, sale.dealNumber) not in live_identities
-    ]
-    duplicate_count = archived_row_count - len(archived_rows)
-    archived = [
-        ArchivedSaleAggregationAdapter(sale) for sale in archived_rows
-    ]
-    records = sales + archived
-    if archived:
-        totals = archived_month_commission_totals(user, records)
-    else:
-        totals = {
-            **commission_totals(user, sales),
-            'commission_complete': True,
-            'commission_source': 'live_sales',
-            'commission_diagnostic': '',
-        }
+    records = record_set.records
+    totals = reporting_commission_totals(user, records)
     total_gross = sum(
         (
             Decimal(str(sale.frontEnd or 0))
@@ -138,7 +130,7 @@ def month_metrics(user, month_start):
         'commission_complete': totals['commission_complete'],
         'commission_source': totals['commission_source'],
         'commission_diagnostic': totals['commission_diagnostic'],
-        'duplicate_archive_count': duplicate_count,
+        'duplicate_archive_count': record_set.duplicate_archive_count,
         'lead_to_unit_rate': units / leads if leads else None,
         'calls_per_lead': calls / leads if leads else None,
         'calls_per_unit': calls / units if units else None,

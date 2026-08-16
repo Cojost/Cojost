@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal
 from typing import Any
 
@@ -97,6 +98,54 @@ class ArchivedSaleAggregationAdapter:
     @property
     def deal_credit(self) -> None:
         return None
+
+
+@dataclass(frozen=True, slots=True)
+class OwnedSaleRecordSet:
+    """A bounded, owner-scoped set of live and archived sale records."""
+
+    records: tuple[Any, ...]
+    duplicate_archive_count: int
+
+
+def load_owned_sale_records(
+    user: Any,
+    *,
+    start_date: date,
+    end_date: date,
+) -> OwnedSaleRecordSet:
+    """Load a half-open owner/date range and apply the archive identity policy."""
+
+    from .models import ArchivedSale, Sale
+
+    live_sales = list(
+        Sale.objects.filter(
+            user=user,
+            date__gte=start_date,
+            date__lt=end_date,
+        )
+    )
+    archived_rows = list(
+        ArchivedSale.objects.filter(
+            user=user,
+            date__gte=start_date,
+            date__lt=end_date,
+        ).select_related('vehicle')
+    )
+    live_identities = {
+        (sale.user_id, sale.sale_type, sale.dealNumber)
+        for sale in live_sales
+    }
+    retained_archives = [
+        sale for sale in archived_rows
+        if (sale.user_id, sale.sale_type, sale.dealNumber) not in live_identities
+    ]
+    return OwnedSaleRecordSet(
+        records=tuple(live_sales) + tuple(
+            ArchivedSaleAggregationAdapter(sale) for sale in retained_archives
+        ),
+        duplicate_archive_count=len(archived_rows) - len(retained_archives),
+    )
 
 
 def _incomplete(units: Decimal, status: str, message: str) -> dict[str, Any]:
