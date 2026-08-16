@@ -4,7 +4,7 @@
 {% block content %}
 <div class="intro">
     <h2>STEW Log subscription</h2>
-    <p><strong>$1.99 USD per month</strong> after your eligible introductory trial. A payment method is required at Checkout and billing begins automatically when the trial ends.</p>
+    {% if display_price.available %}<p><strong>{{ display_price.formatted }}</strong> after your eligible introductory trial. A payment method is required at Checkout and billing begins automatically when the trial ends.</p>{% else %}<p>Your monthly price is shown at Stripe Checkout before you confirm. A payment method is required at Checkout and billing begins automatically when the trial ends.</p>{% endif %}
 </div>
 
 {% if not configuration.ready %}
@@ -37,7 +37,7 @@
     {% else %}
         <p>Eligible accounts receive a {{ standard_trial_days }}-day introductory trial.</p>
     {% endif %}
-    <p>A payment method is required. Stripe will bill $1.99 USD monthly when the trial ends unless you cancel through Stripe first.</p>
+    {% if display_price.available %}<p>A payment method is required. Stripe will bill {{ display_price.formatted }} when the trial ends unless you cancel through Stripe first.</p>{% else %}<p>A payment method is required. Stripe will bill the configured monthly price when the trial ends unless you cancel through Stripe first.</p>{% endif %}
     {% if billing.can_start_checkout %}<form method="post" action="{% url 'billing_checkout_start' %}">{% csrf_token %}<button class="button button-primary" type="submit">Continue to Stripe Checkout</button></form>{% else %}<button class="button button-primary" type="button" disabled>Checkout unavailable</button>{% endif %}
 </section>
 </div>

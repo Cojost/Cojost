@@ -11,6 +11,7 @@ from django.views.decorators.http import require_http_methods, require_POST
 
 from .billing_configuration import billing_configuration
 from .billing_entitlements import get_billing_entitlement
+from .billing_pricing import display_price
 from .billing_forms import FounderCodeRedemptionForm
 from .billing_gateway import (
     BillingGatewayError,
@@ -111,6 +112,7 @@ def billing_overview(request):
         'founder_form': FounderCodeRedemptionForm(),
         'standard_trial_days': settings.BILLING_STANDARD_TRIAL_DAYS,
         'founder_trial_days': settings.BILLING_FOUNDER_TRIAL_DAYS,
+        'display_price': display_price(),
     })
 
 
