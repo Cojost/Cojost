@@ -25,7 +25,7 @@ class PublicLandingPageTests(TestCase):
         self.assertContains(response, 'payment method is collected')
         self.assertContains(
             response,
-            'Current plan options and pricing are shown at signup.',
+            'Current plan options and pricing are shown before you confirm checkout.',
         )
         self.assertNotContains(response, '$7.99')
 
