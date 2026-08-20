@@ -57,7 +57,12 @@ from django.core.exceptions import ObjectDoesNotExist, PermissionDenied, Validat
 from django.core import signing
 from django.core.signing import BadSignature, SignatureExpired
 from django.db import IntegrityError, connection, transaction
-from django.views.decorators.http import require_GET, require_http_methods, require_POST
+from django.views.decorators.http import (
+    require_GET,
+    require_http_methods,
+    require_POST,
+    require_safe,
+)
 from django.urls import reverse
 from django.utils.html import escape
 from .models.sales import DailyActivity, MonthlyGoal
@@ -146,6 +151,14 @@ from .sale_types import get_sale_type_handler
 
 
 logger = logging.getLogger(__name__)
+
+
+@require_safe
+def landing_page(request):
+    """Show the public StewLog story and send signed-in users home."""
+    if request.user.is_authenticated:
+        return redirect('view_sales')
+    return render(request, 'landing_page.html')
 
 
 def _is_internal_pay_plan_user(user):
