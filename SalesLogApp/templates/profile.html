@@ -2,6 +2,7 @@
 {% block title %}Profile{% endblock %}
 {% block content %}
 <div class="intro"><h2>Your private profile</h2><p>Manage your picture, appearance, and password.</p></div>
+{% include 'includes/pro_upgrade_prompt.html' %}
 <section class="card profile-summary">
   <div class="profile-avatar-wrap">
     {% if profile.avatar_available %}<img src="{{ profile.avatar.url }}" alt="" class="profile-avatar profile-avatar-large">{% else %}<span class="profile-avatar profile-avatar-large profile-initials" aria-label="Default profile picture">{{ user.username|slice:":1"|upper }}</span>{% endif %}

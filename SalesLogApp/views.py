@@ -65,9 +65,13 @@ from .models.vehicles import VehicleMake, VehicleModel, normalize_catalog_name
 from .forms import DailyActivityForm, MonthlyGoalForm, SellingDayClosureForm
 from .forms import AppearanceForm, AvatarForm
 from .profile_context import get_user_profile
+from django.conf import settings
+
 from .ask_stew import AskStewAnswer, AskStewService
 from .ask_stew_entitlements import ask_stew_ai_required
 from .ask_stew_provider import ask_stew_provider_availability
+from .billing_entitlements import get_billing_entitlement
+from .billing_pricing import display_price
 from .access import (
     activity_goals_authorized,
     activity_goals_pro_required,
@@ -463,6 +467,40 @@ def _stew_nudges_context(user, projection, next_name):
     return {'stew_nudges': nudges, 'stew_nudges_next': next_name}
 
 
+def _pro_upgrade_prompt_context(user):
+    """SC-6 upgrade prompt for all current users; fails closed to hidden.
+
+    Shown only while the staged billing flags expose billing pages, and only
+    to authenticated users without Pro access. No per-user cohort gating by
+    owner decision (rollout to all current users).
+    """
+
+    prompt = None
+    try:
+        if (
+            (
+                settings.BILLING_FEATURE_ENABLED
+                or settings.BILLING_ENFORCEMENT_ENABLED
+            )
+            and getattr(user, 'is_authenticated', False)
+            and not activity_goals_authorized(user)
+        ):
+            price = display_price()
+            prompt = {
+                'trial_days': settings.BILLING_STANDARD_TRIAL_DAYS,
+                'price_available': price.available,
+                'price_formatted': price.formatted,
+            }
+    except Exception as exc:
+        logger.warning(
+            'Pro upgrade prompt unavailable for user_id=%s error_type=%s',
+            getattr(user, 'pk', None),
+            type(exc).__name__,
+        )
+        prompt = None
+    return {'pro_upgrade_prompt': prompt}
+
+
 @login_required
 @require_http_methods(['POST'])
 def dismiss_stew_nudge(request):
@@ -649,6 +687,7 @@ def view_sales(request):
         ))
     else:
         context.update({'stew_nudges': (), 'stew_nudges_next': 'view_sales'})
+    context.update(_pro_upgrade_prompt_context(request.user))
     request.session['total_count'] = float(context['total_count'])
     return render(request, 'view_sales.html', context)
 
@@ -758,6 +797,7 @@ def profile(request):
         'password_form': password_form,
         'password_is_set': request.user.has_usable_password(),
         'commission_instance': Commission.objects.filter(user=request.user).first(),
+        **_pro_upgrade_prompt_context(request.user),
     })
 
 
