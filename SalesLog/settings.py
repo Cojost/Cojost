@@ -429,6 +429,51 @@ ACCOUNT_SIGNUP_FIELDS = [
 ACCOUNT_UNIQUE_EMAIL = True
 ACCOUNT_EMAIL_VERIFICATION = 'optional'
 ACCOUNT_ADAPTER = 'SalesLogApp.account_adapter.StewLogAccountAdapter'
+
+# Google sign-in is dark-launched independently from billing. Credentials are
+# injected by the deployment environment and are never stored in the
+# repository or the django-allauth SocialApp table. The custom adapter ignores
+# legacy database-backed Google apps so a stale row cannot create an ambiguous
+# provider configuration.
+GOOGLE_LOGIN_ENABLED = env_strict_bool('GOOGLE_LOGIN_ENABLED', False)
+GOOGLE_OAUTH_CLIENT_ID = os.getenv('GOOGLE_OAUTH_CLIENT_ID', '').strip()
+GOOGLE_OAUTH_CLIENT_SECRET = os.getenv('GOOGLE_OAUTH_CLIENT_SECRET', '').strip()
+
+if GOOGLE_LOGIN_ENABLED and not (
+    GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET
+):
+    raise ImproperlyConfigured(
+        'GOOGLE_LOGIN_ENABLED requires GOOGLE_OAUTH_CLIENT_ID and '
+        'GOOGLE_OAUTH_CLIENT_SECRET.'
+    )
+
+SOCIALACCOUNT_ADAPTER = (
+    'SalesLogApp.social_account_adapter.StewLogSocialAccountAdapter'
+)
+SOCIALACCOUNT_LOGIN_ON_GET = False
+SOCIALACCOUNT_STORE_TOKENS = False
+SOCIALACCOUNT_EMAIL_AUTHENTICATION_AUTO_CONNECT = True
+SOCIALACCOUNT_PROVIDERS = {
+    'google': {
+        'SCOPE': ['profile', 'email'],
+        'AUTH_PARAMS': {'access_type': 'online'},
+        'OAUTH_PKCE_ENABLED': True,
+        # Google reports whether the returned email is verified. This allows a
+        # verified StewLog account with the same email to reuse its existing
+        # user, billing, Team, and pay-plan records.
+        'EMAIL_AUTHENTICATION': True,
+    },
+}
+if GOOGLE_LOGIN_ENABLED:
+    SOCIALACCOUNT_PROVIDERS['google']['APPS'] = [
+        {
+            'name': 'STEW Log Google Sign-In',
+            'client_id': GOOGLE_OAUTH_CLIENT_ID,
+            'secret': GOOGLE_OAUTH_CLIENT_SECRET,
+            'key': '',
+        },
+    ]
+
 EMAIL_VERIFICATION_PUBLIC_BASE_URL = os.getenv(
     'EMAIL_VERIFICATION_PUBLIC_BASE_URL',
     'http://localhost:8000' if DEBUG else '',

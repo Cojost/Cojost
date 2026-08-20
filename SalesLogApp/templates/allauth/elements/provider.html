@@ -1,0 +1,15 @@
+<li class="social-provider-item">
+    <form method="post" action="{{ attrs.href }}" class="social-provider-form">
+        {% csrf_token %}
+        <button
+            type="submit"
+            class="button social-provider-button social-provider-{{ attrs.provider_id }}"
+            title="Continue with {{ attrs.name }}"
+        >
+            <span class="social-provider-mark" aria-hidden="true">
+                {{ attrs.name|slice:":1" }}
+            </span>
+            <span>Continue with {{ attrs.name }}</span>
+        </button>
+    </form>
+</li>

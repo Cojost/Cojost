@@ -1453,6 +1453,76 @@ progress {
   max-width: 520px;
 }
 
+.auth-page h1,
+.auth-page h2 {
+  text-align: center;
+}
+
+.auth-page > p {
+  color: var(--muted-text);
+  text-align: center;
+}
+
+.social-provider-list {
+  display: grid;
+  gap: 12px;
+  margin: 18px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.social-provider-item,
+.social-provider-form {
+  margin: 0;
+}
+
+.social-provider-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  gap: 12px;
+  border-color: var(--border-color);
+  background: var(--elevated-surface);
+  color: var(--primary-text);
+}
+
+.social-provider-button:hover,
+.social-provider-button:active {
+  border-color: var(--link-color);
+  background: var(--row-hover-background);
+  color: var(--primary-text);
+}
+
+.social-provider-button:focus-visible {
+  outline: 3px solid var(--focus-color);
+  outline-offset: 2px;
+}
+
+.social-provider-mark {
+  display: inline-grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--surface-background);
+  color: var(--link-color);
+  font-weight: 800;
+}
+
+.social-provider-google .social-provider-mark {
+  background: conic-gradient(
+    from -45deg,
+    #4285f4 0 25%,
+    #34a853 0 43%,
+    #fbbc05 0 68%,
+    #ea4335 0 82%,
+    #4285f4 0
+  );
+  background-clip: text;
+  color: transparent;
+}
+
 .status-badge,
 .scenario-status {
   display: inline-flex;

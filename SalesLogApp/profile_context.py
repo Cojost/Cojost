@@ -18,6 +18,7 @@ def appearance(request):
         'sales_profile': profile,
         'billing_feature_enabled': settings.BILLING_FEATURE_ENABLED,
         'teams_feature_enabled': settings.TEAMS_FEATURE_ENABLED,
+        'google_login_enabled': settings.GOOGLE_LOGIN_ENABLED,
         'ask_stew_ai_authorized': ask_stew_ai_authorized(request.user),
         'activity_goals_authorized': activity_goals_authorized(request.user),
         'appearance': {
