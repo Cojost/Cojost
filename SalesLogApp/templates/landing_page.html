@@ -1,0 +1,209 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>StewLog | Know Your Commission Before Payday</title>
+  <meta name="description" content="Track every automotive sale, understand your pay plan, and estimate your commission before payday with StewLog.">
+  <meta name="theme-color" content="#0a2552">
+  <meta name="robots" content="index,follow">
+  <link rel="canonical" href="https://stewlog.com/">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="StewLog">
+  <meta property="og:url" content="https://stewlog.com/">
+  <meta property="og:title" content="StewLog | Know Your Commission Before Payday">
+  <meta property="og:description" content="Track every deal. Understand every dollar. Own your month with StewLog.">
+  <meta property="og:image" content="https://stewlog.com{% static 'SalesLogApp/images/stewlog-og.png' %}">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="StewLog — Know your commission before payday.">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="StewLog | Know Your Commission Before Payday">
+  <meta name="twitter:description" content="Track every deal. Understand every dollar. Own your month with StewLog.">
+  <meta name="twitter:image" content="https://stewlog.com{% static 'SalesLogApp/images/stewlog-og.png' %}">
+  <link rel="icon" href="{% static 'SalesLogApp/images/stewlog-mark.png' %}">
+  <link rel="stylesheet" href="{% static 'SalesLogApp/css/landing.css' %}">
+</head>
+<body>
+  <main class="site-shell">
+    <header class="site-header" aria-label="Main navigation">
+      <a class="brand-link" href="#top" aria-label="StewLog home">
+        <img class="brand-wordmark" src="{% static 'SalesLogApp/images/stewlog-wordmark.png' %}" alt="StewLog">
+      </a>
+      <nav class="site-nav" aria-label="Page sections">
+        <a href="#benefits">Why StewLog</a>
+        <a href="#how-it-works">How it works</a>
+        <a href="#faq">FAQ</a>
+      </nav>
+      <nav class="header-actions" aria-label="Account links">
+        <a class="text-link" href="{% url 'account_login' %}">Sign in</a>
+        <a class="button button-small" href="{% url 'account_signup' %}">Start free trial</a>
+      </nav>
+    </header>
+
+    <section class="hero" id="top">
+      <div class="hero-copy">
+        <p class="eyebrow"><span class="eyebrow-dot" aria-hidden="true"></span>Built for automotive sales professionals</p>
+        <h1>Know your commission <span>before payday.</span></h1>
+        <p class="hero-lede">StewLog turns your deals and your pay plan into a clear, running estimate—so you can track every dollar, follow every bonus, and walk into payday with confidence.</p>
+        <div class="hero-actions">
+          <a class="button button-primary" href="{% url 'account_signup' %}">Start your 30-day trial <span aria-hidden="true">→</span></a>
+          <a class="button button-secondary" href="#preview">See how it works</a>
+        </div>
+        <ul class="trust-list" aria-label="StewLog highlights">
+          <li>Use your own pay plan</li>
+          <li>Made for your phone</li>
+          <li>Clear deal-by-deal math</li>
+        </ul>
+      </div>
+
+      <div class="preview-wrap" id="preview">
+        <div class="preview-glow" aria-hidden="true"></div>
+        <div class="dashboard-card">
+          <div class="dashboard-topbar">
+            <div class="dashboard-brand">
+              <img src="{% static 'SalesLogApp/images/stewlog-mark.png' %}" alt="">
+              <span>StewLog</span>
+            </div>
+            <span class="month-pill">This month</span>
+          </div>
+          <div class="dashboard-heading">
+            <div><p class="mini-label">Earnings overview</p><h2>Your month, at a glance.</h2></div>
+            <span class="status-pill"><span aria-hidden="true"></span>Pay plan active</span>
+          </div>
+          <div class="metric-grid">
+            <article class="metric-card">
+              <span class="metric-icon metric-icon-blue">✓</span>
+              <p>Units sold</p><strong>12.5</strong><small>On pace for 18</small>
+            </article>
+            <article class="metric-card metric-card-featured">
+              <span class="metric-icon metric-icon-green">$</span>
+              <p>Estimated commission</p><strong>$8,325</strong><small>Updated with every deal</small>
+            </article>
+          </div>
+          <div class="progress-card">
+            <div class="progress-copy">
+              <span class="metric-icon metric-icon-navy">★</span>
+              <div><p>Next unit bonus</p><strong>2.5 units to go</strong></div>
+            </div>
+            <div class="progress-track" aria-label="Bonus progress: 83%"><span></span></div>
+            <div class="progress-scale"><span>12.5</span><span>Goal: 15</span></div>
+          </div>
+          <div class="recent-deal">
+            <div><p class="mini-label">Latest deal</p><strong>New vehicle · Full deal</strong></div>
+            <div class="deal-total"><span>Estimated</span><strong>$612.50</strong></div>
+          </div>
+        </div>
+        <p class="preview-note">Illustrative StewLog dashboard preview</p>
+      </div>
+    </section>
+
+    <section class="promise-strip" aria-label="StewLog promise">
+      <p>Track every deal.</p><span aria-hidden="true"></span>
+      <p>Understand every dollar.</p><span aria-hidden="true"></span>
+      <p>Own your month.</p>
+    </section>
+
+    <section class="section benefits-section" id="benefits">
+      <div class="section-heading">
+        <p class="section-kicker">Clarity you can carry</p>
+        <h2>Never wonder if payroll shorted you again.</h2>
+        <p>Your pay plan can be complicated. Keeping up with it should not be. StewLog gives you one organized place to understand what you sold, what you earned, and what you are working toward.</p>
+      </div>
+      <div class="benefit-grid">
+        <article class="benefit-card">
+          <span class="feature-number">01</span><div class="feature-symbol feature-symbol-blue" aria-hidden="true">%</div>
+          <h3>Your pay plan, made readable</h3>
+          <p>Upload your plan, review the imported rules, and activate it only when the details look right.</p>
+        </article>
+        <article class="benefit-card benefit-card-raised">
+          <span class="feature-number">02</span><div class="feature-symbol feature-symbol-green" aria-hidden="true">✓</div>
+          <h3>Every deal, one clear record</h3>
+          <p>Keep your sales, front and back gross, unit credit, bonuses, and estimated commission connected.</p>
+        </article>
+        <article class="benefit-card">
+          <span class="feature-number">03</span><div class="feature-symbol feature-symbol-navy" aria-hidden="true">↗</div>
+          <h3>Your month, always in view</h3>
+          <p>See where you stand today, follow your bonus progress, and know what the next deal could mean.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="founder-section">
+      <div class="founder-mark" aria-hidden="true"><img src="{% static 'SalesLogApp/images/stewlog-mark.png' %}" alt=""></div>
+      <div class="founder-copy">
+        <p class="section-kicker section-kicker-light">Built from the sales floor</p>
+        <h2>Built by a car salesperson, for car salespeople.</h2>
+        <p>StewLog started with one everyday question: “How much am I actually making this month?” It is designed around the real rhythm of auto sales—not generic accounting software.</p>
+      </div>
+      <div class="founder-question"><span>One simple promise</span><strong>Clearer numbers.<br>More confident paydays.</strong></div>
+    </section>
+
+    <section class="section how-section" id="how-it-works">
+      <div class="section-heading section-heading-compact">
+        <p class="section-kicker">Simple from the first deal</p>
+        <h2>From pay plan to payday in three clear steps.</h2>
+      </div>
+      <ol class="steps-grid">
+        <li><span class="step-count">1</span><div><h3>Add your pay plan</h3><p>Upload or enter the plan your dealership actually uses.</p></div></li>
+        <li><span class="step-count">2</span><div><h3>Log each sale</h3><p>Add the deal details while they are fresh—right from your phone.</p></div></li>
+        <li><span class="step-count">3</span><div><h3>See your estimate</h3><p>Follow commission, bonuses, unit totals, and monthly progress.</p></div></li>
+      </ol>
+    </section>
+
+    <section class="trial-section" id="trial">
+      <div class="trial-pattern" aria-hidden="true"></div>
+      <div class="trial-logo"><img src="{% static 'SalesLogApp/images/stewlog-mark.png' %}" alt=""></div>
+      <div class="trial-copy">
+        <p class="section-kicker section-kicker-light">Your next month can be clearer</p>
+        <h2>Stop guessing. Start tracking.</h2>
+        <p>Try StewLog for 30 days and see your deals, pay plan, bonuses, and estimated earnings come together in one place.</p>
+      </div>
+      <div class="trial-action">
+        <a class="button button-trial" href="{% url 'account_signup' %}">Start your 30-day trial <span aria-hidden="true">→</span></a>
+        <small>Current plan options and pricing are shown before you confirm checkout.</small>
+      </div>
+    </section>
+
+    <section class="section faq-section" id="faq">
+      <div class="faq-intro">
+        <p class="section-kicker">Good questions</p>
+        <h2>Before you start tracking.</h2>
+        <p>StewLog is built to make your commission easier to understand—not add another mystery.</p>
+      </div>
+      <div class="faq-list">
+        <details>
+          <summary>How does StewLog estimate my commission?<span aria-hidden="true">+</span></summary>
+          <p>StewLog uses the sales you enter and the active pay-plan rules you review. Results are estimates for your own tracking and should be compared with your official payroll statement.</p>
+        </details>
+        <details>
+          <summary>Can I use my dealership's pay plan?<span aria-hidden="true">+</span></summary>
+          <p>Yes. You can upload your plan, review the rules StewLog imports, make corrections, and activate it when you are satisfied.</p>
+        </details>
+        <details>
+          <summary>Does it work well on my phone?<span aria-hidden="true">+</span></summary>
+          <p>Yes. StewLog is designed for mobile use, so you can log deals and check your month from the showroom or on the go.</p>
+        </details>
+        <details>
+          <summary>Do I need a payment method for the trial?<span aria-hidden="true">+</span></summary>
+          <p>Yes. You will see the current plan and price before confirming, and a payment method is collected when you begin your 30-day trial.</p>
+        </details>
+      </div>
+    </section>
+
+    <footer class="site-footer">
+      <a class="footer-brand" href="#top" aria-label="Back to top"><img src="{% static 'SalesLogApp/images/stewlog-wordmark.png' %}" alt="StewLog"></a>
+      <p>Track every deal. Understand every dollar.</p>
+      <nav aria-label="Footer links">
+        <a href="{% url 'account_login' %}">Sign in</a>
+        <a href="{% url 'account_signup' %}">Start trial</a>
+        <a href="#faq">FAQ</a>
+      </nav>
+      <small>© 2026 StewLog. Commission figures are estimates based on information entered by the user.</small>
+    </footer>
+
+    <a class="mobile-trial-bar" href="{% url 'account_signup' %}">Start your 30-day trial <span aria-hidden="true">→</span></a>
+  </main>
+</body>
+</html>
