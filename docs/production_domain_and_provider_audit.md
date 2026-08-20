@@ -149,27 +149,22 @@ required events, and distinct live-mode cutover are in
 `docs/stripe_test_to_live_runbook.md`. Do not enable the billing UI or
 enforcement until that runbook is complete.
 
-### Google authentication — provider installed, configuration incomplete locally
+### Google authentication — code complete, deployment dark-launched
 
-django-allauth registers Google routes, but the repository has no Google
-environment-variable configuration and no explicit Google sign-in UI. The
-local SQLite database has zero `SocialApp` rows. Production database-backed
-configuration is unverified.
+django-allauth registers the Google routes and the STEW Log adapter exposes the
+provider only when `GOOGLE_LOGIN_ENABLED=true` and both environment-backed
+credentials are present. Google access and refresh tokens are not stored.
 
-- Callback path: `/accounts/google/login/callback/`.
-- Google dashboard redirect URIs for transition:
-  `https://stewlog.com/accounts/google/login/callback/`,
-  `https://www.stewlog.com/accounts/google/login/callback/`, and
-  `https://stewlog.onrender.com/accounts/google/login/callback/`.
-- Register the corresponding HTTPS origins only if the chosen Google web flow
-  or existing client configuration uses JavaScript origins.
-- The OAuth client ID is public; the client secret is secret. In this repository
-  they belong in the production database's `SocialApp`, not Render variables.
-- Safe check: query only provider/count/completeness metadata in Django admin or
-  shell, then verify the authorization redirect without completing a login.
-  This checks configuration, not credential validity. allauth applies an HTTP
-  timeout and handles OAuth errors; the app adds no custom provider retry,
-  quota, or sensitive logging.
+- Canonical callback:
+  `https://stewlog.com/accounts/google/login/callback/`.
+- Canonical authorized origin: `https://stewlog.com`.
+- Render owns `GOOGLE_LOGIN_ENABLED`, `GOOGLE_OAUTH_CLIENT_ID`, and
+  `GOOGLE_OAUTH_CLIENT_SECRET`; no credential value belongs in Git or Django
+  admin.
+- Database-backed Google `SocialApp` rows are ignored to prevent a stale row
+  from competing with the environment-backed client.
+- The rollout, existing-account rules, and acceptance checks are documented in
+  `docs/google-sign-in-rollout.md`.
 
 ### Apple authentication — provider installed, configuration incomplete locally
 
