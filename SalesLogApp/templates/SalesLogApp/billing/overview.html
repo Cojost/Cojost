@@ -13,6 +13,9 @@
 {% if not entitlement.billing_enforcement_enabled %}
 <div class="notice" role="status"><strong>Billing enforcement is off.</strong> Your existing application access is unchanged while subscription flows are tested.</div>
 {% endif %}
+{% if not billing.email_verified %}
+<div class="notice notice-warning" role="alert"><strong>Verify your email before Checkout.</strong> Stripe Checkout stays unavailable until the email on this StewLog account is verified. <a href="{% url 'account_email' %}">Manage email verification</a>.</div>
+{% endif %}
 
 <div class="billing-grid">
 <section class="card">
@@ -42,7 +45,7 @@
 </section>
 </div>
 
-{% if not billing.introductory_benefit_consumed and not billing.founder_redeemed %}
+{% if billing.email_verified and not billing.introductory_benefit_consumed and not billing.founder_redeemed %}
 <section class="card billing-founder-card">
     <h3>Founder or Kickstarter code</h3>
     <p>Eligible unique codes provide a {{ founder_trial_days }}-day introductory trial. Founder and standard trials cannot be combined.</p>

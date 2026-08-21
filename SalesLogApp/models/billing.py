@@ -79,6 +79,7 @@ class BillingAccess(models.Model):
         on_delete=models.CASCADE,
         related_name='billing_access',
     )
+    onboarding_required_at = models.DateTimeField(null=True, blank=True)
     introductory_benefit_consumed_at = models.DateTimeField(null=True, blank=True)
     introductory_benefit_kind = models.CharField(
         max_length=12,

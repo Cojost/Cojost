@@ -25,6 +25,9 @@ def redirect_to_commission_setup(request, user, **kwargs):
             'started_at': timezone.now(),
         },
     )
+    from .billing_onboarding import mark_signup_for_billing_onboarding
+
+    mark_signup_for_billing_onboarding(user)
     
     # Redirect to the adjust commission page with the `commission_id`
     return redirect(reverse('adjust_commission_by_id', kwargs={'commission_id': commission.id}))

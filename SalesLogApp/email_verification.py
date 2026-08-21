@@ -233,6 +233,18 @@ def has_verified_email(user):
     return EmailAddress.objects.filter(user=user, verified=True).exists()
 
 
+def has_verified_canonical_email(user):
+    """Return whether the account's billing identity email is verified."""
+    canonical_email = (getattr(user, 'email', '') or '').strip()
+    if not canonical_email:
+        return False
+    return EmailAddress.objects.filter(
+        user=user,
+        email__iexact=canonical_email,
+        verified=True,
+    ).exists()
+
+
 def assess_verification_user(user, *, check_cooldown=True):
     if not user.is_active:
         return VerificationAssessment(INACTIVE, False, skip_reason=INACTIVE)

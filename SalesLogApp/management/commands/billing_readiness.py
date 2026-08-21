@@ -48,13 +48,22 @@ class Command(BaseCommand):
                 'billing_foundation': (
                     'SalesLogApp', '0054_billing_foundation'
                 ) in applied,
+                'billing_onboarding': (
+                    'SalesLogApp',
+                    '0060_billingaccess_onboarding_required_at',
+                ) in applied,
             }
         except DatabaseError:
-            migrations = {'djstripe_0003': False, 'billing_foundation': False}
+            migrations = {
+                'djstripe_0003': False,
+                'billing_foundation': False,
+                'billing_onboarding': False,
+            }
         report = {
             'mode': configuration.mode,
             'feature_enabled': configuration.feature_enabled,
             'enforcement_enabled': configuration.enforcement_enabled,
+            'onboarding_enabled': configuration.onboarding_enabled,
             'publishable_credential_configured': configuration.public_key_configured,
             'publishable_credential_valid': configuration.public_key_valid,
             'server_credential_configured': configuration.secret_key_configured,

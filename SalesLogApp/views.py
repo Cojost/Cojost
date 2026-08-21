@@ -20,7 +20,6 @@ from .forms import (
     OtherCommissionAdjustmentForm,
     modelformset_factory,
     UserLoginForm,
-    CustomUserCreationForm,
     BasicPayPlanActivationForm,
     BasicPayPlanReplacementForm,
     BasicPayPlanRuleForm,
@@ -47,7 +46,6 @@ from .forms import (
 from .eligibility_forms import DashboardNPSProjectionForm, PayPlanEligibilityForm
 from django.utils import timezone
 from django.contrib.auth.views import LoginView
-from django.contrib.auth import authenticate, login 
 from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.forms import PasswordChangeForm, SetPasswordForm
 from django.contrib.auth.models import User
@@ -1186,26 +1184,8 @@ class UserLoginView(LoginView):
 
 
 def register(request):
-    if request.method == 'POST':
-        form = CustomUserCreationForm(request.POST)
-        if form.is_valid():
-            user = form.save()
-            user.backend = 'django.contrib.auth.backends.ModelBackend'  # Set backend
-            user = authenticate(username=user.username, password=form.cleaned_data['password1'])
-            if user is not None:
-                login(request, user)
-                profile = get_user_profile(user)
-                profile.commission_system = profile.PAY_PLAN_V2
-                profile.save(update_fields=['commission_system', 'updated_at'])
-                get_or_create_onboarding(user)
-                return redirect('my_pay_plan')
-            else:
-                form.add_error(None, 'Authentication failed.')
-        else:
-            form.add_error(None, 'Form is not valid.')
-    else:
-        form = CustomUserCreationForm()
-    return render(request, 'registration/register.html', {'form': form})
+    """Retire the legacy signup path so every account uses allauth policy."""
+    return redirect('account_signup')
 
 
 @login_required

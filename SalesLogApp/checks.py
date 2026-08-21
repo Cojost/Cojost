@@ -45,6 +45,7 @@ def billing_configuration_check(app_configs, **kwargs):
     if not (
         settings.BILLING_FEATURE_ENABLED
         or settings.BILLING_ENFORCEMENT_ENABLED
+        or settings.BILLING_ONBOARDING_ENABLED
     ):
         return []
     configuration = billing_configuration()
@@ -54,10 +55,16 @@ def billing_configuration_check(app_configs, **kwargs):
             + '; '.join(configuration.errors)
             + '.'
         )
-        if settings.BILLING_ENFORCEMENT_ENABLED:
+        if (
+            settings.BILLING_ENFORCEMENT_ENABLED
+            or settings.BILLING_ONBOARDING_ENABLED
+        ):
             return [Error(
                 message,
-                hint='Disable enforcement or configure the selected Stripe mode.',
+                hint=(
+                    'Disable billing onboarding/enforcement or configure the '
+                    'selected Stripe mode.'
+                ),
                 id='SalesLogApp.E002',
             )]
         return [Warning(
@@ -66,16 +73,20 @@ def billing_configuration_check(app_configs, **kwargs):
             id='SalesLogApp.W002',
         )]
 
-    if settings.BILLING_ENFORCEMENT_ENABLED:
+    if (
+        settings.BILLING_ENFORCEMENT_ENABLED
+        or settings.BILLING_ONBOARDING_ENABLED
+    ):
         operational_errors = _billing_operational_errors()
         if operational_errors:
             return [Error(
-                'Billing enforcement prerequisites are incomplete: '
+                'Billing rollout prerequisites are incomplete: '
                 + '; '.join(operational_errors)
                 + '.',
                 hint=(
-                    'Disable enforcement until migrations are applied and a '
-                    'signed WebhookEndpoint exists for the selected Stripe mode.'
+                    'Disable billing onboarding/enforcement until migrations '
+                    'are applied and a signed WebhookEndpoint exists for the '
+                    'selected Stripe mode.'
                 ),
                 id='SalesLogApp.E003',
             )]
@@ -114,6 +125,12 @@ def _billing_operational_errors():
         errors = []
         if ('SalesLogApp', '0054_billing_foundation') not in applied:
             errors.append('the billing migration is not applied')
+        if (
+            settings.BILLING_ONBOARDING_ENABLED
+            and ('SalesLogApp', '0060_billingaccess_onboarding_required_at')
+            not in applied
+        ):
+            errors.append('the billing onboarding migration is not applied')
         if ('djstripe', '0003_2_11') not in applied:
             errors.append('the required dj-stripe migration is not applied')
         webhook_ready = WebhookEndpoint.objects.filter(

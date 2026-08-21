@@ -10,6 +10,7 @@ complete:
 STRIPE_LIVE_MODE=false
 BILLING_FEATURE_ENABLED=false
 BILLING_ENFORCEMENT_ENABLED=false
+BILLING_ONBOARDING_ENABLED=false
 TEAMS_FEATURE_ENABLED=false
 ```
 
@@ -18,6 +19,10 @@ hosted Checkout/Portal sessions. `BILLING_ENFORCEMENT_ENABLED` is a separate,
 later gate. Enabling enforcement while the selected credentials, Price,
 migrations, or signed webhook endpoint are incomplete produces a Django system
 check error. No Basic/Pro feature split is part of this phase.
+
+`BILLING_ONBOARDING_ENABLED` is the CXP-2B new-signup cohort gate. It requires
+the billing feature, verified canonical email, migration `0060`, and the same
+signed webhook readiness as enforcement. Existing users are not backfilled.
 
 ## Configuration contract
 
@@ -33,6 +38,7 @@ STRIPE_LIVE_SECRET_KEY=<selected live secret key>
 STRIPE_BASIC_MONTHLY_PRICE_ID=<Price for the selected mode>
 BILLING_FEATURE_ENABLED=false
 BILLING_ENFORCEMENT_ENABLED=false
+BILLING_ONBOARDING_ENABLED=false
 BILLING_STANDARD_TRIAL_DAYS=30
 BILLING_FOUNDER_TRIAL_DAYS=90
 ```
@@ -201,4 +207,4 @@ behavior independently. Account/password email continues through
 Django/allauth and is not a billing entitlement signal.
 
 See [the test-to-live runbook](stripe_test_to_live_runbook.md) before changing
-either feature flag.
+any billing rollout flag.

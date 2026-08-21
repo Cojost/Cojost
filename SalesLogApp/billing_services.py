@@ -9,6 +9,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 
+from .email_verification import has_verified_canonical_email
 from .models import BillingAccess, BillingCheckoutAttempt, FounderGrant
 
 
@@ -57,6 +58,10 @@ def generate_founder_grant(
 
 @transaction.atomic
 def redeem_founder_code(user, raw_code):
+    if not has_verified_canonical_email(user):
+        raise BillingPolicyError(
+            'Verify your account email before redeeming a founder code.'
+        )
     get_user_model().objects.select_for_update().get(pk=user.pk)
     access, _ = BillingAccess.objects.select_for_update().get_or_create(user=user)
     if access.introductory_benefit_consumed_at:
@@ -98,6 +103,10 @@ def _expire_stale_attempts(user, now):
 
 @transaction.atomic
 def reserve_checkout_attempt(user):
+    if not has_verified_canonical_email(user):
+        raise BillingPolicyError(
+            'Verify your account email before starting billing.'
+        )
     get_user_model().objects.select_for_update().get(pk=user.pk)
     now = timezone.now()
     _expire_stale_attempts(user, now)

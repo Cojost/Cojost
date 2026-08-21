@@ -3,6 +3,7 @@ from django.shortcuts import redirect
 from django.urls import Resolver404, resolve
 
 from .billing_entitlements import get_billing_entitlement
+from .billing_onboarding import billing_onboarding_redirect_name
 
 
 EXEMPT_NAMES = {
@@ -35,7 +36,10 @@ class BillingEnforcementMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        if not settings.BILLING_ENFORCEMENT_ENABLED:
+        if not (
+            settings.BILLING_ENFORCEMENT_ENABLED
+            or settings.BILLING_ONBOARDING_ENABLED
+        ):
             return self.get_response(request)
         if request.path.startswith(EXEMPT_PREFIXES):
             return self.get_response(request)
@@ -49,6 +53,12 @@ class BillingEnforcementMiddleware:
         ):
             return self.get_response(request)
         if not request.user.is_authenticated:
+            return self.get_response(request)
+        if settings.BILLING_ONBOARDING_ENABLED:
+            redirect_name = billing_onboarding_redirect_name(request.user)
+            if redirect_name:
+                return redirect(redirect_name)
+        if not settings.BILLING_ENFORCEMENT_ENABLED:
             return self.get_response(request)
         entitlement = get_billing_entitlement(request.user)
         if entitlement.has_access:

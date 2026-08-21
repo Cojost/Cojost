@@ -6,6 +6,7 @@
 <section class="card">
     <h3>Current synchronized status</h3>
     <p role="status">{{ entitlement.subscription_status|capfirst }} — {{ entitlement.reason }}</p>
+    {% if onboarding_pending %}<a class="button button-primary" href="{% url 'billing_checkout_success' %}">Check subscription status</a>{% endif %}
     <a class="button button-secondary" href="{% url 'billing_overview' %}">Return to billing</a>
 </section>
 {% endblock %}

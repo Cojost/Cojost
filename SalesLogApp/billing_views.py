@@ -11,7 +11,12 @@ from django.views.decorators.http import require_http_methods, require_POST
 
 from .billing_configuration import billing_configuration
 from .billing_entitlements import get_billing_entitlement
+from .billing_onboarding import (
+    billing_onboarding_handoff_name,
+    billing_onboarding_marked,
+)
 from .billing_pricing import display_price
+from .email_verification import has_verified_canonical_email
 from .billing_forms import FounderCodeRedemptionForm
 from .billing_gateway import (
     BillingGatewayError,
@@ -41,6 +46,7 @@ class BillingOverviewView:
     offered_trial_days: int
     can_start_checkout: bool
     can_manage_billing: bool
+    email_verified: bool
 
 
 def billing_feature_required(view_func):
@@ -70,6 +76,7 @@ def _overview_projection(user):
     )
     founder_redeemed = bool(founder_grant)
     consumed = bool(access and access.introductory_benefit_consumed_at)
+    email_verified = has_verified_canonical_email(user)
     if consumed:
         offered_trial_days = 0
     elif founder_grant and founder_grant.revoked_at is None:
@@ -96,8 +103,10 @@ def _overview_projection(user):
         can_start_checkout=(
             entitlement.configuration_ready
             and not entitlement.subscription_access
+            and email_verified
         ),
         can_manage_billing=can_manage,
+        email_verified=email_verified,
     )
 
 
@@ -126,6 +135,12 @@ def billing_checkout_start(request):
     if not request.user.email or not request.user.email.strip():
         messages.error(request, 'Add an account email before starting billing.')
         return redirect('billing_overview')
+    if not has_verified_canonical_email(request.user):
+        messages.error(
+            request,
+            'Verify your account email before starting your trial.',
+        )
+        return redirect('account_email_verification_sent')
     try:
         attempt, _ = reserve_checkout_attempt(request.user)
         customer = customer_for_user(request.user)
@@ -151,6 +166,14 @@ def billing_checkout_start(request):
 @billing_feature_required
 def billing_checkout_success(request):
     entitlement = get_billing_entitlement(request.user)
+    onboarding_marked = billing_onboarding_marked(request.user)
+    if (
+        onboarding_marked
+        and entitlement.subscription_access
+    ):
+        return redirect(
+            billing_onboarding_handoff_name(request.user) or 'my_pay_plan'
+        )
     return render(request, 'SalesLogApp/billing/result.html', {
         'heading': 'Checkout received',
         'message': (
@@ -158,6 +181,7 @@ def billing_checkout_success(request):
             'update after the signed webhook is processed.'
         ),
         'entitlement': entitlement,
+        'onboarding_pending': onboarding_marked,
     })
 
 

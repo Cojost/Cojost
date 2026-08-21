@@ -102,7 +102,7 @@ remain server-only; this implementation does not render the publishable key.
 
 Enable `BILLING_FEATURE_ENABLED=true` only after the preparation checklist is
 green. Keep `BILLING_ENFORCEMENT_ENABLED=false` and
-`TEAMS_FEATURE_ENABLED=false`.
+`BILLING_ONBOARDING_ENABLED=false` and `TEAMS_FEATURE_ENABLED=false`.
 
 Use separate test users and Stripe test payment methods. Verify:
 
@@ -134,6 +134,21 @@ Use separate test users and Stripe test payment methods. Verify:
 
 Run the full Django suite with network access disabled or Stripe calls mocked.
 Record counts and failures, not identifiers or payloads.
+
+## CXP-2B signup-onboarding rollout
+
+After the billing sandbox checklist and email-delivery preflight pass, enable
+`BILLING_ONBOARDING_ENABLED=true` in the selected environment while keeping
+general enforcement unchanged. Only accounts created after the flag is enabled
+join the cohort. Verify one new account follows:
+
+`signup → verified email → Checkout → signed webhook → My Pay Plan`
+
+Confirm an existing account without an onboarding marker keeps its existing
+login flow, an alternate verified email cannot unlock Checkout, cancel/retry
+does not consume a trial, and direct protected URLs redirect to the required
+step. Roll back immediately by setting `BILLING_ONBOARDING_ENABLED=false`;
+do not delete cohort timestamps or reverse migration `0060`.
 
 ## Enforcement rollout
 
