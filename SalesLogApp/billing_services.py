@@ -10,6 +10,14 @@ from django.db import transaction
 from django.utils import timezone
 
 from .email_verification import has_verified_canonical_email
+from .billing_plans import (
+    PRO,
+    BillingPlanError,
+    checkout_tiers,
+    classify_subscription_plan,
+    price_id_for_checkout_tier,
+    subscription_uses_price,
+)
 from .models import BillingAccess, BillingCheckoutAttempt, FounderGrant
 
 
@@ -18,14 +26,8 @@ class BillingPolicyError(Exception):
 
 
 def subscription_uses_configured_price(subscription):
-    """Accept only the one mode-selected Price controlled by this application."""
-    items = ((subscription.stripe_data or {}).get('items') or {}).get('data') or []
-    for item in items:
-        price = item.get('price') or item.get('plan') or {}
-        price_id = price.get('id') if isinstance(price, dict) else price
-        if price_id == settings.STRIPE_BASIC_MONTHLY_PRICE_ID:
-            return True
-    return False
+    """Accept only a server-configured current or grandfathered Price."""
+    return classify_subscription_plan(subscription).eligible
 
 
 def _founder_code_digest(raw_code):
@@ -102,22 +104,13 @@ def _expire_stale_attempts(user, now):
 
 
 @transaction.atomic
-def reserve_checkout_attempt(user):
+def reserve_checkout_attempt(user, tier=None):
     if not has_verified_canonical_email(user):
         raise BillingPolicyError(
             'Verify your account email before starting billing.'
         )
     get_user_model().objects.select_for_update().get(pk=user.pk)
     now = timezone.now()
-    _expire_stale_attempts(user, now)
-    existing = BillingCheckoutAttempt.objects.select_for_update().filter(
-        user=user,
-        status__in=BillingCheckoutAttempt.ACTIVE_STATUSES,
-        reservation_expires_at__gt=now,
-    ).first()
-    if existing:
-        return existing, False
-
     from .billing_entitlements import get_billing_entitlement
 
     entitlement = get_billing_entitlement(user)
@@ -125,20 +118,47 @@ def reserve_checkout_attempt(user):
         raise BillingPolicyError('An eligible subscription already exists.')
 
     access, _ = BillingAccess.objects.select_for_update().get_or_create(user=user)
+    redeemed_founder_grant = access.founder_grant
+    founder_eligible = bool(
+        redeemed_founder_grant
+        and redeemed_founder_grant.redeemed_user_id == user.pk
+        and redeemed_founder_grant.revoked_at is None
+        and access.introductory_benefit_consumed_at is None
+    )
+    selected_tier = tier or PRO
+    if selected_tier not in checkout_tiers(founder=founder_eligible):
+        raise BillingPolicyError('The selected plan is unavailable.')
+    try:
+        selected_price_id = price_id_for_checkout_tier(selected_tier)
+    except BillingPlanError as exc:
+        raise BillingPolicyError('The selected plan is unavailable.') from exc
+    if not selected_price_id:
+        raise BillingPolicyError('The selected plan is unavailable.')
+
+    _expire_stale_attempts(user, now)
+    existing = BillingCheckoutAttempt.objects.select_for_update().filter(
+        user=user,
+        status__in=BillingCheckoutAttempt.ACTIVE_STATUSES,
+        reservation_expires_at__gt=now,
+    ).first()
+    if existing:
+        if (
+            existing.selected_tier == selected_tier
+            and existing.selected_price_id == selected_price_id
+        ):
+            return existing, False
+        existing.status = BillingCheckoutAttempt.EXPIRED
+        existing.save(update_fields=['status', 'updated_at'])
+
     trial_kind = BillingCheckoutAttempt.NONE
     trial_days = 0
     founder_grant = None
     if access.introductory_benefit_consumed_at is None:
-        founder_grant = access.founder_grant
-        if (
-            founder_grant is not None
-            and founder_grant.redeemed_user_id == user.pk
-            and founder_grant.revoked_at is None
-        ):
+        if founder_eligible:
+            founder_grant = redeemed_founder_grant
             trial_kind = BillingCheckoutAttempt.FOUNDER
             trial_days = founder_grant.trial_days
         else:
-            founder_grant = None
             trial_kind = BillingCheckoutAttempt.STANDARD
             trial_days = settings.BILLING_STANDARD_TRIAL_DAYS
 
@@ -147,6 +167,8 @@ def reserve_checkout_attempt(user):
         founder_grant=founder_grant,
         trial_kind=trial_kind,
         trial_days=trial_days,
+        selected_tier=selected_tier,
+        selected_price_id=selected_price_id,
         reservation_expires_at=(
             now + timedelta(minutes=settings.BILLING_CHECKOUT_RESERVATION_MINUTES)
         ),
@@ -207,8 +229,14 @@ def finalize_introductory_benefit(
     subscriber_id = getattr(subscription.customer, 'subscriber_id', None)
     if subscriber_id != attempt.user_id:
         raise BillingPolicyError('Subscription ownership could not be verified.')
-    if not subscription_uses_configured_price(subscription):
+    plan = classify_subscription_plan(subscription)
+    if not plan.eligible:
         raise BillingPolicyError('Subscription Price could not be verified.')
+    if attempt.selected_price_id:
+        if not subscription_uses_price(subscription, attempt.selected_price_id):
+            raise BillingPolicyError('Subscription Price could not be verified.')
+    if plan.tier != attempt.selected_tier:
+        raise BillingPolicyError('Subscription tier could not be verified.')
     access, _ = BillingAccess.objects.select_for_update().get_or_create(
         user_id=attempt.user_id
     )

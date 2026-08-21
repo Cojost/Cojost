@@ -16,9 +16,17 @@ from decimal import Decimal
 
 from django.conf import settings
 
+from .billing_plans import (
+    BASIC,
+    PRO,
+    EXPECTED_MONTHLY_CENTS,
+    checkout_tiers,
+    price_id_for_checkout_tier,
+)
+
 logger = logging.getLogger(__name__)
 
-PRICING_VERSION = 'sc6.v1'
+PRICING_VERSION = 'bill2.v1'
 
 _CURRENCY_SYMBOLS = {'usd': '$'}
 _INTERVAL_LABELS = {
@@ -41,10 +49,13 @@ class DisplayPrice:
 UNAVAILABLE_PRICE = DisplayPrice(available=False)
 
 
-def display_price() -> DisplayPrice:
-    """Return the display price for the configured monthly Price."""
+def display_price(tier=PRO) -> DisplayPrice:
+    """Return one plan's display price from its synchronized Stripe row."""
 
-    price_id = settings.STRIPE_BASIC_MONTHLY_PRICE_ID
+    try:
+        price_id = price_id_for_checkout_tier(tier)
+    except ValueError:
+        return UNAVAILABLE_PRICE
     if not price_id:
         return UNAVAILABLE_PRICE
     try:
@@ -90,3 +101,33 @@ def display_price() -> DisplayPrice:
             'Display price unavailable error_type=%s', type(exc).__name__,
         )
         return UNAVAILABLE_PRICE
+
+
+def display_plan_prices(*, founder=False) -> dict[str, DisplayPrice]:
+    return {
+        tier: display_price(tier)
+        for tier in checkout_tiers(founder=founder)
+    }
+
+
+def synchronized_plan_price_errors() -> tuple[str, ...]:
+    """Validate BILL-2 checkout Prices without making a Stripe network call."""
+
+    if not settings.BILLING_TIERED_PRICING_ENABLED:
+        return ()
+    errors = []
+    for tier in (BASIC, PRO):
+        price = display_price(tier)
+        if not price.available:
+            errors.append(f'the synchronized {tier} monthly Price is unavailable')
+            continue
+        expected = Decimal(EXPECTED_MONTHLY_CENTS[tier]) / Decimal('100')
+        if (
+            price.amount != expected
+            or price.currency != 'USD'
+            or price.interval != 'month'
+        ):
+            errors.append(
+                f'the synchronized {tier} monthly Price does not match policy'
+            )
+    return tuple(errors)

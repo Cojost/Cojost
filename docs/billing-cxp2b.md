@@ -41,7 +41,8 @@ owner-matched, locally synchronized Stripe subscription unlocks the next step.
 ## Rollout
 
 Keep all flags false while deploying and applying migration
-`0060_billingaccess_onboarding_required_at`.
+`0060_billingaccess_onboarding_required_at`. After BILL-2, also apply
+`0061_billingcheckoutattempt_selected_plan` with tiered pricing disabled.
 
 1. Complete the Stripe readiness checklist and email-delivery preflight.
 2. Enable `BILLING_FEATURE_ENABLED=true` and verify the billing UI, synchronized

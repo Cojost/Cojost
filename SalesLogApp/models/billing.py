@@ -136,6 +136,9 @@ class BillingCheckoutAttempt(models.Model):
     STANDARD = BillingAccess.STANDARD
     FOUNDER = BillingAccess.FOUNDER
     TRIAL_KIND_CHOICES = BillingAccess.INTRODUCTORY_KIND_CHOICES
+    BASIC = 'basic'
+    PRO = 'pro'
+    PLAN_TIER_CHOICES = [(BASIC, 'Basic'), (PRO, 'Pro')]
 
     public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     user = models.ForeignKey(
@@ -160,6 +163,12 @@ class BillingCheckoutAttempt(models.Model):
         default=0,
         validators=[MaxValueValidator(365)],
     )
+    selected_tier = models.CharField(
+        max_length=12,
+        choices=PLAN_TIER_CHOICES,
+        default=PRO,
+    )
+    selected_price_id = models.CharField(max_length=255, blank=True, default='')
     status = models.CharField(
         max_length=20,
         choices=STATUS_CHOICES,

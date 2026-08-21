@@ -2061,6 +2061,24 @@ progress {
   margin-bottom: 1rem;
 }
 
+.billing-status-card {
+  grid-column: 1 / -1;
+}
+
+.billing-plan-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.billing-plan-card form,
+.billing-plan-card > .button {
+  margin-top: auto;
+}
+
+.billing-plan-card-pro {
+  border-color: var(--link-color);
+}
+
 .billing-status-list {
   margin: 0 0 1rem;
 }

@@ -74,7 +74,11 @@ from .ask_stew import AskStewAnswer, AskStewService
 from .ask_stew_entitlements import ask_stew_ai_required
 from .ask_stew_provider import ask_stew_provider_availability
 from .billing_entitlements import get_billing_entitlement
-from .billing_pricing import display_price
+from .billing_pricing import (
+    display_plan_prices,
+    display_price,
+    synchronized_plan_price_errors,
+)
 from .access import (
     activity_goals_authorized,
     activity_goals_pro_required,
@@ -156,7 +160,27 @@ def landing_page(request):
     """Show the public StewLog story and send signed-in users home."""
     if request.user.is_authenticated:
         return redirect('view_sales')
-    return render(request, 'landing_page.html')
+    public_plans = ()
+    if (
+        settings.BILLING_FEATURE_ENABLED
+        and settings.BILLING_TIERED_PRICING_ENABLED
+        and not synchronized_plan_price_errors()
+    ):
+        prices = display_plan_prices()
+        if all(price.available for price in prices.values()):
+            public_plans = (
+                {
+                    'name': 'Basic',
+                    'price': prices['basic'],
+                    'description': 'Track sales, pay-plan rules, and commission.',
+                },
+                {
+                    'name': 'Pro',
+                    'price': prices['pro'],
+                    'description': 'Add Activity & Goals and Stew Coach.',
+                },
+            )
+    return render(request, 'landing_page.html', {'public_plans': public_plans})
 
 
 def _is_internal_pay_plan_user(user):

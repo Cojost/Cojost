@@ -185,7 +185,7 @@ class BillingAccessAdmin(admin.ModelAdmin):
 @admin.register(BillingCheckoutAttempt)
 class BillingCheckoutAttemptAdmin(admin.ModelAdmin):
     list_display = (
-        'public_id', 'user', 'trial_kind', 'trial_days', 'status',
+        'public_id', 'user', 'selected_tier', 'trial_kind', 'trial_days', 'status',
         'reservation_expires_at', 'confirmed_at',
     )
     list_filter = ('status', 'trial_kind')

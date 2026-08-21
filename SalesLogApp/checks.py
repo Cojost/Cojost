@@ -46,6 +46,7 @@ def billing_configuration_check(app_configs, **kwargs):
         settings.BILLING_FEATURE_ENABLED
         or settings.BILLING_ENFORCEMENT_ENABLED
         or settings.BILLING_ONBOARDING_ENABLED
+        or settings.BILLING_TIERED_PRICING_ENABLED
     ):
         return []
     configuration = billing_configuration()
@@ -58,12 +59,13 @@ def billing_configuration_check(app_configs, **kwargs):
         if (
             settings.BILLING_ENFORCEMENT_ENABLED
             or settings.BILLING_ONBOARDING_ENABLED
+            or settings.BILLING_TIERED_PRICING_ENABLED
         ):
             return [Error(
                 message,
                 hint=(
-                    'Disable billing onboarding/enforcement or configure the '
-                    'selected Stripe mode.'
+                    'Disable tiered pricing/onboarding/enforcement or configure '
+                    'the selected Stripe mode.'
                 ),
                 id='SalesLogApp.E002',
             )]
@@ -76,6 +78,7 @@ def billing_configuration_check(app_configs, **kwargs):
     if (
         settings.BILLING_ENFORCEMENT_ENABLED
         or settings.BILLING_ONBOARDING_ENABLED
+        or settings.BILLING_TIERED_PRICING_ENABLED
     ):
         operational_errors = _billing_operational_errors()
         if operational_errors:
@@ -84,9 +87,9 @@ def billing_configuration_check(app_configs, **kwargs):
                 + '; '.join(operational_errors)
                 + '.',
                 hint=(
-                    'Disable billing onboarding/enforcement until migrations '
-                    'are applied and a signed WebhookEndpoint exists for the '
-                    'selected Stripe mode.'
+                    'Disable tiered pricing/onboarding/enforcement until '
+                    'migrations, synchronized Prices, and a signed '
+                    'WebhookEndpoint are ready for the selected mode.'
                 ),
                 id='SalesLogApp.E003',
             )]
@@ -131,6 +134,12 @@ def _billing_operational_errors():
             not in applied
         ):
             errors.append('the billing onboarding migration is not applied')
+        if (
+            settings.BILLING_TIERED_PRICING_ENABLED
+            and ('SalesLogApp', '0061_billingcheckoutattempt_selected_plan')
+            not in applied
+        ):
+            errors.append('the tiered-pricing migration is not applied')
         if ('djstripe', '0003_2_11') not in applied:
             errors.append('the required dj-stripe migration is not applied')
         webhook_ready = WebhookEndpoint.objects.filter(
@@ -143,6 +152,10 @@ def _billing_operational_errors():
                 'no enabled signature-verifying webhook endpoint exists for '
                 'the selected mode'
             )
+        if settings.BILLING_TIERED_PRICING_ENABLED:
+            from .billing_pricing import synchronized_plan_price_errors
+
+            errors.extend(synchronized_plan_price_errors())
         return errors
     except DatabaseError:
         return ['the billing database schema could not be inspected']

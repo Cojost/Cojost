@@ -105,6 +105,26 @@
       <p>Own your month.</p>
     </section>
 
+    {% if public_plans %}
+    <section class="section public-pricing" aria-labelledby="pricing-heading">
+      <div class="section-heading section-heading-compact">
+        <p class="section-kicker">Simple monthly plans</p>
+        <h2 id="pricing-heading">Start where you are. Upgrade when you want more coaching.</h2>
+        <p>Both plans begin with an eligible 30-day trial. A payment method is required, and Stripe confirms your choice before you start.</p>
+      </div>
+      <div class="public-pricing-grid">
+        {% for plan in public_plans %}
+        <article class="public-price-card{% if plan.name == 'Pro' %} public-price-card-pro{% endif %}">
+          <p class="section-kicker">{{ plan.name }}</p>
+          <strong>{{ plan.price.formatted }}</strong>
+          <p>{{ plan.description }}</p>
+          <a class="button button-primary" href="{% url 'account_signup' %}">Start 30-day trial</a>
+        </article>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+
     <section class="section benefits-section" id="benefits">
       <div class="section-heading">
         <p class="section-kicker">Clarity you can carry</p>
