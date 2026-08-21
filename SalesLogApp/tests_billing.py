@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import stripe
+from allauth.account.models import EmailAddress
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ImproperlyConfigured
@@ -48,6 +49,7 @@ from .team_services import create_team
 BILLING_READY_SETTINGS = {
     'BILLING_FEATURE_ENABLED': True,
     'BILLING_ENFORCEMENT_ENABLED': False,
+    'BILLING_ONBOARDING_ENABLED': False,
     'STRIPE_LIVE_MODE': False,
     'STRIPE_TEST_PUBLIC_KEY': 'pk_test_unitpublic123',
     'STRIPE_TEST_SECRET_KEY': 'sk_test_unitsecret123',
@@ -64,6 +66,7 @@ class BillingSettingsTests(SimpleTestCase):
     def test_billing_defaults_are_disabled(self):
         self.assertFalse(settings.BILLING_FEATURE_ENABLED)
         self.assertFalse(settings.BILLING_ENFORCEMENT_ENABLED)
+        self.assertFalse(settings.BILLING_ONBOARDING_ENABLED)
         self.assertFalse(settings.STRIPE_LIVE_MODE)
 
     def test_strict_flags_and_bounded_trial_parser(self):
@@ -130,6 +133,18 @@ class FounderGrantTests(TestCase):
         self.other = get_user_model().objects.create_user(
             username='founder-other', email='other@example.test'
         )
+        EmailAddress.objects.create(
+            user=self.user,
+            email=self.user.email,
+            verified=True,
+            primary=True,
+        )
+        EmailAddress.objects.create(
+            user=self.other,
+            email=self.other.email,
+            verified=True,
+            primary=True,
+        )
 
     def test_code_is_hashed_single_use_and_auditable(self):
         grant, raw_code = generate_founder_grant()
@@ -169,6 +184,14 @@ class FounderGrantTests(TestCase):
         access.introductory_benefit_kind = BillingAccess.STANDARD
         access.save()
         third_user = get_user_model().objects.create_user(username='already-used')
+        third_user.email = 'already-used@example.test'
+        third_user.save(update_fields=['email'])
+        EmailAddress.objects.create(
+            user=third_user,
+            email=third_user.email,
+            verified=True,
+            primary=True,
+        )
         BillingAccess.objects.create(
             user=third_user,
             introductory_benefit_consumed_at=timezone.now(),
@@ -215,6 +238,12 @@ class BillingCheckoutTests(TestCase):
         )
         self.other = get_user_model().objects.create_user(
             username='checkout-other', email='other@example.test'
+        )
+        EmailAddress.objects.create(
+            user=self.user,
+            email=self.user.email,
+            verified=True,
+            primary=True,
         )
         self.client.force_login(self.user)
 
@@ -476,6 +505,12 @@ class BillingEntitlementAndWebhookTests(TestCase):
     def setUp(self):
         self.user = get_user_model().objects.create_user(
             username='entitled-user', email='entitled@example.test'
+        )
+        EmailAddress.objects.create(
+            user=self.user,
+            email=self.user.email,
+            verified=True,
+            primary=True,
         )
         self.customer = Customer.objects.create(
             id='cus_mock_entitled',

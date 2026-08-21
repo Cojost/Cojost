@@ -168,7 +168,7 @@ class FounderGrantAdmin(admin.ModelAdmin):
 @admin.register(BillingAccess)
 class BillingAccessAdmin(admin.ModelAdmin):
     list_display = (
-        'user', 'introductory_benefit_kind',
+        'user', 'onboarding_required_at', 'introductory_benefit_kind',
         'introductory_benefit_consumed_at', 'last_event_type',
         'last_synchronized_at',
     )

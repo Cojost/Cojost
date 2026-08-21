@@ -1,0 +1,20 @@
+{% extends "account/base_entrance.html" %}
+
+{% block head_title %}Check your email{% endblock head_title %}
+
+{% block content %}
+    <div class="auth-card-heading">
+        <p class="auth-card-kicker">One secure step</p>
+        <h2>Check your email</h2>
+        <p>Use the verification link we sent before continuing to your StewLog trial.</p>
+    </div>
+    <div class="auth-checkout-note">
+        <span aria-hidden="true">✓</span>
+        <p>After verification, you’ll continue to Stripe to review the current plan, price, and 30-day trial before confirming.</p>
+    </div>
+    {% if user.is_authenticated %}
+        <p class="auth-switch"><a href="{% url 'account_email' %}">Manage or resend email verification</a></p>
+    {% else %}
+        <p class="auth-switch"><a href="{% url 'account_login' %}">Return to sign in</a></p>
+    {% endif %}
+{% endblock content %}

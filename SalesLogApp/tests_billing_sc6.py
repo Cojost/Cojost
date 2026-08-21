@@ -16,6 +16,7 @@ from .models import Commission
 BILLING_READY_SETTINGS = {
     'BILLING_FEATURE_ENABLED': True,
     'BILLING_ENFORCEMENT_ENABLED': False,
+    'BILLING_ONBOARDING_ENABLED': False,
     'STRIPE_LIVE_MODE': False,
     'STRIPE_TEST_PUBLIC_KEY': 'pk_test_unitpublic123',
     'STRIPE_TEST_SECRET_KEY': 'sk_test_unitsecret123',

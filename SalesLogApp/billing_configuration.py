@@ -13,6 +13,7 @@ class BillingConfiguration:
     mode: str
     feature_enabled: bool
     enforcement_enabled: bool
+    onboarding_enabled: bool
     public_key_configured: bool
     public_key_valid: bool
     secret_key_configured: bool
@@ -76,11 +77,14 @@ def billing_configuration():
         errors.append('webhook signature verification is not enabled')
     if settings.BILLING_ENFORCEMENT_ENABLED and not settings.BILLING_FEATURE_ENABLED:
         errors.append('billing enforcement requires the billing feature')
+    if settings.BILLING_ONBOARDING_ENABLED and not settings.BILLING_FEATURE_ENABLED:
+        errors.append('billing onboarding requires the billing feature')
 
     return BillingConfiguration(
         mode=mode,
         feature_enabled=settings.BILLING_FEATURE_ENABLED,
         enforcement_enabled=settings.BILLING_ENFORCEMENT_ENABLED,
+        onboarding_enabled=settings.BILLING_ONBOARDING_ENABLED,
         public_key_configured=bool(public_key),
         public_key_valid=public_valid,
         secret_key_configured=bool(secret_key),
