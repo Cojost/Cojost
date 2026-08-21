@@ -1,5 +1,9 @@
 # SC-6 — Pro Trial, Pricing, and Rollout to All Current Users
 
+> BILL-2 extends this foundation with synchronized Basic and Pro Prices.
+> `display_price()` remains the Pro-upgrade compatibility entry point; see
+> [BILL-2](billing-bill2.md) for current configuration and rollout policy.
+
 SC-6 surfaces the Pro trial and pricing to all current users on top of the
 dark-launched Stripe foundation. No new gating mechanism is introduced: the
 existing staged flags (`BILLING_FEATURE_ENABLED`, `BILLING_ENFORCEMENT_ENABLED`)
@@ -8,8 +12,7 @@ without per-user cohorts.
 
 ## What ships
 
-- `SalesLogApp/billing_pricing.py` — `display_price()`
-  (`PRICING_VERSION = 'sc6.v1'`), the single source for the displayed
+- `SalesLogApp/billing_pricing.py` — `display_price()`, the single source for the displayed
   subscription price.
 - Billing overview page now renders the synchronized price instead of a
   hardcoded amount.

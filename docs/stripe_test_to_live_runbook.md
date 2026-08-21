@@ -43,7 +43,8 @@ include the not-yet-applied 0054 migration in either intermediate deployment.
 
 ## Sandbox preparation
 
-1. Deploy the code with all three flags false.
+1. Deploy the code with every billing rollout flag false, including
+   `BILLING_TIERED_PRICING_ENABLED`.
 2. Back up the target database, confirm the one-time bridge above is complete,
    then apply migrations:
 
@@ -53,8 +54,9 @@ include the not-yet-applied 0054 migration in either intermediate deployment.
    python manage.py showmigrations djstripe SalesLogApp
    ```
 
-   Confirm `djstripe.0003_2_11` and
-   `SalesLogApp.0054_billing_foundation` are applied.
+   Confirm `djstripe.0003_2_11`, `SalesLogApp.0054_billing_foundation`,
+   `SalesLogApp.0060_billingaccess_onboarding_required_at`, and
+   `SalesLogApp.0061_billingcheckoutattempt_selected_plan` are applied.
 3. Configure the private environment with `STRIPE_LIVE_MODE=false`, the sandbox
    publishable/secret keys, and that sandbox's recurring Price ID. Keep the live
    variables empty or private placeholders in the deployment system. Keep both
@@ -69,9 +71,11 @@ include the not-yet-applied 0054 migration in either intermediate deployment.
    python manage.py djstripe_sync_models Product Price
    ```
 
-   This command makes sandbox Stripe API reads. Verify the local selected Price
-   is recurring, USD, and $1.99 without copying its identifier into a log or
-   ticket. It does not create a Product or Price.
+   This command makes sandbox Stripe API reads. Before BILL-2 is enabled,
+   verify the new Basic and Pro Prices are recurring, monthly, USD, and
+   synchronized as $3.99 and $7.99. Preserve the former single Price in
+   `STRIPE_LEGACY_PRO_PRICE_IDS` without copying identifiers into logs or
+   tickets. The command does not create a Product or Price.
 6. In Django admin, add a dj-stripe Webhook Endpoint with:
 
    - base URL `https://stewlog.com` (or the deliberate sandbox deployment
@@ -102,7 +106,8 @@ remain server-only; this implementation does not render the publishable key.
 
 Enable `BILLING_FEATURE_ENABLED=true` only after the preparation checklist is
 green. Keep `BILLING_ENFORCEMENT_ENABLED=false` and
-`BILLING_ONBOARDING_ENABLED=false` and `TEAMS_FEATURE_ENABLED=false`.
+`BILLING_ONBOARDING_ENABLED=false`, `BILLING_TIERED_PRICING_ENABLED=false`,
+and `TEAMS_FEATURE_ENABLED=false`.
 
 Use separate test users and Stripe test payment methods. Verify:
 
@@ -135,6 +140,17 @@ Use separate test users and Stripe test payment methods. Verify:
 Run the full Django suite with network access disabled or Stripe calls mocked.
 Record counts and failures, not identifiers or payloads.
 
+## BILL-2 tiered-pricing rollout
+
+Complete the separate [BILL-2 checklist](billing-bill2.md), then enable
+`BILLING_TIERED_PRICING_ENABLED=true` while onboarding and general enforcement
+remain unchanged. Verify a new Basic checkout uses the synchronized $3.99
+Price and does not unlock Pro features; a new Pro checkout uses $7.99 and does;
+and an uninterrupted subscription on the former Price remains Pro. Confirm the
+legacy Price is never offered to a new checkout. Roll back by disabling only
+the tiered-pricing flag; do not remove legacy Price IDs or reverse migration
+`0061` during an incident.
+
 ## CXP-2B signup-onboarding rollout
 
 After the billing sandbox checklist and email-delivery preflight pass, enable
@@ -154,8 +170,8 @@ do not delete cohort timestamps or reverse migration `0060`.
 
 Enforcement is not authorized merely because Checkout works. Before enabling
 it, approve the product access policy, support process, grace-period behavior,
-monitoring, rollback owner, and user communication. The present release does
-not implement a broader Basic/Pro feature split.
+monitoring, rollback owner, and user communication. BILL-2 owns the Basic/Pro
+entitlement split; enforcement remains a separate rollout decision.
 
 When separately approved:
 

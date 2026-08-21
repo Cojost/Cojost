@@ -52,24 +52,35 @@ class Command(BaseCommand):
                     'SalesLogApp',
                     '0060_billingaccess_onboarding_required_at',
                 ) in applied,
+                'tiered_pricing': (
+                    'SalesLogApp',
+                    '0061_billingcheckoutattempt_selected_plan',
+                ) in applied,
             }
         except DatabaseError:
             migrations = {
                 'djstripe_0003': False,
                 'billing_foundation': False,
                 'billing_onboarding': False,
+                'tiered_pricing': False,
             }
         report = {
             'mode': configuration.mode,
             'feature_enabled': configuration.feature_enabled,
             'enforcement_enabled': configuration.enforcement_enabled,
             'onboarding_enabled': configuration.onboarding_enabled,
+            'tiered_pricing_enabled': configuration.tiered_pricing_enabled,
             'publishable_credential_configured': configuration.public_key_configured,
             'publishable_credential_valid': configuration.public_key_valid,
             'server_credential_configured': configuration.secret_key_configured,
             'server_credential_valid': configuration.secret_key_valid,
             'price_configured': configuration.price_configured,
             'price_valid': configuration.price_valid,
+            'pro_price_configured': configuration.pro_price_configured,
+            'pro_price_valid': configuration.pro_price_valid,
+            'legacy_pro_prices_configured': (
+                configuration.legacy_pro_prices_configured
+            ),
             'signature_verification': (
                 configuration.webhook_validation == 'verify_signature'
             ),
@@ -87,6 +98,19 @@ class Command(BaseCommand):
                 and all(migrations.values())
             ),
         }
+        try:
+            from SalesLogApp.billing_pricing import synchronized_plan_price_errors
+
+            plan_price_errors = synchronized_plan_price_errors()
+        except DatabaseError:
+            plan_price_errors = ('synchronized plan Prices unavailable',)
+        report['tiered_pricing_ready'] = (
+            configuration.ready
+            and webhook_route_present
+            and webhook_endpoint_ready
+            and all(migrations.values())
+            and not plan_price_errors
+        )
         if options['json']:
             self.stdout.write(json.dumps(report, sort_keys=True))
             return

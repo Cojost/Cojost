@@ -11,6 +11,7 @@ STRIPE_LIVE_MODE=false
 BILLING_FEATURE_ENABLED=false
 BILLING_ENFORCEMENT_ENABLED=false
 BILLING_ONBOARDING_ENABLED=false
+BILLING_TIERED_PRICING_ENABLED=false
 TEAMS_FEATURE_ENABLED=false
 ```
 
@@ -18,7 +19,8 @@ TEAMS_FEATURE_ENABLED=false
 hosted Checkout/Portal sessions. `BILLING_ENFORCEMENT_ENABLED` is a separate,
 later gate. Enabling enforcement while the selected credentials, Price,
 migrations, or signed webhook endpoint are incomplete produces a Django system
-check error. No Basic/Pro feature split is part of this phase.
+check error. BILL-2 adds a separately staged Basic/Pro Price and entitlement
+split without changing the foundation's webhook authority.
 
 `BILLING_ONBOARDING_ENABLED` is the CXP-2B new-signup cohort gate. It requires
 the billing feature, verified canonical email, migration `0060`, and the same
@@ -36,17 +38,21 @@ STRIPE_TEST_SECRET_KEY=<selected sandbox secret key>
 STRIPE_LIVE_PUBLIC_KEY=<selected live publishable key>
 STRIPE_LIVE_SECRET_KEY=<selected live secret key>
 STRIPE_BASIC_MONTHLY_PRICE_ID=<Price for the selected mode>
+STRIPE_PRO_MONTHLY_PRICE_ID=<current Pro Price when BILL-2 is enabled>
+STRIPE_LEGACY_PRO_PRICE_IDS=<comma-separated grandfathered Pro Prices>
 BILLING_FEATURE_ENABLED=false
 BILLING_ENFORCEMENT_ENABLED=false
 BILLING_ONBOARDING_ENABLED=false
+BILLING_TIERED_PRICING_ENABLED=false
 BILLING_STANDARD_TRIAL_DAYS=30
 BILLING_FOUNDER_TRIAL_DAYS=90
 ```
 
 Boolean parsing is strict (`true`, `false`, `1`, or `0`) and trial days must be
 between 1 and 365. There is no test-to-live credential fallback. The server
-selects the credential pair and Price for `STRIPE_LIVE_MODE`; browser input
-cannot select a Price, customer, user, tier, trial length, or return URL.
+selects the credential pair and allowlisted Price for `STRIPE_LIVE_MODE`;
+browser input can choose only Basic or Pro and cannot supply a Price, customer,
+user, trial length, or return URL.
 
 Existing databases with legacy dj-stripe 2.8 migration history must migrate
 through dj-stripe 2.9.2 and 2.10.4 before applying 2.11 migrations. See the
@@ -99,7 +105,8 @@ CSRF-protected:
 - `/SalesLogApp/billing/founder/redeem/` — founder-code redemption; and
 - `/SalesLogApp/billing/portal/` — creates a hosted Customer Portal session.
 
-Checkout is subscription mode, uses the single configured monthly Price,
+Checkout is subscription mode and uses the server-selected Price stored on the
+owner's checkout attempt,
 requires a payment method, and carries only authenticated server-owned customer
 and policy metadata. The success and cancel URLs are named same-origin routes.
 The Customer Portal accepts only the dj-stripe Customer mapped to the signed-in
@@ -175,10 +182,11 @@ enforcement is on.
 ## Teams adapter
 
 `SalesLogApp.team_entitlements.billing_owned_entitlement` now consumes the
-central billing result. An active paid subscription maps to `pro`; an active
-founder trial maps to `founder_pro`. Invited Basic-member behavior remains
-unchanged. If an owner loses entitlement, Teams becomes read-only without
-deleting the team or private source data.
+central billing result. A synchronized Basic subscription maps to `basic`;
+current Pro and allowlisted uninterrupted legacy subscriptions map to `pro`;
+an active founder trial maps to `founder_pro`. Invited Basic-member behavior
+remains unchanged. If an owner loses entitlement, Teams becomes read-only
+without deleting the team or private source data.
 
 `TEAMS_FOUNDER_USER_IDS` remains only as a DEBUG-mode development fallback and
 is disabled whenever billing enforcement is on. It is not production payment
@@ -208,3 +216,5 @@ Django/allauth and is not a billing entitlement signal.
 
 See [the test-to-live runbook](stripe_test_to_live_runbook.md) before changing
 any billing rollout flag.
+See [BILL-2 policy and rollout](billing-bill2.md) before configuring either
+current Price or the grandfathered allowlist.

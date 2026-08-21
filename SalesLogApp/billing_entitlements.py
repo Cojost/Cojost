@@ -8,6 +8,7 @@ from django.utils import timezone
 from djstripe.models import Subscription
 
 from .billing_configuration import billing_configuration
+from .billing_plans import classify_subscription_plan
 from .billing_services import subscription_uses_configured_price
 from .models import BillingAccess, BillingCheckoutAttempt
 
@@ -22,6 +23,7 @@ class BillingEntitlement:
     trial_end: object
     current_period_end: object
     founder: bool
+    grandfathered: bool
     configuration_ready: bool
     billing_feature_enabled: bool
     billing_enforcement_enabled: bool
@@ -96,6 +98,7 @@ def get_billing_entitlement(user, *, at_time=None):
             trial_end=None,
             current_period_end=None,
             founder=False,
+            grandfathered=False,
             configuration_ready=configuration.ready,
             billing_feature_enabled=settings.BILLING_FEATURE_ENABLED,
             billing_enforcement_enabled=enforcement,
@@ -113,6 +116,7 @@ def get_billing_entitlement(user, *, at_time=None):
         subscription = None
 
     founder = bool(access and access.founder_grant_id)
+    subscription_plan = classify_subscription_plan(subscription) if subscription else None
     status = subscription.status if subscription else 'none'
     trial_end = subscription.trial_end if subscription else None
     current_period_end = subscription.current_period_end if subscription else None
@@ -122,9 +126,10 @@ def get_billing_entitlement(user, *, at_time=None):
     source = 'no_subscription'
     reason = 'No synchronized eligible subscription was found.'
 
-    if subscription is not None and not subscription_uses_configured_price(subscription):
+    if subscription is not None and not subscription_plan.eligible:
         reason = 'The synchronized subscription does not use the configured Price.'
     elif subscription is not None:
+        plan_tier = subscription_plan.tier
         paused = status == 'paused' or bool(subscription.pause_collection)
         if paused:
             status = 'paused'
@@ -132,16 +137,24 @@ def get_billing_entitlement(user, *, at_time=None):
         elif status == 'trialing':
             if trial_end is not None and trial_end > now:
                 subscription_access = True
-                tier = 'founder_pro' if founder else 'pro'
+                tier = 'founder_pro' if founder else plan_tier
                 source = 'subscription_trial'
-                reason = 'Subscription trial is active.'
+                reason = (
+                    'Grandfathered Pro subscription trial is active.'
+                    if subscription_plan.grandfathered
+                    else 'Subscription trial is active.'
+                )
             else:
                 reason = 'The synchronized trial period has ended.'
         elif status == 'active':
             subscription_access = True
-            tier = 'pro'
+            tier = plan_tier
             source = 'subscription_active'
-            reason = 'Subscription is active.'
+            reason = (
+                'Grandfathered Pro subscription is active.'
+                if subscription_plan.grandfathered
+                else 'Subscription is active.'
+            )
         elif status == 'past_due':
             if current_period_end is not None:
                 grace_end = current_period_end + timedelta(
@@ -149,7 +162,7 @@ def get_billing_entitlement(user, *, at_time=None):
                 )
             if grace_end is not None and grace_end > now:
                 subscription_access = True
-                tier = 'pro'
+                tier = plan_tier
                 source = 'past_due_grace'
                 reason = 'Payment is past due within the seven-day grace period.'
             else:
@@ -161,7 +174,7 @@ def get_billing_entitlement(user, *, at_time=None):
                 tier = (
                     'founder_pro'
                     if founder and trial_end is not None and trial_end > now
-                    else 'pro'
+                    else plan_tier
                 )
                 source = 'canceled_current_period'
                 reason = 'Cancellation is scheduled after the authorized period.'
@@ -208,6 +221,11 @@ def get_billing_entitlement(user, *, at_time=None):
         trial_end=trial_end,
         current_period_end=current_period_end,
         founder=founder,
+        grandfathered=bool(
+            subscription_plan
+            and subscription_plan.grandfathered
+            and subscription_access
+        ),
         configuration_ready=configuration.ready,
         billing_feature_enabled=settings.BILLING_FEATURE_ENABLED,
         billing_enforcement_enabled=enforcement,

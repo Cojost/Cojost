@@ -61,12 +61,15 @@ def _validated_hosted_url(value, expected_host):
 
 def create_checkout_session(*, user, customer, attempt, success_url, cancel_url):
     _require_ready_configuration()
+    if not attempt.selected_price_id:
+        raise BillingGatewayError('The selected plan is unavailable.')
     subscriber_key = djstripe_settings.SUBSCRIBER_CUSTOMER_KEY
     metadata = {
         subscriber_key: str(user.pk),
         'billing_attempt': str(attempt.public_id),
         'intro_trial_kind': attempt.trial_kind or 'none',
-        'billing_policy': 'intro_v1',
+        'selected_tier': attempt.selected_tier,
+        'billing_policy': 'tiered_v1',
     }
     subscription_data = {'metadata': metadata}
     if attempt.trial_days:
@@ -78,7 +81,7 @@ def create_checkout_session(*, user, customer, attempt, success_url, cancel_url)
             mode='subscription',
             customer=customer.id,
             line_items=[{
-                'price': settings.STRIPE_BASIC_MONTHLY_PRICE_ID,
+                'price': attempt.selected_price_id,
                 'quantity': 1,
             }],
             payment_method_collection='always',

@@ -67,6 +67,7 @@ class BillingSettingsTests(SimpleTestCase):
         self.assertFalse(settings.BILLING_FEATURE_ENABLED)
         self.assertFalse(settings.BILLING_ENFORCEMENT_ENABLED)
         self.assertFalse(settings.BILLING_ONBOARDING_ENABLED)
+        self.assertFalse(settings.BILLING_TIERED_PRICING_ENABLED)
         self.assertFalse(settings.STRIPE_LIVE_MODE)
 
     def test_strict_flags_and_bounded_trial_parser(self):

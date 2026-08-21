@@ -4,7 +4,7 @@
 {% block content %}
 <div class="intro">
     <h2>STEW Log subscription</h2>
-    {% if display_price.available %}<p><strong>{{ display_price.formatted }}</strong> after your eligible introductory trial. A payment method is required at Checkout and billing begins automatically when the trial ends.</p>{% else %}<p>Your monthly price is shown at Stripe Checkout before you confirm. A payment method is required at Checkout and billing begins automatically when the trial ends.</p>{% endif %}
+    {% if configuration.tiered_pricing_enabled %}<p>Choose Basic or Pro. Every amount below comes from StewLog’s synchronized Stripe Prices, and Stripe shows the final plan again before confirmation.</p>{% elif display_price.available %}<p><strong>{{ display_price.formatted }}</strong> after your eligible introductory trial. A payment method is required at Checkout and billing begins automatically when the trial ends.</p>{% else %}<p>Your monthly price is shown at Stripe Checkout before you confirm. A payment method is required at Checkout and billing begins automatically when the trial ends.</p>{% endif %}
 </div>
 
 {% if not configuration.ready %}
@@ -18,7 +18,7 @@
 {% endif %}
 
 <div class="billing-grid">
-<section class="card">
+<section class="card{% if configuration.tiered_pricing_enabled %} billing-status-card{% endif %}">
     <h3>Current billing status</h3>
     <dl class="billing-status-list">
         <div><dt>Status</dt><dd>{{ billing.status|capfirst }}</dd></div>
@@ -31,8 +31,10 @@
     {% if billing.can_manage_billing %}<form method="post" action="{% url 'billing_portal' %}">{% csrf_token %}<button class="button button-secondary" type="submit">Manage billing in Stripe</button></form><p class="card-description">Use Stripe’s hosted portal for payment methods, invoices, and cancellation.</p>{% endif %}
 </section>
 
-<section class="card">
-    <h3>Start subscription</h3>
+{% for plan in plan_options %}
+<section class="card billing-plan-card{% if plan.tier == 'pro' %} billing-plan-card-pro{% endif %}">
+    <h3>{{ plan.name }}{% if plan.tier == 'pro' and configuration.tiered_pricing_enabled %} <span class="status-pill">Recommended</span>{% endif %}</h3>
+    <p>{{ plan.description }}</p>
     {% if billing.introductory_benefit_consumed %}
         <p>Your introductory benefit has already been used. A new eligible subscription starts without another trial.</p>
     {% elif billing.founder_redeemed %}
@@ -40,9 +42,10 @@
     {% else %}
         <p>Eligible accounts receive a {{ standard_trial_days }}-day introductory trial.</p>
     {% endif %}
-    {% if display_price.available %}<p>A payment method is required. Stripe will bill {{ display_price.formatted }} when the trial ends unless you cancel through Stripe first.</p>{% else %}<p>A payment method is required. Stripe will bill the configured monthly price when the trial ends unless you cancel through Stripe first.</p>{% endif %}
-    {% if billing.can_start_checkout %}<form method="post" action="{% url 'billing_checkout_start' %}">{% csrf_token %}<button class="button button-primary" type="submit">Continue to Stripe Checkout</button></form>{% else %}<button class="button button-primary" type="button" disabled>Checkout unavailable</button>{% endif %}
+    {% if plan.price.available %}<p>A payment method is required. Stripe will bill {{ plan.price.formatted }} when the trial ends unless you cancel first.</p>{% else %}<p>A payment method is required; the configured monthly price is shown again at Stripe Checkout.</p>{% endif %}
+    {% if billing.can_start_checkout %}<form method="post" action="{% url 'billing_checkout_start' %}">{% csrf_token %}<button class="button button-primary" type="submit" name="plan" value="{{ plan.tier }}">Choose {{ plan.name }}</button></form>{% else %}<button class="button button-primary" type="button" disabled>Checkout unavailable</button>{% endif %}
 </section>
+{% endfor %}
 </div>
 
 {% if billing.email_verified and not billing.introductory_benefit_consumed and not billing.founder_redeemed %}
