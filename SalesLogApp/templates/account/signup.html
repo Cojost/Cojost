@@ -1,0 +1,46 @@
+{% extends "account/base_entrance.html" %}
+{% load i18n socialaccount %}
+
+{% block head_title %}Start your trial{% endblock head_title %}
+
+{% block content %}
+    <div class="auth-card-heading">
+        <p class="auth-card-kicker">Your next month can be clearer</p>
+        <h2>Start your 30-day trial</h2>
+        <p>Create your StewLog account and take control of your commission.</p>
+    </div>
+
+    {% if not SOCIALACCOUNT_ONLY %}
+        {% url 'account_signup' as signup_action_url %}
+        <form class="auth-form" method="post" action="{{ signup_action_url }}">
+            {% csrf_token %}
+            {% if form.non_field_errors %}
+                <div class="auth-form-alert" role="alert">{{ form.non_field_errors }}</div>
+            {% endif %}
+
+            {% for field in form %}
+                <div class="auth-field{% if field.errors %} auth-field-error{% endif %}">
+                    <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                    {{ field }}
+                    {% if field.help_text %}<div class="auth-help">{{ field.help_text }}</div>{% endif %}
+                    {% if field.errors %}<div class="auth-field-errors" role="alert">{{ field.errors }}</div>{% endif %}
+                </div>
+            {% endfor %}
+
+            {{ redirect_field }}
+            <button class="auth-primary-button" type="submit">Create account and continue <span aria-hidden="true">→</span></button>
+        </form>
+    {% endif %}
+
+    {% if SOCIALACCOUNT_ENABLED %}
+        <div class="auth-social-options">
+            {% include "socialaccount/snippets/login.html" with page_layout="entrance" %}
+        </div>
+    {% endif %}
+
+    <div class="auth-checkout-note">
+        <span aria-hidden="true">✓</span>
+        <p>A payment method is required at checkout. Your current plan and price will be shown before you confirm.</p>
+    </div>
+    <p class="auth-switch">Already have an account? <a href="{{ login_url }}">Sign in</a></p>
+{% endblock content %}
