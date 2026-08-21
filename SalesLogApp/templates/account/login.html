@@ -1,0 +1,50 @@
+{% extends "account/base_entrance.html" %}
+{% load i18n socialaccount %}
+
+{% block head_title %}Sign in{% endblock head_title %}
+
+{% block content %}
+    <div class="auth-card-heading">
+        <p class="auth-card-kicker">Welcome back</p>
+        <h2>Sign in to StewLog</h2>
+        <p>Track every deal. Understand every dollar.</p>
+    </div>
+
+    {% if not SOCIALACCOUNT_ONLY %}
+        {% url 'account_login' as login_url %}
+        <form class="auth-form" method="post" action="{{ login_url }}">
+            {% csrf_token %}
+            {% if form.non_field_errors %}
+                <div class="auth-form-alert" role="alert">{{ form.non_field_errors }}</div>
+            {% endif %}
+
+            {% for field in form %}
+                <div class="auth-field{% if field.field.widget.input_type == 'checkbox' %} auth-field-checkbox{% endif %}{% if field.errors %} auth-field-error{% endif %}">
+                    {% if field.field.widget.input_type == 'checkbox' %}
+                        {{ field }}
+                        <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                    {% else %}
+                        <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                        {{ field }}
+                    {% endif %}
+                    {% if field.help_text %}<div class="auth-help">{{ field.help_text }}</div>{% endif %}
+                    {% if field.errors %}<div class="auth-field-errors" role="alert">{{ field.errors }}</div>{% endif %}
+                </div>
+            {% endfor %}
+
+            {{ redirect_field }}
+            <div class="auth-form-meta">
+                <a href="{% url 'account_reset_password' %}">Forgot your password?</a>
+            </div>
+            <button class="auth-primary-button" type="submit">Sign in <span aria-hidden="true">→</span></button>
+        </form>
+    {% endif %}
+
+    {% if SOCIALACCOUNT_ENABLED %}
+        <div class="auth-social-options">
+            {% include "socialaccount/snippets/login.html" with page_layout="entrance" %}
+        </div>
+    {% endif %}
+
+    <p class="auth-switch">New to StewLog? <a href="{{ signup_url }}">Start your 30-day trial</a></p>
+{% endblock content %}

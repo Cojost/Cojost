@@ -1,0 +1,74 @@
+{% load static i18n %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block head_title %}StewLog{% endblock head_title %} | StewLog</title>
+    <meta name="theme-color" content="#0a2552">
+    <meta name="robots" content="noindex,follow">
+    <link rel="icon" href="{% static 'SalesLogApp/images/stewlog-mark.png' %}">
+    <link rel="stylesheet" href="{% static 'SalesLogApp/css/auth.css' %}">
+    {% block extra_head %}{% endblock extra_head %}
+</head>
+<body class="auth-body header-theme-blue">
+    <div class="auth-shell">
+        <header class="auth-header">
+            <a class="auth-brand-link" href="{% url 'landing_page' %}" aria-label="StewLog home">
+                <img
+                    class="auth-brand-wordmark"
+                    src="{% static 'SalesLogApp/images/stewlog-wordmark.png' %}"
+                    alt="StewLog"
+                >
+            </a>
+            <a class="auth-home-link" href="{% url 'landing_page' %}">
+                <span aria-hidden="true">←</span> Back to StewLog home
+            </a>
+        </header>
+
+        <main class="auth-main">
+            <section class="auth-story" aria-labelledby="auth-story-title">
+                <div class="auth-story-glow" aria-hidden="true"></div>
+                <div class="auth-story-copy">
+                    <p class="auth-eyebrow"><span aria-hidden="true"></span>Built for automotive sales professionals</p>
+                    <h1 id="auth-story-title">Know your commission <strong>before payday.</strong></h1>
+                    <p>Bring your deals, pay plan, bonuses, and monthly progress together in one clear place.</p>
+                    <ul class="auth-benefits">
+                        <li>Use your dealership's actual pay plan</li>
+                        <li>See clear deal-by-deal estimates</li>
+                        <li>Track your month from your phone</li>
+                    </ul>
+                </div>
+                <div class="auth-story-promise" aria-label="StewLog promise">
+                    <span>Track every deal.</span>
+                    <span>Understand every dollar.</span>
+                    <span>Own your month.</span>
+                </div>
+            </section>
+
+            <section class="auth-card-wrap" aria-label="StewLog account">
+                <div class="auth-mobile-brand" aria-hidden="true">
+                    <img src="{% static 'SalesLogApp/images/stewlog-mark.png' %}" alt="">
+                </div>
+                <div class="auth-card">
+                    {% if messages %}
+                        <ul class="auth-messages" aria-label="Account messages">
+                            {% for message in messages %}
+                                <li{% if message.tags %} class="{{ message.tags }}"{% endif %}>{{ message }}</li>
+                            {% endfor %}
+                        </ul>
+                    {% endif %}
+                    {% block content %}{% endblock content %}
+                </div>
+                <p class="auth-estimate-note">Commission figures are estimates based on the information you enter.</p>
+            </section>
+        </main>
+
+        <footer class="auth-footer">
+            <span>© 2026 StewLog</span>
+            <span>Clearer numbers. More confident paydays.</span>
+        </footer>
+    </div>
+    {% block extra_body %}{% endblock extra_body %}
+</body>
+</html>

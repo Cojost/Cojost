@@ -248,15 +248,16 @@ class LocalSignupTests(TestCase):
             User.objects.filter(username='duplicate-email-user').exists()
         )
 
-    def test_allauth_signup_uses_shared_header_and_logo(self):
+    def test_allauth_signup_uses_branded_account_shell(self):
         response = self.client.get('/accounts/signup/')
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(
             response,
-            '/static/SalesLogApp/images/stewlog-logo.png',
+            '/static/SalesLogApp/images/stewlog-wordmark.png',
         )
-        self.assertContains(response, 'class="site-logo"')
+        self.assertContains(response, 'class="auth-brand-wordmark"')
+        self.assertContains(response, 'class="auth-card"')
 
     def test_allauth_signup_does_not_require_local_smtp_server(self):
         response = self.client.post(
