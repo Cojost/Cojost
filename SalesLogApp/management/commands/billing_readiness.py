@@ -56,6 +56,10 @@ class Command(BaseCommand):
                     'SalesLogApp',
                     '0061_billingcheckoutattempt_selected_plan',
                 ) in applied,
+                'annual_billing': (
+                    'SalesLogApp',
+                    '0062_billingcheckoutattempt_selected_billing_interval',
+                ) in applied,
             }
         except DatabaseError:
             migrations = {
@@ -63,6 +67,7 @@ class Command(BaseCommand):
                 'billing_foundation': False,
                 'billing_onboarding': False,
                 'tiered_pricing': False,
+                'annual_billing': False,
             }
         report = {
             'mode': configuration.mode,
@@ -76,10 +81,21 @@ class Command(BaseCommand):
             'server_credential_valid': configuration.secret_key_valid,
             'price_configured': configuration.price_configured,
             'price_valid': configuration.price_valid,
+            'basic_yearly_price_configured': (
+                configuration.basic_yearly_price_configured
+            ),
+            'basic_yearly_price_valid': configuration.basic_yearly_price_valid,
             'pro_price_configured': configuration.pro_price_configured,
             'pro_price_valid': configuration.pro_price_valid,
+            'pro_yearly_price_configured': (
+                configuration.pro_yearly_price_configured
+            ),
+            'pro_yearly_price_valid': configuration.pro_yearly_price_valid,
             'legacy_pro_prices_configured': (
                 configuration.legacy_pro_prices_configured
+            ),
+            'tiered_pricing_configuration_ready': (
+                configuration.tiered_pricing_configuration_ready
             ),
             'signature_verification': (
                 configuration.webhook_validation == 'verify_signature'
@@ -101,11 +117,14 @@ class Command(BaseCommand):
         try:
             from SalesLogApp.billing_pricing import synchronized_plan_price_errors
 
-            plan_price_errors = synchronized_plan_price_errors()
+            plan_price_errors = synchronized_plan_price_errors(
+                validate_candidate=True,
+            )
         except DatabaseError:
             plan_price_errors = ('synchronized plan Prices unavailable',)
         report['tiered_pricing_ready'] = (
             configuration.ready
+            and configuration.tiered_pricing_configuration_ready
             and webhook_route_present
             and webhook_endpoint_ready
             and all(migrations.values())

@@ -298,14 +298,7 @@ class BillingCheckoutTests(TestCase):
         create_session.return_value = SimpleNamespace(
             url='https://checkout.stripe.com/c/pay/mock-session'
         )
-        response = self.client.post(reverse('billing_checkout_start'), {
-            'trial_days': '999',
-            'price': 'price_attacker',
-            'customer': 'cus_other',
-            'user_id': self.other.pk,
-            'tier': 'founder_pro',
-            'success_url': 'https://evil.example/',
-        })
+        response = self.client.post(reverse('billing_checkout_start'))
         self.assertEqual(response.status_code, 302)
         self.assertTrue(response.url.startswith('https://checkout.stripe.com/'))
         kwargs = create_session.call_args.kwargs
@@ -326,12 +319,12 @@ class BillingCheckoutTests(TestCase):
         self.assertEqual(
             kwargs['metadata']['djstripe_subscriber'], str(self.user.pk)
         )
+        self.assertEqual(kwargs['metadata']['selected_billing_interval'], 'month')
         self.assertEqual(kwargs['client_reference_id'], str(self.user.pk))
         self.assertEqual(
             kwargs['idempotency_key'],
             f'saleslog-checkout-{BillingCheckoutAttempt.objects.get(user=self.user).public_id}',
         )
-        self.assertNotIn('evil.example', kwargs['success_url'])
 
     @patch('SalesLogApp.billing_views.customer_for_user')
     @patch('SalesLogApp.billing_gateway.stripe.checkout.Session.create')

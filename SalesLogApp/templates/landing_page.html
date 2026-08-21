@@ -108,17 +108,27 @@
     {% if public_plans %}
     <section class="section public-pricing" aria-labelledby="pricing-heading">
       <div class="section-heading section-heading-compact">
-        <p class="section-kicker">Simple monthly plans</p>
+        <p class="section-kicker">Simple monthly or yearly plans</p>
         <h2 id="pricing-heading">Start where you are. Upgrade when you want more coaching.</h2>
-        <p>Both plans begin with an eligible 30-day trial. A payment method is required, and Stripe confirms your choice before you start.</p>
+        <p>Both plans begin with an eligible {{ standard_trial_days }}-day trial. A payment method is required, and Stripe confirms your choice before you start.</p>
       </div>
       <div class="public-pricing-grid">
         {% for plan in public_plans %}
         <article class="public-price-card{% if plan.name == 'Pro' %} public-price-card-pro{% endif %}">
           <p class="section-kicker">{{ plan.name }}</p>
-          <strong>{{ plan.price.formatted }}</strong>
+          <div class="public-price-choice">
+            <span>Monthly</span>
+            <strong>{{ plan.monthly_price.formatted }}</strong>
+            <small>Charged after the {{ standard_trial_days }}-day trial unless canceled.</small>
+          </div>
+          <div class="public-price-choice">
+            <span>Yearly</span>
+            <strong>{{ plan.yearly_price.formatted }} total</strong>
+            <small>{{ plan.yearly_price.equivalent_monthly_formatted }} · billed yearly</small>
+            <small>After the {{ standard_trial_days }}-day trial, the full {{ plan.yearly_price.formatted }} is charged unless canceled.</small>
+          </div>
           <p>{{ plan.description }}</p>
-          <a class="button button-primary" href="{% url 'account_signup' %}">Start 30-day trial</a>
+          <a class="button button-primary" href="{% url 'account_signup' %}">Start {{ standard_trial_days }}-day trial</a>
         </article>
         {% endfor %}
       </div>
