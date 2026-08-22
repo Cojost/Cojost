@@ -225,9 +225,11 @@ class FounderGrantAdmin(admin.ModelAdmin):
 class BillingAccessAdmin(admin.ModelAdmin):
     list_display = (
         'user', 'onboarding_required_at', 'introductory_benefit_kind',
-        'introductory_benefit_consumed_at', 'last_event_type',
-        'last_synchronized_at',
+        'introductory_benefit_consumed_at', 'enforcement_enrolled_at',
+        'enforcement_notice_sent_at', 'enforcement_grace_ends_at',
+        'last_event_type', 'last_synchronized_at',
     )
+    list_filter = ('introductory_benefit_kind',)
     search_fields = ('user__username',)
     readonly_fields = [field.name for field in BillingAccess._meta.fields]
 

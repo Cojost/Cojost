@@ -37,6 +37,19 @@
     </nav>
     {% endif %}
     <main class="page {% block page_class %}{% endblock %}">
+        {% if billing_enforcement_notice %}
+            <div class="notice notice-warning" role="status">
+                <strong>Subscription action required.</strong>
+                {% if billing_enforcement_notice.state == 'grace_active' %}
+                    Choose a StewLog plan before {{ billing_enforcement_notice.grace_ends_at|date:"M j, Y g:i A T" }} to avoid an interruption.
+                {% elif billing_enforcement_notice.state == 'enforcement_due' %}
+                    Your billing grace period has ended. Choose a StewLog plan to continue.
+                {% else %}
+                    Choose a StewLog plan before billing enforcement begins for this account.
+                {% endif %}
+                <a href="{% url 'billing_overview' %}">View billing options</a>
+            </div>
+        {% endif %}
         {% if messages %}
             <ul class="messages">
                 {% for message in messages %}<li{% if message.tags %} class="{{ message.tags }}"{% endif %}>{{ message }}</li>{% endfor %}

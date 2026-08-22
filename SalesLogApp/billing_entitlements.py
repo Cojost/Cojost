@@ -8,6 +8,7 @@ from django.utils import timezone
 from djstripe.models import Subscription
 
 from .billing_configuration import billing_configuration
+from .billing_enforcement import cohort_enforcement_state
 from .billing_plans import classify_subscription_plan
 from .billing_services import subscription_uses_configured_price
 from .models import BillingAccess, BillingCheckoutAttempt
@@ -105,6 +106,7 @@ def get_billing_entitlement(user, *, at_time=None):
             grace_ends_at=None,
             reason='Sign in to view billing status.',
         )
+    access_lookup_failed = False
     try:
         access = BillingAccess.objects.select_related(
             'founder_grant',
@@ -112,6 +114,7 @@ def get_billing_entitlement(user, *, at_time=None):
         ).filter(user=user).first()
         subscription = _subscription_for_user(user, access)
     except DatabaseError:
+        access_lookup_failed = True
         access = None
         subscription = None
 
@@ -202,15 +205,57 @@ def get_billing_entitlement(user, *, at_time=None):
             source = 'synchronization_pending'
             reason = 'Checkout is pending authoritative Stripe synchronization.'
     effective_access = subscription_access
-    if not enforcement:
+    enforcement_grace_end = None
+    if getattr(user, 'is_superuser', False):
+        effective_access = True
+        if not subscription_access:
+            source = 'internal_superuser'
+            reason = 'Internal superuser access is exempt from billing enforcement.'
+    elif not enforcement:
         effective_access = True
         if not subscription_access:
             source = 'enforcement_disabled'
             reason = 'Billing enforcement is disabled; application access is unchanged.'
-    elif not configuration.ready:
+    elif settings.BILLING_ENFORCEMENT_EMERGENCY_BYPASS:
+        effective_access = True
+        if not subscription_access:
+            source = 'enforcement_emergency_bypass'
+            reason = 'The billing enforcement emergency bypass is active.'
+    elif access_lookup_failed:
         effective_access = False
         source = 'configuration_unavailable'
-        reason = 'Billing configuration is unavailable.'
+        reason = 'Billing enforcement state could not be verified.'
+    else:
+        enforcement_state = cohort_enforcement_state(
+            user,
+            access,
+            subscription_access=subscription_access,
+            at_time=now,
+        )
+        enforcement_grace_end = enforcement_state.grace_ends_at
+        if subscription_access:
+            effective_access = True
+        elif not enforcement_state.should_block:
+            effective_access = True
+            source = f'enforcement_{enforcement_state.code}'
+            reasons = {
+                'not_enrolled': 'This account is not enrolled for billing enforcement.',
+                'notice_pending': 'Billing enforcement notice has not been recorded.',
+                'grace_unconfigured': 'A billing enforcement grace period is not configured.',
+                'grace_active': 'The billing enforcement grace period is active.',
+            }
+            reason = reasons.get(
+                enforcement_state.code,
+                'Billing enforcement does not apply to this account.',
+            )
+        elif not configuration.ready:
+            effective_access = False
+            source = 'configuration_unavailable'
+            reason = 'Billing configuration is unavailable.'
+        else:
+            effective_access = False
+            source = 'enforcement_due'
+            reason = 'The billing enforcement grace period has ended.'
 
     return BillingEntitlement(
         has_access=effective_access,
@@ -229,6 +274,6 @@ def get_billing_entitlement(user, *, at_time=None):
         configuration_ready=configuration.ready,
         billing_feature_enabled=settings.BILLING_FEATURE_ENABLED,
         billing_enforcement_enabled=enforcement,
-        grace_ends_at=grace_end,
+        grace_ends_at=grace_end or enforcement_grace_end,
         reason=reason,
     )

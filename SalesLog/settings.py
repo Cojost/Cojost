@@ -274,6 +274,7 @@ TEMPLATES = [
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
                 'SalesLogApp.profile_context.appearance',
+                'SalesLogApp.billing_enforcement_context.enforcement_notice',
             ],
         },
     },
@@ -409,6 +410,9 @@ STRIPE_LEGACY_PRO_PRICE_IDS = env_list('STRIPE_LEGACY_PRO_PRICE_IDS')
 BILLING_FEATURE_ENABLED = env_strict_bool('BILLING_FEATURE_ENABLED', False)
 BILLING_ENFORCEMENT_ENABLED = env_strict_bool(
     'BILLING_ENFORCEMENT_ENABLED', False
+)
+BILLING_ENFORCEMENT_EMERGENCY_BYPASS = env_strict_bool(
+    'BILLING_ENFORCEMENT_EMERGENCY_BYPASS', False
 )
 BILLING_ONBOARDING_ENABLED = env_strict_bool(
     'BILLING_ONBOARDING_ENABLED', False
