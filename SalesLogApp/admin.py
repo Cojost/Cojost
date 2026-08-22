@@ -25,6 +25,9 @@ from .models import (
     BillingAccess,
     BillingCheckoutAttempt,
     FounderGrant,
+    Team,
+    TeamInvitation,
+    TeamMembership,
     Vehicle,
     VehicleMake,
     VehicleModel,
@@ -33,6 +36,59 @@ from .models import (
 admin.site.register(DailyActivity)
 admin.site.register(MonthlyGoal)
 admin.site.register(UserProfile)
+
+
+class ReadOnlyOperationalAdmin(admin.ModelAdmin):
+    """Expose operational state without permitting production data mutation."""
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(Team)
+class TeamAdmin(ReadOnlyOperationalAdmin):
+    list_display = (
+        'name', 'owner', 'is_active', 'is_read_only', 'created_at', 'updated_at',
+    )
+    list_filter = ('is_active', 'is_read_only', 'display_mode')
+    search_fields = ('name', 'owner__username', 'owner__email')
+    readonly_fields = [field.name for field in Team._meta.fields]
+
+
+@admin.register(TeamMembership)
+class TeamMembershipAdmin(ReadOnlyOperationalAdmin):
+    list_display = (
+        'team', 'user', 'role', 'status', 'sharing_preference', 'updated_at',
+    )
+    list_filter = ('role', 'status', 'sharing_preference')
+    search_fields = (
+        'team__name', 'user__username', 'user__email',
+    )
+    readonly_fields = [field.name for field in TeamMembership._meta.fields]
+
+
+@admin.register(TeamInvitation)
+class TeamInvitationAdmin(ReadOnlyOperationalAdmin):
+    list_display = (
+        'token_prefix', 'team', 'intended_email', 'intended_user',
+        'expires_at', 'accepted_at', 'revoked_at',
+    )
+    list_filter = ('accepted_at', 'revoked_at', 'expires_at')
+    search_fields = (
+        'token_prefix', 'team__name', 'intended_email',
+        'intended_user__username',
+    )
+    exclude = ('token_digest',)
+    readonly_fields = [
+        field.name for field in TeamInvitation._meta.fields
+        if field.name != 'token_digest'
+    ]
 
 
 @admin.register(Industry)

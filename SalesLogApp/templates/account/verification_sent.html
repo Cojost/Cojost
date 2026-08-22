@@ -6,11 +6,11 @@
     <div class="auth-card-heading">
         <p class="auth-card-kicker">One secure step</p>
         <h2>Check your email</h2>
-        <p>Use the verification link we sent before continuing to your StewLog trial.</p>
+        <p>Use the verification link we sent before continuing to StewLog billing.</p>
     </div>
     <div class="auth-checkout-note">
         <span aria-hidden="true">✓</span>
-        <p>After verification, you’ll continue to Stripe to review the current plan, price, and 30-day trial before confirming.</p>
+        <p>After verification, you’ll review the available plans. Basic Monthly includes a 30-day trial; other standard plans start without one.</p>
     </div>
     {% if user.is_authenticated %}
         <p class="auth-switch"><a href="{% url 'account_email' %}">Manage or resend email verification</a></p>

@@ -363,6 +363,19 @@ class Bill3CheckoutTests(TestCase):
                         billing_interval,
                     )
                     self.assertEqual(kwargs['payment_method_collection'], 'always')
+                    expected_trial_days = (
+                        30 if selection == (BASIC, MONTH) else 0
+                    )
+                    self.assertEqual(attempt.trial_days, expected_trial_days)
+                    if expected_trial_days:
+                        self.assertEqual(
+                            kwargs['subscription_data']['trial_period_days'],
+                            expected_trial_days,
+                        )
+                    else:
+                        self.assertNotIn(
+                            'trial_period_days', kwargs['subscription_data'],
+                        )
 
     def test_browser_supplied_price_identifiers_are_rejected_before_stripe(self):
         payloads = (
@@ -432,7 +445,7 @@ class Bill3CheckoutTests(TestCase):
         self.assertEqual(yearly.selected_billing_interval, YEAR)
         self.assertEqual(yearly.selected_price_id, 'price_bill3basicyear')
 
-    def test_standard_annual_checkout_passes_30_day_trial(self):
+    def test_standard_pro_annual_checkout_omits_trial(self):
         with (
             patch('SalesLogApp.billing_views.customer_for_user') as customer,
             patch(
@@ -448,7 +461,7 @@ class Bill3CheckoutTests(TestCase):
                 'billing_interval': YEAR,
             })
         kwargs = create_session.call_args.kwargs
-        self.assertEqual(kwargs['subscription_data']['trial_period_days'], 30)
+        self.assertNotIn('trial_period_days', kwargs['subscription_data'])
         self.assertEqual(kwargs['payment_method_collection'], 'always')
 
     def test_founder_can_choose_either_pro_interval_with_90_day_trial(self):
@@ -566,6 +579,37 @@ class Bill3SubscriptionTests(TestCase):
                 self.assertEqual(entitlement.tier, tier)
                 self.assertEqual(entitlement.has_pro_access, tier == PRO)
 
+    def test_basic_monthly_confirmation_consumes_standard_trial_once(self):
+        EmailAddress.objects.create(
+            user=self.user,
+            email=self.user.email,
+            verified=True,
+            primary=True,
+        )
+        attempt, _ = reserve_checkout_attempt(
+            self.user, tier=BASIC, billing_interval=MONTH,
+        )
+        self.assertEqual(attempt.trial_kind, BillingCheckoutAttempt.STANDARD)
+        self.assertEqual(attempt.trial_days, 30)
+        subscription = self.subscription(
+            ['price_bill3basicmonth'], suffix='standard_trial',
+            metadata={'billing_attempt': str(attempt.public_id)},
+        )
+        self.assertTrue(
+            finalize_introductory_benefit(attempt.public_id, subscription)
+        )
+        consumed_at = BillingAccess.objects.get(
+            user=self.user,
+        ).introductory_benefit_consumed_at
+        self.assertTrue(
+            finalize_introductory_benefit(attempt.public_id, subscription)
+        )
+        access = BillingAccess.objects.get(user=self.user)
+        self.assertEqual(access.introductory_benefit_consumed_at, consumed_at)
+        self.assertEqual(
+            access.introductory_benefit_kind, BillingAccess.STANDARD,
+        )
+
     def test_allowlisted_legacy_price_remains_grandfathered_pro(self):
         subscription = self.subscription(
             ['price_bill3legacypro'], suffix='legacy',
@@ -665,8 +709,12 @@ class Bill3PricingPageTests(TestCase):
         self.assertContains(response, '$99.00 USD per year')
         self.assertContains(response, '$8.25 USD per month equivalent')
         self.assertContains(response, 'billed yearly', count=2)
-        self.assertContains(response, 'After your 30-day trial')
-        self.assertContains(response, 'charge the full $49.00 USD per year')
+        self.assertContains(response, 'after your 30-day trial', count=1)
+        self.assertContains(response, 'No trial.', count=3)
+        self.assertContains(
+            response,
+            'charge the full $49.00 USD per year when you subscribe',
+        )
         for price_id, _, _ in SELECTIONS.values():
             self.assertNotContains(response, price_id)
 
@@ -679,7 +727,11 @@ class Bill3PricingPageTests(TestCase):
         self.assertContains(response, 'billed yearly', count=2)
         self.assertContains(
             response,
-            'After the 30-day trial, the full $99.00 USD per year is charged',
+            'Basic Monthly includes an eligible 30-day trial',
+        )
+        self.assertContains(
+            response,
+            'The full $99.00 USD per year is charged when you subscribe',
         )
 
     def test_founder_pricing_is_pro_only_with_both_intervals_and_90_days(self):

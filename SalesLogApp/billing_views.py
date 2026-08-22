@@ -74,6 +74,7 @@ class BillingIntervalOption:
     billing_interval: str
     name: str
     price: object
+    trial_days: int
 
 
 def billing_feature_required(view_func):
@@ -153,6 +154,16 @@ def _plan_options(overview):
     }
     labels = {BASIC: 'Basic', PRO: 'Pro'}
     interval_labels = {MONTH: 'Monthly', YEAR: 'Yearly'}
+
+    def trial_days_for(tier, billing_interval):
+        if overview.introductory_benefit_consumed:
+            return 0
+        if overview.founder_checkout_eligible:
+            return overview.offered_trial_days
+        if tier == BASIC and billing_interval == MONTH:
+            return settings.BILLING_STANDARD_TRIAL_DAYS
+        return 0
+
     return tuple(
         BillingPlanOption(
             tier,
@@ -163,6 +174,7 @@ def _plan_options(overview):
                     billing_interval,
                     interval_labels[billing_interval],
                     prices[(tier, billing_interval)],
+                    trial_days_for(tier, billing_interval),
                 )
                 for billing_interval in checkout_intervals()
             ),

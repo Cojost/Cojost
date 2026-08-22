@@ -293,7 +293,9 @@ class BillingCheckoutTests(TestCase):
 
     @patch('SalesLogApp.billing_views.customer_for_user')
     @patch('SalesLogApp.billing_gateway.stripe.checkout.Session.create')
-    def test_standard_checkout_uses_server_owned_policy(self, create_session, customer):
+    def test_legacy_checkout_uses_server_owned_policy_without_trial(
+        self, create_session, customer,
+    ):
         customer.return_value = SimpleNamespace(id='cus_mock_authenticated')
         create_session.return_value = SimpleNamespace(
             url='https://checkout.stripe.com/c/pay/mock-session'
@@ -314,7 +316,7 @@ class BillingCheckoutTests(TestCase):
                 user=self.user
             ).reservation_expires_at.timestamp()),
         )
-        self.assertEqual(kwargs['subscription_data']['trial_period_days'], 30)
+        self.assertNotIn('trial_period_days', kwargs['subscription_data'])
         self.assertEqual(kwargs['customer'], 'cus_mock_authenticated')
         self.assertEqual(
             kwargs['metadata']['djstripe_subscriber'], str(self.user.pk)
@@ -366,7 +368,7 @@ class BillingCheckoutTests(TestCase):
     def test_abandoned_checkout_expires_without_consuming_trial(self):
         attempt, created = reserve_checkout_attempt(self.user)
         self.assertTrue(created)
-        self.assertEqual(attempt.trial_days, 30)
+        self.assertEqual(attempt.trial_days, 0)
         attempt.reservation_expires_at = timezone.now() - timedelta(seconds=1)
         attempt.save(update_fields=['reservation_expires_at'])
         replacement, created = reserve_checkout_attempt(self.user)
@@ -663,8 +665,10 @@ class BillingEntitlementAndWebhookTests(TestCase):
         self.assertEqual(self.client.get(reverse('billing_overview')).status_code, 200)
 
     def test_webhook_finalizes_trial_once_and_duplicate_is_idempotent(self):
+        _, raw_code = generate_founder_grant()
+        redeem_founder_code(self.user, raw_code)
         attempt, _ = reserve_checkout_attempt(self.user)
-        trial_end = timezone.now() + timedelta(days=30)
+        trial_end = timezone.now() + timedelta(days=90)
         subscription = self.subscription(
             'trialing',
             suffix='webhook_trial',
@@ -685,7 +689,7 @@ class BillingEntitlementAndWebhookTests(TestCase):
         access = BillingAccess.objects.get(user=self.user)
         attempt.refresh_from_db()
         self.assertEqual(access.introductory_benefit_consumed_at, consumed_at)
-        self.assertEqual(access.introductory_benefit_kind, BillingAccess.STANDARD)
+        self.assertEqual(access.introductory_benefit_kind, BillingAccess.FOUNDER)
         self.assertEqual(attempt.status, BillingCheckoutAttempt.CONFIRMED)
 
     def test_finalization_locks_attempt_without_nullable_founder_join(self):
@@ -735,12 +739,14 @@ class BillingEntitlementAndWebhookTests(TestCase):
         self.assertEqual(access.last_event_created_at, newer.created)
 
     def test_late_trial_confirmation_does_not_replace_newer_subscription(self):
+        _, raw_code = generate_founder_grant()
+        redeem_founder_code(self.user, raw_code)
         attempt, _ = reserve_checkout_attempt(self.user)
         old_subscription = self.subscription(
             'trialing',
             suffix='late_old',
-            trial_end=timezone.now() + timedelta(days=30),
-            current_period_end=timezone.now() + timedelta(days=30),
+            trial_end=timezone.now() + timedelta(days=90),
+            current_period_end=timezone.now() + timedelta(days=90),
             metadata={'billing_attempt': str(attempt.public_id)},
         )
         newer_subscription = self.subscription(

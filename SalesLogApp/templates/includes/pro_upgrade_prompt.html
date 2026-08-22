@@ -3,17 +3,15 @@
   <h2 id="pro-upgrade-heading">Try STEW Log Pro</h2>
   <p>
     Activity &amp; Goals, Stew Coach pacing, and proactive nudges are Pro
-    features. Eligible accounts start with a
-    {{ pro_upgrade_prompt.trial_days }}-day free trial.
+    features. Standard Pro subscriptions start without a trial.
     {% if pro_upgrade_prompt.price_available %}
-    After the trial, Stripe bills {{ pro_upgrade_prompt.price_formatted }}
-    unless you cancel first.
+    Stripe bills {{ pro_upgrade_prompt.price_formatted }} when you subscribe.
     {% else %}
-    Stripe Checkout shows the current price and trial details before you confirm.
+    Stripe Checkout shows the current price before you confirm.
     {% endif %}
   </p>
   <a class="button button-primary" href="{% url 'billing_overview' %}">
-    View plans and start trial
+    View Pro plans
   </a>
 </section>
 {% endif %}
