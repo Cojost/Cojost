@@ -127,12 +127,18 @@ class BillingOverviewPricingTests(TestCase):
         self.client.force_login(self.user)
         self.url = reverse('billing_overview')
 
-    def test_overview_displays_synchronized_price(self):
+    def test_overview_defers_synchronized_legacy_price_to_checkout(self):
         _create_price(unit_amount=299)
         response = self.client.get(self.url)
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, '$2.99 USD per month')
+        self.assertNotContains(response, '$2.99 USD per month')
         self.assertNotContains(response, '$1.99')
+        self.assertContains(
+            response, 'shown at Stripe Checkout before you confirm',
+        )
+        self.assertContains(
+            response, 'Stripe Checkout shows the current price',
+        )
 
     def test_overview_falls_back_without_synchronized_price(self):
         response = self.client.get(self.url)
@@ -142,7 +148,7 @@ class BillingOverviewPricingTests(TestCase):
             response, 'shown at Stripe Checkout before you confirm',
         )
         self.assertContains(
-            response, 'the configured monthly price',
+            response, 'Stripe Checkout shows the current price',
         )
 
 
@@ -174,7 +180,10 @@ class ProUpgradePromptTests(TestCase):
         response = self.client.get(self.dashboard)
         self.assertContains(response, self.PROMPT_TEXT)
         self.assertContains(response, '30-day free trial')
-        self.assertContains(response, '$1.99 USD per month')
+        self.assertNotContains(response, '$1.99 USD per month')
+        self.assertContains(
+            response, 'Stripe Checkout shows the current price',
+        )
         self.assertContains(response, reverse('billing_overview'))
 
     @override_settings(**BILLING_READY_SETTINGS)
@@ -188,7 +197,7 @@ class ProUpgradePromptTests(TestCase):
         self.assertContains(response, self.PROMPT_TEXT)
         self.assertNotContains(response, '$1.99')
         self.assertContains(
-            response, 'shown on the billing page',
+            response, 'Stripe Checkout shows the current price',
         )
 
     @override_settings(**BILLING_READY_SETTINGS)

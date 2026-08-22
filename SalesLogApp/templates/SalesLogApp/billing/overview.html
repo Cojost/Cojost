@@ -4,7 +4,7 @@
 {% block content %}
 <div class="intro">
     <h2>STEW Log subscription</h2>
-    {% if configuration.tiered_pricing_enabled %}<p>Choose Basic or Pro with monthly or yearly billing. Every amount below comes from StewLog’s synchronized Stripe Prices, and Stripe shows the final plan again before confirmation.</p>{% elif display_price.available %}<p><strong>{{ display_price.formatted }}</strong> after your eligible introductory trial. A payment method is required at Checkout and billing begins automatically when the trial ends.</p>{% else %}<p>Your monthly price is shown at Stripe Checkout before you confirm. A payment method is required at Checkout and billing begins automatically when the trial ends.</p>{% endif %}
+    {% if configuration.tiered_pricing_enabled %}<p>Choose Basic or Pro with monthly or yearly billing. Every amount below comes from StewLog’s synchronized Stripe Prices, and Stripe shows the final plan again before confirmation.</p>{% else %}<p>Your current subscription price is shown at Stripe Checkout before you confirm. A payment method is required at Checkout and billing begins automatically when the trial ends.</p>{% endif %}
 </div>
 
 {% if not configuration.ready %}
@@ -40,7 +40,7 @@
     {% for option in plan.prices %}
         <div class="billing-price-option">
             <h4>{{ option.name }}</h4>
-            {% if option.price.available %}
+            {% if configuration.tiered_pricing_enabled and option.price.available %}
                 <p><strong>{{ option.price.formatted }}</strong>{% if option.billing_interval == 'year' %} total, billed yearly{% endif %}</p>
                 {% if option.price.equivalent_monthly_formatted %}<p>{{ option.price.equivalent_monthly_formatted }}</p>{% endif %}
                 {% if billing.introductory_benefit_consumed %}
@@ -49,7 +49,7 @@
                     {% if option.billing_interval == 'year' %}<p>A payment method is required. After your {{ billing.offered_trial_days }}-day trial, Stripe will charge the full {{ option.price.formatted }} unless you cancel first.</p>{% else %}<p>A payment method is required. Stripe will charge {{ option.price.formatted }} after your {{ billing.offered_trial_days }}-day trial unless you cancel first.</p>{% endif %}
                 {% endif %}
             {% else %}
-                <p>A payment method is required; the configured {{ option.name|lower }} price is shown again at Stripe Checkout.</p>
+                <p>A payment method is required. Stripe Checkout shows the current price before you confirm.</p>
             {% endif %}
             {% if billing.can_start_checkout %}<form method="post" action="{% url 'billing_checkout_start' %}">{% csrf_token %}<input type="hidden" name="tier" value="{{ plan.tier }}"><input type="hidden" name="billing_interval" value="{{ option.billing_interval }}"><button class="button button-primary" type="submit">Choose {{ plan.name }} {{ option.name }}</button></form>{% else %}<button class="button button-primary" type="button" disabled>Checkout unavailable</button>{% endif %}
         </div>
