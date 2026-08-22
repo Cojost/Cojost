@@ -54,6 +54,8 @@ class BillingEnforcementMiddleware:
             return self.get_response(request)
         if not request.user.is_authenticated:
             return self.get_response(request)
+        if request.user.is_superuser:
+            return self.get_response(request)
         if settings.BILLING_ONBOARDING_ENABLED:
             redirect_name = billing_onboarding_redirect_name(request.user)
             if redirect_name:

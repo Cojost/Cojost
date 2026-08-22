@@ -6,14 +6,13 @@ Customers, Portal configuration, endpoints, and signing secrets. Complete and
 record each mode independently. Never make live-mode requests during sandbox
 validation.
 
-## Current handoff state
+## Deployment-independent handoff
 
-The application foundation and mocked automated tests are implemented. The
-`STEW Log Development` sandbox, its earlier recurring monthly test Price,
-private test credentials, and sandbox Customer Portal were prepared manually.
-No BILL-3 Price or webhook was created by this implementation work. No Stripe
-API request or dashboard change was made. Billing feature, onboarding,
-enforcement, tiered-pricing, and Teams flags remain false.
+This runbook never treats a repository flag default as proof of deployment
+state. Verify each selected environment with `billing_readiness --json`. New
+rollout and emergency flags remain false by default; Stripe objects, private
+credentials, Portal settings, and webhook endpoints are prepared manually in
+their corresponding sandbox or live mode.
 
 ## One-time dj-stripe migration bridge
 
@@ -44,7 +43,8 @@ include the not-yet-applied 0054 migration in either intermediate deployment.
 ## Sandbox preparation
 
 1. Deploy the code with every billing rollout flag false, including
-   `BILLING_TIERED_PRICING_ENABLED`.
+   `BILLING_TIERED_PRICING_ENABLED` and
+   `BILLING_ENFORCEMENT_EMERGENCY_BYPASS`.
 2. Back up the target database, confirm the one-time bridge above is complete,
    then apply migrations:
 
@@ -57,8 +57,8 @@ include the not-yet-applied 0054 migration in either intermediate deployment.
    Confirm `djstripe.0003_2_11`, `SalesLogApp.0054_billing_foundation`,
    `SalesLogApp.0060_billingaccess_onboarding_required_at`,
    `SalesLogApp.0061_billingcheckoutattempt_selected_plan`, and
-   `SalesLogApp.0062_billingcheckoutattempt_selected_billing_interval` are
-   applied.
+   `SalesLogApp.0062_billingcheckoutattempt_selected_billing_interval`, and
+   `SalesLogApp.0063_bill4_staged_billing_enforcement` are applied.
 3. In Stripe sandbox, create or approve four recurring USD Prices: Basic month
    at $4.99, Basic year at $49.00, Pro month at $9.99, and Pro year at $99.00.
    Do not create Prices from application code. Record their identifiers only in
@@ -120,7 +120,8 @@ the isolated BILL-3 validation. Keep `BILLING_ENFORCEMENT_ENABLED=false`,
 Use separate test users and Stripe test payment methods. Verify:
 
 1. Each Basic/Pro monthly/yearly selection receives the exact server-selected
-   Price as its only line item, a 30-day trial, and required payment method.
+   Price as its only line item and requires a payment method. Basic Monthly
+   receives the standard 30-day trial; the other standard selections do not.
    Browser-submitted Price values and mixed selections must fail before Stripe.
 2. A newly redeemed founder code receives 90 days, is single-use, does not
    stack, rejects Basic, and permits either Pro billing interval.
@@ -176,25 +177,31 @@ does not consume a trial, and direct protected URLs redirect to the required
 step. Roll back immediately by setting `BILLING_ONBOARDING_ENABLED=false`;
 do not delete cohort timestamps or reverse migration `0060`.
 
-## Enforcement rollout
+## BILL-4 enforcement rollout
 
 Enforcement is not authorized merely because Checkout works. Before enabling
 it, approve the product access policy, support process, grace-period behavior,
 monitoring, rollback owner, and user communication. BILL-3 owns the Basic/Pro
 entitlement split; enforcement remains a separate rollout decision.
 
-When separately approved:
+Complete the separate [BILL-4 checklist](billing-bill4.md). When separately
+approved:
 
 1. Keep a deployment/database rollback point and verify the signed endpoint is
    healthy.
 2. Run `python manage.py check`; enforcement prerequisites must produce no
    `SalesLogApp.E002` or `SalesLogApp.E003`.
-3. Set `BILLING_ENFORCEMENT_ENABLED=true` in a staged cohort/deployment.
-4. Confirm login, billing overview, Checkout, Portal, password recovery, admin,
+3. Audit, enroll, notify, and record a grace period for a small canary cohort.
+   Unmarked existing users must remain outside enforcement.
+4. Set `BILLING_ENFORCEMENT_ENABLED=true` only after the canary grace and
+   support process have been verified.
+5. Confirm login, billing overview, Checkout, Portal, password recovery, admin,
    and webhooks remain reachable for unentitled users.
-5. Monitor only coarse route/status, webhook success/latency, and entitlement
-   state metrics. The immediate application rollback is setting enforcement
-   false; do not reverse billing or dj-stripe migrations during an incident.
+6. Monitor only coarse route/status, webhook success/latency, and entitlement
+   state metrics. The immediate cohort rollback is
+   `BILLING_ENFORCEMENT_EMERGENCY_BYPASS=true`; the broader rollback is setting
+   enforcement false. Do not reverse billing or dj-stripe migrations during an
+   incident.
 
 ## Live-mode cutover (future, separately authorized)
 

@@ -66,6 +66,7 @@ class BillingSettingsTests(SimpleTestCase):
     def test_billing_defaults_are_disabled(self):
         self.assertFalse(settings.BILLING_FEATURE_ENABLED)
         self.assertFalse(settings.BILLING_ENFORCEMENT_ENABLED)
+        self.assertFalse(settings.BILLING_ENFORCEMENT_EMERGENCY_BYPASS)
         self.assertFalse(settings.BILLING_ONBOARDING_ENABLED)
         self.assertFalse(settings.BILLING_TIERED_PRICING_ENABLED)
         self.assertFalse(settings.STRIPE_LIVE_MODE)
@@ -655,6 +656,12 @@ class BillingEntitlementAndWebhookTests(TestCase):
 
     @override_settings(**{**BILLING_READY_SETTINGS, 'BILLING_ENFORCEMENT_ENABLED': True})
     def test_enforcement_boundary_redirects_unentitled_but_exempts_billing(self):
+        BillingAccess.objects.create(
+            user=self.user,
+            enforcement_enrolled_at=timezone.now() - timedelta(days=31),
+            enforcement_notice_sent_at=timezone.now() - timedelta(days=30),
+            enforcement_grace_ends_at=timezone.now() - timedelta(seconds=1),
+        )
         self.client.force_login(self.user)
         response = self.client.get(reverse('view_sales'))
         self.assertRedirects(

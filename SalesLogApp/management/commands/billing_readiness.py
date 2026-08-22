@@ -1,6 +1,7 @@
 import json
 import uuid
 
+from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.db import DatabaseError, connection
 from django.db.migrations.recorder import MigrationRecorder
@@ -60,6 +61,10 @@ class Command(BaseCommand):
                     'SalesLogApp',
                     '0062_billingcheckoutattempt_selected_billing_interval',
                 ) in applied,
+                'staged_enforcement': (
+                    'SalesLogApp',
+                    '0063_bill4_staged_billing_enforcement',
+                ) in applied,
             }
         except DatabaseError:
             migrations = {
@@ -68,11 +73,15 @@ class Command(BaseCommand):
                 'billing_onboarding': False,
                 'tiered_pricing': False,
                 'annual_billing': False,
+                'staged_enforcement': False,
             }
         report = {
             'mode': configuration.mode,
             'feature_enabled': configuration.feature_enabled,
             'enforcement_enabled': configuration.enforcement_enabled,
+            'enforcement_emergency_bypass_enabled': (
+                settings.BILLING_ENFORCEMENT_EMERGENCY_BYPASS
+            ),
             'onboarding_enabled': configuration.onboarding_enabled,
             'tiered_pricing_enabled': configuration.tiered_pricing_enabled,
             'publishable_credential_configured': configuration.public_key_configured,
@@ -114,6 +123,11 @@ class Command(BaseCommand):
                 and all(migrations.values())
             ),
         }
+        report['enforcement_effective'] = (
+            report['enforcement_enabled']
+            and report['enforcement_ready']
+            and not report['enforcement_emergency_bypass_enabled']
+        )
         try:
             from SalesLogApp.billing_pricing import synchronized_plan_price_errors
 

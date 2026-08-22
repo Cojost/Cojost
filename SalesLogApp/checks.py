@@ -93,6 +93,18 @@ def billing_configuration_check(app_configs, **kwargs):
                 ),
                 id='SalesLogApp.E003',
             )]
+    if (
+        settings.BILLING_ENFORCEMENT_ENABLED
+        and settings.BILLING_ENFORCEMENT_EMERGENCY_BYPASS
+    ):
+        return [Warning(
+            'Billing enforcement is enabled but the emergency bypass is active.',
+            hint=(
+                'Keep the bypass only for incident recovery, then disable it '
+                'after verifying cohort enforcement is safe.'
+            ),
+            id='SalesLogApp.W003',
+        )]
     return []
 
 
@@ -134,6 +146,12 @@ def _billing_operational_errors():
             not in applied
         ):
             errors.append('the billing onboarding migration is not applied')
+        if (
+            settings.BILLING_ENFORCEMENT_ENABLED
+            and ('SalesLogApp', '0063_bill4_staged_billing_enforcement')
+            not in applied
+        ):
+            errors.append('the staged billing enforcement migration is not applied')
         if (
             settings.BILLING_TIERED_PRICING_ENABLED
             and ('SalesLogApp', '0061_billingcheckoutattempt_selected_plan')
