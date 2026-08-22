@@ -532,7 +532,6 @@ def _pro_upgrade_prompt_context(user):
                 else None
             )
             prompt = {
-                'trial_days': settings.BILLING_STANDARD_TRIAL_DAYS,
                 'price_available': bool(price and price.available),
                 'price_formatted': price.formatted if price else '',
             }

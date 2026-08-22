@@ -10,7 +10,8 @@ and does not authorize any billing rollout flag to be enabled.
 - Basic yearly: $49.00 USD, recurring every year.
 - Pro monthly: $9.99 USD, recurring every month.
 - Pro yearly: $99.00 USD, recurring every year.
-- Standard introductory trial: 30 days.
+- Standard introductory trial: 30 days on Basic Monthly only.
+- Basic Yearly and standard Pro Monthly/Yearly start without a trial.
 - Founder/Kickstarter benefit: the existing 90-day trial, Pro-only, with a
   choice of monthly or yearly billing.
 - Checkout always requires a payment method. The selected recurring amount is
@@ -85,7 +86,9 @@ interval on `BillingCheckoutAttempt`, and sends that stored Price to Stripe.
 Changing tier or interval expires an incompatible active attempt so an older
 idempotency key cannot retain another selection. Checkout continues to use
 `payment_method_collection="always"` and passes the attempt's 30- or 90-day
-trial through `subscription_data.trial_period_days`.
+trial through `subscription_data.trial_period_days`. Checkout omits that field
+for Basic Yearly and standard Pro Monthly/Yearly so those selections charge
+when the customer subscribes.
 
 A synchronized subscription confirms an attempt only when ownership, exact
 Price, tier, and billing interval match. Unknown, mixed, duplicated, and

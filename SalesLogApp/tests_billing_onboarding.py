@@ -278,7 +278,7 @@ class BillingSignupOnboardingTests(TestCase):
         self.assertTrue(second.url.startswith('https://checkout.stripe.com/'))
         self.assertEqual(BillingCheckoutAttempt.objects.filter(user=user).count(), 1)
         attempt.refresh_from_db()
-        self.assertEqual(attempt.trial_days, 30)
+        self.assertEqual(attempt.trial_days, 0)
         self.assertIsNone(
             user.billing_access.introductory_benefit_consumed_at
         )

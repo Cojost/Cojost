@@ -11,6 +11,7 @@ from django.utils import timezone
 
 from .email_verification import has_verified_canonical_email
 from .billing_plans import (
+    BASIC,
     MONTH,
     PRO,
     BillingPlanError,
@@ -166,7 +167,7 @@ def reserve_checkout_attempt(user, tier=None, billing_interval=None):
             founder_grant = redeemed_founder_grant
             trial_kind = BillingCheckoutAttempt.FOUNDER
             trial_days = founder_grant.trial_days
-        else:
+        elif selected_tier == BASIC and selected_billing_interval == MONTH:
             trial_kind = BillingCheckoutAttempt.STANDARD
             trial_days = settings.BILLING_STANDARD_TRIAL_DAYS
 

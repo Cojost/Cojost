@@ -35,7 +35,7 @@
 <section class="card billing-plan-card{% if plan.tier == 'pro' %} billing-plan-card-pro{% endif %}">
     <h3>{{ plan.name }}{% if plan.tier == 'pro' and configuration.tiered_pricing_enabled %} <span class="status-pill">Recommended</span>{% endif %}</h3>
     <p>{{ plan.description }}</p>
-    {% if billing.introductory_benefit_consumed %}<p>Your introductory benefit has already been used. A new eligible subscription starts without another trial.</p>{% elif billing.founder_redeemed %}<p>Your server-verified founder grant provides a {{ billing.offered_trial_days }}-day trial.</p>{% else %}<p>Eligible accounts receive a {{ standard_trial_days }}-day introductory trial.</p>{% endif %}
+    {% if billing.introductory_benefit_consumed %}<p>Your introductory benefit has already been used. A new eligible subscription starts without another trial.</p>{% elif billing.founder_redeemed %}<p>Your server-verified founder grant provides a {{ billing.offered_trial_days }}-day trial on either Pro billing interval.</p>{% elif plan.tier == 'basic' %}<p>Basic Monthly includes a {{ standard_trial_days }}-day introductory trial. Basic Yearly starts without a trial.</p>{% else %}<p>Standard Pro subscriptions start without a trial.</p>{% endif %}
     <div class="billing-price-options">
     {% for option in plan.prices %}
         <div class="billing-price-option">
@@ -43,10 +43,10 @@
             {% if configuration.tiered_pricing_enabled and option.price.available %}
                 <p><strong>{{ option.price.formatted }}</strong>{% if option.billing_interval == 'year' %} total, billed yearly{% endif %}</p>
                 {% if option.price.equivalent_monthly_formatted %}<p>{{ option.price.equivalent_monthly_formatted }}</p>{% endif %}
-                {% if billing.introductory_benefit_consumed %}
-                    {% if option.billing_interval == 'year' %}<p>A payment method is required. Stripe will charge the full {{ option.price.formatted }} when billing starts.</p>{% else %}<p>A payment method is required. Stripe will charge {{ option.price.formatted }} when billing starts.</p>{% endif %}
+                {% if option.trial_days %}
+                    {% if option.billing_interval == 'year' %}<p>A payment method is required. After your {{ option.trial_days }}-day trial, Stripe will charge the full {{ option.price.formatted }} unless you cancel first.</p>{% else %}<p>A payment method is required. Stripe will charge {{ option.price.formatted }} after your {{ option.trial_days }}-day trial unless you cancel first.</p>{% endif %}
                 {% else %}
-                    {% if option.billing_interval == 'year' %}<p>A payment method is required. After your {{ billing.offered_trial_days }}-day trial, Stripe will charge the full {{ option.price.formatted }} unless you cancel first.</p>{% else %}<p>A payment method is required. Stripe will charge {{ option.price.formatted }} after your {{ billing.offered_trial_days }}-day trial unless you cancel first.</p>{% endif %}
+                    {% if option.billing_interval == 'year' %}<p>No trial. A payment method is required, and Stripe will charge the full {{ option.price.formatted }} when you subscribe.</p>{% else %}<p>No trial. A payment method is required, and Stripe will charge {{ option.price.formatted }} when you subscribe.</p>{% endif %}
                 {% endif %}
             {% else %}
                 <p>A payment method is required. Stripe Checkout shows the current price before you confirm.</p>

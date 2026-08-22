@@ -21,7 +21,8 @@ class PublicLandingPageTests(TestCase):
 
         self.assertContains(response, f'href="{reverse("account_login")}"')
         self.assertContains(response, f'href="{reverse("account_signup")}"')
-        self.assertContains(response, 'Start your 30-day trial')
+        self.assertContains(response, 'Try Basic Monthly for 30 days')
+        self.assertContains(response, 'Other standard plans start without a trial')
         self.assertContains(response, 'payment method is collected')
         self.assertContains(
             response,

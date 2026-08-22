@@ -38,7 +38,7 @@
       </nav>
       <nav class="header-actions" aria-label="Account links">
         <a class="text-link" href="{% url 'account_login' %}">Sign in</a>
-        <a class="button button-small" href="{% url 'account_signup' %}">Start free trial</a>
+        <a class="button button-small" href="{% url 'account_signup' %}">Create account</a>
       </nav>
     </header>
 
@@ -48,7 +48,7 @@
         <h1>Know your commission <span>before payday.</span></h1>
         <p class="hero-lede">StewLog turns your deals and your pay plan into a clear, running estimate—so you can track every dollar, follow every bonus, and walk into payday with confidence.</p>
         <div class="hero-actions">
-          <a class="button button-primary" href="{% url 'account_signup' %}">Start your 30-day trial <span aria-hidden="true">→</span></a>
+          <a class="button button-primary" href="{% url 'account_signup' %}">Try Basic Monthly for 30 days <span aria-hidden="true">→</span></a>
           <a class="button button-secondary" href="#preview">See how it works</a>
         </div>
         <ul class="trust-list" aria-label="StewLog highlights">
@@ -110,7 +110,7 @@
       <div class="section-heading section-heading-compact">
         <p class="section-kicker">Simple monthly or yearly plans</p>
         <h2 id="pricing-heading">Start where you are. Upgrade when you want more coaching.</h2>
-        <p>Both plans begin with an eligible {{ standard_trial_days }}-day trial. A payment method is required, and Stripe confirms your choice before you start.</p>
+        <p>Basic Monthly includes an eligible {{ standard_trial_days }}-day trial. Other standard plans start without a trial. A payment method is required, and Stripe confirms your choice before you subscribe.</p>
       </div>
       <div class="public-pricing-grid">
         {% for plan in public_plans %}
@@ -119,16 +119,16 @@
           <div class="public-price-choice">
             <span>Monthly</span>
             <strong>{{ plan.monthly_price.formatted }}</strong>
-            <small>Charged after the {{ standard_trial_days }}-day trial unless canceled.</small>
+            {% if plan.name == 'Basic' %}<small>Charged after the {{ standard_trial_days }}-day trial unless canceled.</small>{% else %}<small>No standard trial. Charged when you subscribe.</small>{% endif %}
           </div>
           <div class="public-price-choice">
             <span>Yearly</span>
             <strong>{{ plan.yearly_price.formatted }} total</strong>
             <small>{{ plan.yearly_price.equivalent_monthly_formatted }} · billed yearly</small>
-            <small>After the {{ standard_trial_days }}-day trial, the full {{ plan.yearly_price.formatted }} is charged unless canceled.</small>
+            <small>No standard trial. The full {{ plan.yearly_price.formatted }} is charged when you subscribe.</small>
           </div>
           <p>{{ plan.description }}</p>
-          <a class="button button-primary" href="{% url 'account_signup' %}">Start {{ standard_trial_days }}-day trial</a>
+          <a class="button button-primary" href="{% url 'account_signup' %}">View {{ plan.name }} plans</a>
         </article>
         {% endfor %}
       </div>
@@ -188,10 +188,10 @@
       <div class="trial-copy">
         <p class="section-kicker section-kicker-light">Your next month can be clearer</p>
         <h2>Stop guessing. Start tracking.</h2>
-        <p>Try StewLog for 30 days and see your deals, pay plan, bonuses, and estimated earnings come together in one place.</p>
+        <p>Try StewLog Basic Monthly for 30 days and see your deals, pay plan, bonuses, and estimated earnings come together in one place.</p>
       </div>
       <div class="trial-action">
-        <a class="button button-trial" href="{% url 'account_signup' %}">Start your 30-day trial <span aria-hidden="true">→</span></a>
+        <a class="button button-trial" href="{% url 'account_signup' %}">Try Basic Monthly for 30 days <span aria-hidden="true">→</span></a>
         <small>Current plan options and pricing are shown before you confirm checkout.</small>
       </div>
     </section>
@@ -217,7 +217,7 @@
         </details>
         <details>
           <summary>Do I need a payment method for the trial?<span aria-hidden="true">+</span></summary>
-          <p>Yes. You will see the current plan and price before confirming, and a payment method is collected when you begin your 30-day trial.</p>
+          <p>Yes. Basic Monthly includes the 30-day trial. Other standard plans start without a trial. You will see the selected plan and price before confirming, and a payment method is collected at Checkout.</p>
         </details>
       </div>
     </section>
@@ -227,13 +227,13 @@
       <p>Track every deal. Understand every dollar.</p>
       <nav aria-label="Footer links">
         <a href="{% url 'account_login' %}">Sign in</a>
-        <a href="{% url 'account_signup' %}">Start trial</a>
+        <a href="{% url 'account_signup' %}">Create account</a>
         <a href="#faq">FAQ</a>
       </nav>
       <small>© 2026 StewLog. Commission figures are estimates based on information entered by the user.</small>
     </footer>
 
-    <a class="mobile-trial-bar" href="{% url 'account_signup' %}">Start your 30-day trial <span aria-hidden="true">→</span></a>
+    <a class="mobile-trial-bar" href="{% url 'account_signup' %}">Try Basic Monthly for 30 days <span aria-hidden="true">→</span></a>
   </main>
 </body>
 </html>

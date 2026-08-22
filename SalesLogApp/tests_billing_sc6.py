@@ -179,7 +179,7 @@ class ProUpgradePromptTests(TestCase):
         _create_price(unit_amount=199)
         response = self.client.get(self.dashboard)
         self.assertContains(response, self.PROMPT_TEXT)
-        self.assertContains(response, '30-day free trial')
+        self.assertContains(response, 'Standard Pro subscriptions start without a trial')
         self.assertNotContains(response, '$1.99 USD per month')
         self.assertContains(
             response, 'Stripe Checkout shows the current price',

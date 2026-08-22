@@ -1,12 +1,12 @@
 {% extends "account/base_entrance.html" %}
 {% load i18n socialaccount %}
 
-{% block head_title %}Start your trial{% endblock head_title %}
+{% block head_title %}Create your account{% endblock head_title %}
 
 {% block content %}
     <div class="auth-card-heading">
         <p class="auth-card-kicker">Your next month can be clearer</p>
-        <h2>Start your 30-day trial</h2>
+        <h2>Create your StewLog account</h2>
         <p>Create your StewLog account and take control of your commission.</p>
     </div>
 
@@ -40,7 +40,7 @@
 
     <div class="auth-checkout-note">
         <span aria-hidden="true">✓</span>
-        <p>A payment method is required at checkout. Your current plan and price will be shown before you confirm.</p>
+        <p>Basic Monthly includes a 30-day trial. Other standard plans start without a trial. A payment method is required, and Stripe shows the selected plan and price before you confirm.</p>
     </div>
     <p class="auth-switch">Already have an account? <a href="{{ login_url }}">Sign in</a></p>
 {% endblock content %}

@@ -24,12 +24,14 @@ class BrandedAccountExperienceTests(TestCase):
         response = self.client.get(reverse('account_signup'))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'Start your 30-day trial')
+        self.assertContains(response, 'Create your StewLog account')
+        self.assertContains(response, 'Basic Monthly includes a 30-day trial')
+        self.assertContains(response, 'Other standard plans start without a trial')
         self.assertContains(response, 'Create account and continue')
-        self.assertContains(response, 'A payment method is required at checkout.')
+        self.assertContains(response, 'A payment method is required')
         self.assertContains(
             response,
-            'Your current plan and price will be shown before you confirm.',
+            'Stripe shows the selected plan and price before you confirm.',
         )
         self.assertContains(response, reverse('account_login'))
         self.assertNotContains(response, '$7.99')
