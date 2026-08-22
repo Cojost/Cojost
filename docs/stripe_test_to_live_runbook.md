@@ -9,11 +9,11 @@ validation.
 ## Current handoff state
 
 The application foundation and mocked automated tests are implemented. The
-`STEW Log Development` sandbox, its recurring monthly test Price, private test
-credentials, and sandbox Customer Portal were prepared manually. No webhook
-has been created. No Stripe API request or dashboard change was made by this
-implementation work. Billing feature, enforcement, and Teams flags remain
-false.
+`STEW Log Development` sandbox, its earlier recurring monthly test Price,
+private test credentials, and sandbox Customer Portal were prepared manually.
+No BILL-3 Price or webhook was created by this implementation work. No Stripe
+API request or dashboard change was made. Billing feature, onboarding,
+enforcement, tiered-pricing, and Teams flags remain false.
 
 ## One-time dj-stripe migration bridge
 
@@ -55,28 +55,34 @@ include the not-yet-applied 0054 migration in either intermediate deployment.
    ```
 
    Confirm `djstripe.0003_2_11`, `SalesLogApp.0054_billing_foundation`,
-   `SalesLogApp.0060_billingaccess_onboarding_required_at`, and
-   `SalesLogApp.0061_billingcheckoutattempt_selected_plan` are applied.
-3. Configure the private environment with `STRIPE_LIVE_MODE=false`, the sandbox
-   publishable/secret keys, and that sandbox's recurring Price ID. Keep the live
-   variables empty or private placeholders in the deployment system. Keep both
-   billing flags false.
-4. Restart and run `python manage.py check` and
+   `SalesLogApp.0060_billingaccess_onboarding_required_at`,
+   `SalesLogApp.0061_billingcheckoutattempt_selected_plan`, and
+   `SalesLogApp.0062_billingcheckoutattempt_selected_billing_interval` are
+   applied.
+3. In Stripe sandbox, create or approve four recurring USD Prices: Basic month
+   at $4.99, Basic year at $49.00, Pro month at $9.99, and Pro year at $99.00.
+   Do not create Prices from application code. Record their identifiers only in
+   the deployment's private controls.
+4. Configure the private environment with `STRIPE_LIVE_MODE=false`, the sandbox
+   publishable/secret keys, all four BILL-3 Price settings, and the complete
+   `STRIPE_LEGACY_PRO_PRICE_IDS` allowlist. Keep live values empty or private
+   placeholders. Keep every billing rollout flag false.
+5. Restart and run `python manage.py check` and
    `python manage.py billing_readiness --json`. Inspect boolean readiness only;
    do not paste the environment or command internals into a ticket.
-5. In an explicitly authorized sandbox maintenance window, synchronize only the
-   existing Product and Price into dj-stripe:
+6. In an explicitly authorized sandbox maintenance window, synchronize only the
+   existing Products and Prices into dj-stripe:
 
    ```powershell
    python manage.py djstripe_sync_models Product Price
    ```
 
-   This command makes sandbox Stripe API reads. Before BILL-2 is enabled,
-   verify the new Basic and Pro Prices are recurring, monthly, USD, and
-   synchronized as $3.99 and $7.99. Preserve the former single Price in
-   `STRIPE_LEGACY_PRO_PRICE_IDS` without copying identifiers into logs or
-   tickets. The command does not create a Product or Price.
-6. In Django admin, add a dj-stripe Webhook Endpoint with:
+   This command makes sandbox Stripe API reads. Verify all four rows are active,
+   in test mode, recurring, USD, interval count one, and synchronized at the
+   approved amount and month/year interval. Preserve every uninterrupted former
+   Price in `STRIPE_LEGACY_PRO_PRICE_IDS` without copying identifiers into logs
+   or tickets. The command does not create a Product or Price.
+7. In Django admin, add a dj-stripe Webhook Endpoint with:
 
    - base URL `https://stewlog.com` (or the deliberate sandbox deployment
      origin);
@@ -90,8 +96,9 @@ include the not-yet-applied 0054 migration in either intermediate deployment.
    secret in the database. Confirm the final remote URL is exactly
    `https://stewlog.com/stripe/webhook/<uuid>/`, has no redirect, and is the
    test-mode endpoint. Never reveal the UUID or secret in public logs.
-7. Re-run readiness. Confirm route, endpoint, signing secret, signature
-   verification, configuration, and both required migrations report ready.
+8. Re-run readiness. Confirm route, endpoint, signing secret, signature
+   verification, configuration, all required migrations, and all four local
+   Price policy checks report ready.
    Verify the sandbox Customer Portal can update a payment method and cancel a
    subscription using the intended policy.
 
@@ -104,17 +111,19 @@ remain server-only; this implementation does not render the publishable key.
 
 ## Sandbox acceptance tests
 
-Enable `BILLING_FEATURE_ENABLED=true` only after the preparation checklist is
-green. Keep `BILLING_ENFORCEMENT_ENABLED=false` and
-`BILLING_ONBOARDING_ENABLED=false`, `BILLING_TIERED_PRICING_ENABLED=false`,
-and `TEAMS_FEATURE_ENABLED=false`.
+Start with every rollout flag false. Only after the preparation checklist is
+green and sandbox acceptance is explicitly authorized, enable
+`BILLING_FEATURE_ENABLED=true` and `BILLING_TIERED_PRICING_ENABLED=true` for
+the isolated BILL-3 validation. Keep `BILLING_ENFORCEMENT_ENABLED=false`,
+`BILLING_ONBOARDING_ENABLED=false`, and `TEAMS_FEATURE_ENABLED=false`.
 
 Use separate test users and Stripe test payment methods. Verify:
 
-1. A standard user receives a 30-day subscription trial, Checkout requires a
-   payment method, and the configured test Price is the only line item.
-2. A newly redeemed founder code receives 90 days, is single-use, and does not
-   stack with another introductory benefit.
+1. Each Basic/Pro monthly/yearly selection receives the exact server-selected
+   Price as its only line item, a 30-day trial, and required payment method.
+   Browser-submitted Price values and mixed selections must fail before Stripe.
+2. A newly redeemed founder code receives 90 days, is single-use, does not
+   stack, rejects Basic, and permits either Pro billing interval.
 3. Abandoning or canceling Checkout and refreshing either result page do not
    consume the trial or grant access.
 4. A completed checkout remains pending until its signed subscription event is
@@ -140,16 +149,17 @@ Use separate test users and Stripe test payment methods. Verify:
 Run the full Django suite with network access disabled or Stripe calls mocked.
 Record counts and failures, not identifiers or payloads.
 
-## BILL-2 tiered-pricing rollout
+## BILL-3 annual-pricing rollout
 
-Complete the separate [BILL-2 checklist](billing-bill2.md), then enable
-`BILLING_TIERED_PRICING_ENABLED=true` while onboarding and general enforcement
-remain unchanged. Verify a new Basic checkout uses the synchronized $3.99
-Price and does not unlock Pro features; a new Pro checkout uses $7.99 and does;
-and an uninterrupted subscription on the former Price remains Pro. Confirm the
-legacy Price is never offered to a new checkout. Roll back by disabling only
-the tiered-pricing flag; do not remove legacy Price IDs or reverse migration
-`0061` during an incident.
+Complete the separate [BILL-3 checklist](billing-bill3.md). Enabling
+`BILLING_TIERED_PRICING_ENABLED=true` requires separate rollout authorization;
+onboarding and general enforcement remain unchanged. Verify all four checkout
+selections and their post-trial messaging, confirm Basic never unlocks Pro
+features, confirm both Pro intervals do, and confirm an uninterrupted
+subscription on an allowlisted former Price remains Pro. Confirm no legacy
+Price is offered to new Checkout. Roll back by disabling only the
+tiered-pricing flag; do not remove legacy Price values or reverse migrations
+`0061` or `0062` during an incident.
 
 ## CXP-2B signup-onboarding rollout
 
@@ -170,7 +180,7 @@ do not delete cohort timestamps or reverse migration `0060`.
 
 Enforcement is not authorized merely because Checkout works. Before enabling
 it, approve the product access policy, support process, grace-period behavior,
-monitoring, rollback owner, and user communication. BILL-2 owns the Basic/Pro
+monitoring, rollback owner, and user communication. BILL-3 owns the Basic/Pro
 entitlement split; enforcement remains a separate rollout decision.
 
 When separately approved:
@@ -190,19 +200,21 @@ When separately approved:
 
 Do not reuse any sandbox object. In Stripe live mode:
 
-1. Create/approve the live Product and recurring monthly Price and configure the
-   live Customer Portal after Stripe account activation and business
-   verification. Confirm price, currency, interval, taxes, cancellation,
-   refunds, statement descriptor, customer emails, and trial messaging.
-2. Place the live publishable key and live secret key in the deployment's
-   private variables. Prepare the live Price ID for the approved change window.
+1. Create/approve the live Products and four recurring BILL-3 Prices and
+   configure the live Customer Portal after Stripe account activation and
+   business verification. Confirm amount, currency, month/year interval, taxes,
+   cancellation, refunds, statement descriptor, customer emails, and trial and
+   full-year charge messaging.
+2. Place the live publishable key, live secret key, four live Price values, and
+   complete live legacy-Pro allowlist in the deployment's private variables.
+   Prepare them for the approved change window without copying them to tickets.
 3. With billing UI and enforcement still false, switch
-   `STRIPE_LIVE_MODE=true` and the selected Price setting to the live Price,
-   then restart. Run system/readiness checks; an endpoint-missing result is
-   expected at this intermediate point, and no billing route can make a session
-   while the UI flag is false.
+   `STRIPE_LIVE_MODE=true` and all four current Price settings to their live
+   values, then restart. Run system/readiness checks; an endpoint-missing result
+   is expected at this intermediate point, and no billing route can make a
+   session while the UI flag is false.
 4. In an explicitly authorized live maintenance window, synchronize the
-   existing live Product/Price, then create a separate live dj-stripe Webhook
+   existing live Products/Prices, then create a separate live dj-stripe Webhook
    Endpoint through Django admin with live mode checked, signature verification,
    and only the seven required events. Confirm its exact production UUID route
    and securely stored, distinct signing secret. Re-run readiness; test-mode

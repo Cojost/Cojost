@@ -140,6 +140,14 @@ def _billing_operational_errors():
             not in applied
         ):
             errors.append('the tiered-pricing migration is not applied')
+        if (
+            settings.BILLING_TIERED_PRICING_ENABLED
+            and (
+                'SalesLogApp',
+                '0062_billingcheckoutattempt_selected_billing_interval',
+            ) not in applied
+        ):
+            errors.append('the annual-billing migration is not applied')
         if ('djstripe', '0003_2_11') not in applied:
             errors.append('the required dj-stripe migration is not applied')
         webhook_ready = WebhookEndpoint.objects.filter(

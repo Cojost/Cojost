@@ -185,10 +185,11 @@ class BillingAccessAdmin(admin.ModelAdmin):
 @admin.register(BillingCheckoutAttempt)
 class BillingCheckoutAttemptAdmin(admin.ModelAdmin):
     list_display = (
-        'public_id', 'user', 'selected_tier', 'trial_kind', 'trial_days', 'status',
-        'reservation_expires_at', 'confirmed_at',
+        'public_id', 'user', 'selected_tier', 'selected_billing_interval',
+        'trial_kind', 'trial_days', 'status', 'reservation_expires_at',
+        'confirmed_at',
     )
-    list_filter = ('status', 'trial_kind')
+    list_filter = ('status', 'trial_kind', 'selected_billing_interval')
     search_fields = ('user__username',)
     readonly_fields = [field.name for field in BillingCheckoutAttempt._meta.fields]
 

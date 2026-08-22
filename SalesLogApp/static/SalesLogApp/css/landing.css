@@ -166,6 +166,10 @@ h1 span { display: block; margin-top: 10px; color: var(--blue-600); }
 .public-price-card-pro { border-color: rgba(11,116,241,.35); box-shadow: 0 24px 55px rgba(7,83,188,.13); }
 .public-price-card strong { display: block; margin: 10px 0; color: var(--navy-950); font-size: clamp(1.65rem,4vw,2.3rem); letter-spacing: -.04em; }
 .public-price-card > p:not(.section-kicker) { min-height: 52px; color: var(--muted); line-height: 1.65; }
+.public-price-choice { margin: 18px 0; padding: 18px; border: 1px solid var(--line); border-radius: 16px; background: #f8fbff; }
+.public-price-choice > span { color: var(--blue-700); font-size: .76rem; font-weight: 850; letter-spacing: .08em; text-transform: uppercase; }
+.public-price-choice strong { font-size: clamp(1.3rem,3vw,1.9rem); }
+.public-price-choice small { display: block; margin-top: 7px; color: var(--muted); line-height: 1.5; }
 
 .founder-section { position: relative; display: grid; overflow: hidden; min-height: 470px; padding: 80px max(40px,calc((100vw - 1120px)/2)); grid-template-columns: 155px minmax(0,1fr) minmax(275px,.7fr); gap: 44px; align-items: center; background: radial-gradient(circle at 84% 10%,#154d9c 0%,transparent 30%),linear-gradient(120deg,#051733,#092a5f); color: #fff; }
 .founder-section::after { position: absolute; right: -120px; bottom: -330px; width: 620px; height: 620px; border: 1px solid rgba(255,255,255,.1); border-radius: 50%; content: ""; }

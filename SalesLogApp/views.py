@@ -74,6 +74,7 @@ from .ask_stew import AskStewAnswer, AskStewService
 from .ask_stew_entitlements import ask_stew_ai_required
 from .ask_stew_provider import ask_stew_provider_availability
 from .billing_entitlements import get_billing_entitlement
+from .billing_plans import BASIC, MONTH, PRO, YEAR
 from .billing_pricing import (
     display_plan_prices,
     display_price,
@@ -171,16 +172,21 @@ def landing_page(request):
             public_plans = (
                 {
                     'name': 'Basic',
-                    'price': prices['basic'],
+                    'monthly_price': prices[(BASIC, MONTH)],
+                    'yearly_price': prices[(BASIC, YEAR)],
                     'description': 'Track sales, pay-plan rules, and commission.',
                 },
                 {
                     'name': 'Pro',
-                    'price': prices['pro'],
+                    'monthly_price': prices[(PRO, MONTH)],
+                    'yearly_price': prices[(PRO, YEAR)],
                     'description': 'Add Activity & Goals and Stew Coach.',
                 },
             )
-    return render(request, 'landing_page.html', {'public_plans': public_plans})
+    return render(request, 'landing_page.html', {
+        'public_plans': public_plans,
+        'standard_trial_days': settings.BILLING_STANDARD_TRIAL_DAYS,
+    })
 
 
 def _is_internal_pay_plan_user(user):

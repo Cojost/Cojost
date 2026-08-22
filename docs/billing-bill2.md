@@ -1,5 +1,9 @@
 # BILL-2 — Basic, Pro, and grandfathered Pro pricing
 
+> BILL-3 supersedes the current public amounts and adds yearly billing. See
+> [BILL-3](billing-bill3.md). This document remains the historical rollout and
+> grandfathering foundation.
+
 BILL-2 introduces two Stripe-backed monthly plans while preserving every
 uninterrupted subscription on the former single Price as Pro.
 

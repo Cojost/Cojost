@@ -38,8 +38,10 @@ TIERED_SETTINGS = {
     'STRIPE_LIVE_MODE': False,
     'STRIPE_TEST_PUBLIC_KEY': 'pk_test_bill2public123',
     'STRIPE_TEST_SECRET_KEY': 'sk_test_bill2secret123',
-    'STRIPE_BASIC_MONTHLY_PRICE_ID': 'price_basic399',
-    'STRIPE_PRO_MONTHLY_PRICE_ID': 'price_pro799',
+    'STRIPE_BASIC_MONTHLY_PRICE_ID': 'price_basic499',
+    'STRIPE_BASIC_YEARLY_PRICE_ID': 'price_basic4900',
+    'STRIPE_PRO_MONTHLY_PRICE_ID': 'price_pro999',
+    'STRIPE_PRO_YEARLY_PRICE_ID': 'price_pro9900',
     'STRIPE_LEGACY_PRO_PRICE_IDS': ['price_legacyinitial'],
     'BILLING_STANDARD_TRIAL_DAYS': 30,
     'BILLING_FOUNDER_TRIAL_DAYS': 90,
@@ -47,7 +49,9 @@ TIERED_SETTINGS = {
 }
 
 
-def create_price(price_id, cents, *, product_id, active=True):
+def create_price(
+    price_id, cents, *, product_id, active=True, interval='month',
+):
     product = Product.objects.create(
         id=product_id,
         name=product_id,
@@ -67,19 +71,27 @@ def create_price(price_id, cents, *, product_id, active=True):
             'unit_amount_decimal': str(cents),
             'currency': 'usd',
             'type': 'recurring',
-            'recurring': {'interval': 'month', 'interval_count': 1},
+            'recurring': {'interval': interval, 'interval_count': 1},
         },
     )
 
 
 def create_current_price_rows():
-    create_price('price_basic399', 399, product_id='prod_bill2_basic')
-    create_price('price_pro799', 799, product_id='prod_bill2_pro')
+    create_price('price_basic499', 499, product_id='prod_bill2_basic_month')
+    create_price(
+        'price_basic4900', 4900, product_id='prod_bill2_basic_year',
+        interval='year',
+    )
+    create_price('price_pro999', 999, product_id='prod_bill2_pro_month')
+    create_price(
+        'price_pro9900', 9900, product_id='prod_bill2_pro_year',
+        interval='year',
+    )
 
 
 class Bill2ConfigurationTests(SimpleTestCase):
     @override_settings(**TIERED_SETTINGS)
-    def test_two_distinct_prices_and_legacy_allowlist_are_required(self):
+    def test_four_distinct_prices_and_legacy_allowlist_are_required(self):
         configuration = billing_configuration()
         self.assertTrue(configuration.ready)
         self.assertTrue(configuration.tiered_pricing_enabled)
@@ -95,9 +107,9 @@ class Bill2ConfigurationTests(SimpleTestCase):
 
     @override_settings(**{
         **TIERED_SETTINGS,
-        'STRIPE_PRO_MONTHLY_PRICE_ID': 'price_basic399',
+        'STRIPE_PRO_MONTHLY_PRICE_ID': 'price_basic499',
     })
-    def test_basic_and_pro_cannot_share_one_price(self):
+    def test_current_prices_cannot_share_one_price(self):
         configuration = billing_configuration()
         self.assertFalse(configuration.ready)
         self.assertIn('must be different', '; '.join(configuration.errors))
@@ -134,27 +146,47 @@ class Bill2SynchronizedPriceTests(TestCase):
         self.assertNotIn(settings.STRIPE_LEGACY_PRO_PRICE_IDS[0], rendered)
 
     def test_wrong_pro_amount_fails_without_rendering_wrong_policy(self):
-        create_price('price_basic399', 399, product_id='prod_wrong_basic')
-        create_price('price_pro799', 899, product_id='prod_wrong_pro')
+        create_current_price_rows()
+        Price.objects.filter(id='price_pro999').update(
+            stripe_data={
+                'id': 'price_pro999',
+                'unit_amount': 899,
+                'unit_amount_decimal': '899',
+                'currency': 'usd',
+                'type': 'recurring',
+                'recurring': {'interval': 'month', 'interval_count': 1},
+            },
+        )
         self.assertIn(
-            'the synchronized pro monthly Price does not match policy',
+            'the synchronized pro monthly Price has the wrong amount',
             synchronized_plan_price_errors(),
         )
 
     def test_system_check_rejects_wrong_synchronized_amount(self):
-        create_price('price_basic399', 399, product_id='prod_check_basic')
-        create_price('price_pro799', 899, product_id='prod_check_pro')
+        create_current_price_rows()
+        Price.objects.filter(id='price_pro999').update(
+            stripe_data={
+                'id': 'price_pro999',
+                'unit_amount': 899,
+                'unit_amount_decimal': '899',
+                'currency': 'usd',
+                'type': 'recurring',
+                'recurring': {'interval': 'month', 'interval_count': 1},
+            },
+        )
         self.webhook()
         messages = billing_configuration_check(None)
         self.assertEqual([message.id for message in messages], ['SalesLogApp.E003'])
-        self.assertIn('does not match policy', str(messages[0]))
+        self.assertIn('has the wrong amount', str(messages[0]))
 
     def test_public_landing_displays_both_synchronized_plan_prices(self):
         create_current_price_rows()
         response = self.client.get(reverse('landing_page'))
-        self.assertContains(response, '$3.99 USD per month')
-        self.assertContains(response, '$7.99 USD per month')
-        self.assertContains(response, 'Simple monthly plans')
+        self.assertContains(response, '$4.99 USD per month')
+        self.assertContains(response, '$49.00 USD per year')
+        self.assertContains(response, '$9.99 USD per month')
+        self.assertContains(response, '$99.00 USD per year')
+        self.assertContains(response, 'Simple monthly or yearly plans')
 
 
 @override_settings(**TIERED_SETTINGS)
@@ -205,7 +237,7 @@ class Bill2EntitlementTests(TestCase):
 
     def test_basic_subscription_has_access_without_pro_features(self):
         subscription = self.subscription(
-            'price_basic399', suffix='basic',
+            'price_basic499', suffix='basic',
             current_period_end=timezone.now() + timedelta(days=30),
         )
         entitlement = self.entitlement_for(subscription)
@@ -217,7 +249,7 @@ class Bill2EntitlementTests(TestCase):
 
     def test_current_pro_subscription_has_pro_access(self):
         subscription = self.subscription(
-            'price_pro799', suffix='pro',
+            'price_pro999', suffix='pro',
             current_period_end=timezone.now() + timedelta(days=30),
         )
         entitlement = self.entitlement_for(subscription)
@@ -249,11 +281,11 @@ class Bill2EntitlementTests(TestCase):
 
     def test_mixed_basic_and_pro_subscription_fails_closed(self):
         subscription = self.subscription(
-            'price_basic399', suffix='mixed',
+            'price_basic499', suffix='mixed',
             current_period_end=timezone.now() + timedelta(days=30),
         )
         subscription.stripe_data['items']['data'].append({
-            'price': {'id': 'price_pro799'},
+            'price': {'id': 'price_pro999'},
         })
         subscription.save(update_fields=['stripe_data'])
         self.assertFalse(classify_subscription_plan(subscription).eligible)
@@ -261,7 +293,7 @@ class Bill2EntitlementTests(TestCase):
 
     def test_valid_and_unknown_price_subscription_fails_closed(self):
         subscription = self.subscription(
-            'price_pro799', suffix='unknown_addon',
+            'price_pro999', suffix='unknown_addon',
             current_period_end=timezone.now() + timedelta(days=30),
         )
         subscription.stripe_data['items']['data'].append({
@@ -312,18 +344,16 @@ class Bill2CheckoutTests(TestCase):
             url='https://checkout.stripe.com/c/pay/bill2-basic'
         )
         response = self.client.post(reverse('billing_checkout_start'), {
-            'plan': BASIC,
-            'price': 'price_attacker',
-            'tier': PRO,
+            'tier': BASIC,
+            'billing_interval': 'month',
         })
         self.assertTrue(response.url.startswith('https://checkout.stripe.com/'))
         attempt = BillingCheckoutAttempt.objects.get(user=self.user)
         self.assertEqual(attempt.selected_tier, BASIC)
-        self.assertEqual(attempt.selected_price_id, 'price_basic399')
+        self.assertEqual(attempt.selected_price_id, 'price_basic499')
         kwargs = create_session.call_args.kwargs
-        self.assertEqual(kwargs['line_items'][0]['price'], 'price_basic399')
+        self.assertEqual(kwargs['line_items'][0]['price'], 'price_basic499')
         self.assertEqual(kwargs['metadata']['selected_tier'], BASIC)
-        self.assertNotIn('price_attacker', str(kwargs))
 
     @patch('SalesLogApp.billing_views.customer_for_user')
     @patch('SalesLogApp.billing_gateway.stripe.checkout.Session.create')
@@ -334,14 +364,21 @@ class Bill2CheckoutTests(TestCase):
         create_session.return_value = SimpleNamespace(
             url='https://checkout.stripe.com/c/pay/bill2-pro'
         )
-        self.client.post(reverse('billing_checkout_start'), {'plan': PRO})
+        self.client.post(reverse('billing_checkout_start'), {
+            'tier': PRO,
+            'billing_interval': 'month',
+        })
         attempt = BillingCheckoutAttempt.objects.get(user=self.user)
         self.assertEqual(attempt.selected_tier, PRO)
-        self.assertEqual(attempt.selected_price_id, 'price_pro799')
+        self.assertEqual(attempt.selected_price_id, 'price_pro999')
 
     @patch('SalesLogApp.billing_gateway.stripe.checkout.Session.create')
     def test_missing_or_unknown_plan_fails_before_stripe(self, create_session):
-        for payload in ({}, {'plan': 'founder_pro'}, {'plan': 'price_pro799'}):
+        for payload in (
+            {},
+            {'tier': 'founder_pro', 'billing_interval': 'month'},
+            {'tier': 'price_pro999', 'billing_interval': 'month'},
+        ):
             with self.subTest(payload=payload):
                 response = self.client.post(
                     reverse('billing_checkout_start'), payload, follow=True,
@@ -356,14 +393,17 @@ class Bill2CheckoutTests(TestCase):
         first.refresh_from_db()
         self.assertTrue(created)
         self.assertEqual(first.status, BillingCheckoutAttempt.EXPIRED)
-        self.assertEqual(second.selected_price_id, 'price_pro799')
+        self.assertEqual(second.selected_price_id, 'price_pro999')
 
     @patch('SalesLogApp.billing_gateway.stripe.checkout.Session.create')
     def test_founder_cannot_select_basic_price(self, create_session):
         grant, raw_code = generate_founder_grant()
         redeem_founder_code(self.user, raw_code)
         response = self.client.post(
-            reverse('billing_checkout_start'), {'plan': BASIC}, follow=True,
+            reverse('billing_checkout_start'), {
+                'tier': BASIC,
+                'billing_interval': 'month',
+            }, follow=True,
         )
         self.assertContains(response, 'Choose an available StewLog plan.')
         self.assertFalse(BillingCheckoutAttempt.objects.filter(user=self.user).exists())
@@ -390,7 +430,7 @@ class Bill2CheckoutTests(TestCase):
             'current_period_end': int(
                 (timezone.now() + timedelta(days=30)).timestamp()
             ),
-            'items': {'data': [{'price': {'id': 'price_basic399'}}]},
+            'items': {'data': [{'price': {'id': 'price_basic499'}}]},
         }
         subscription = Subscription.objects.create(
             id=data['id'], customer=customer, livemode=False, stripe_data=data,

@@ -11,11 +11,12 @@ from django.utils import timezone
 
 from .email_verification import has_verified_canonical_email
 from .billing_plans import (
+    MONTH,
     PRO,
     BillingPlanError,
-    checkout_tiers,
+    checkout_selections,
     classify_subscription_plan,
-    price_id_for_checkout_tier,
+    price_id_for_checkout_selection,
     subscription_uses_price,
 )
 from .models import BillingAccess, BillingCheckoutAttempt, FounderGrant
@@ -104,7 +105,7 @@ def _expire_stale_attempts(user, now):
 
 
 @transaction.atomic
-def reserve_checkout_attempt(user, tier=None):
+def reserve_checkout_attempt(user, tier=None, billing_interval=None):
     if not has_verified_canonical_email(user):
         raise BillingPolicyError(
             'Verify your account email before starting billing.'
@@ -126,10 +127,16 @@ def reserve_checkout_attempt(user, tier=None):
         and access.introductory_benefit_consumed_at is None
     )
     selected_tier = tier or PRO
-    if selected_tier not in checkout_tiers(founder=founder_eligible):
+    selected_billing_interval = billing_interval or MONTH
+    if (
+        selected_tier,
+        selected_billing_interval,
+    ) not in checkout_selections(founder=founder_eligible):
         raise BillingPolicyError('The selected plan is unavailable.')
     try:
-        selected_price_id = price_id_for_checkout_tier(selected_tier)
+        selected_price_id = price_id_for_checkout_selection(
+            selected_tier, selected_billing_interval,
+        )
     except BillingPlanError as exc:
         raise BillingPolicyError('The selected plan is unavailable.') from exc
     if not selected_price_id:
@@ -144,6 +151,7 @@ def reserve_checkout_attempt(user, tier=None):
     if existing:
         if (
             existing.selected_tier == selected_tier
+            and existing.selected_billing_interval == selected_billing_interval
             and existing.selected_price_id == selected_price_id
         ):
             return existing, False
@@ -168,6 +176,7 @@ def reserve_checkout_attempt(user, tier=None):
         trial_kind=trial_kind,
         trial_days=trial_days,
         selected_tier=selected_tier,
+        selected_billing_interval=selected_billing_interval,
         selected_price_id=selected_price_id,
         reservation_expires_at=(
             now + timedelta(minutes=settings.BILLING_CHECKOUT_RESERVATION_MINUTES)
@@ -237,6 +246,13 @@ def finalize_introductory_benefit(
             raise BillingPolicyError('Subscription Price could not be verified.')
     if plan.tier != attempt.selected_tier:
         raise BillingPolicyError('Subscription tier could not be verified.')
+    if (
+        attempt.selected_price_id
+        and plan.billing_interval != attempt.selected_billing_interval
+    ):
+        raise BillingPolicyError(
+            'Subscription billing interval could not be verified.'
+        )
     access, _ = BillingAccess.objects.select_for_update().get_or_create(
         user_id=attempt.user_id
     )

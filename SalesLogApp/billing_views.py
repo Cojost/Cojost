@@ -15,7 +15,14 @@ from .billing_onboarding import (
     billing_onboarding_handoff_name,
     billing_onboarding_marked,
 )
-from .billing_plans import BASIC, PRO, checkout_tiers
+from .billing_plans import (
+    BASIC,
+    MONTH,
+    PRO,
+    YEAR,
+    checkout_intervals,
+    checkout_tiers,
+)
 from .billing_pricing import (
     display_plan_prices,
     display_price,
@@ -59,8 +66,15 @@ class BillingOverviewView:
 class BillingPlanOption:
     tier: str
     name: str
-    price: object
     description: str
+    prices: tuple
+
+
+@dataclass(frozen=True)
+class BillingIntervalOption:
+    billing_interval: str
+    name: str
+    price: object
 
 
 def billing_feature_required(view_func):
@@ -139,8 +153,21 @@ def _plan_options(overview):
         PRO: 'Everything in Basic, plus Activity & Goals and Stew Coach.',
     }
     labels = {BASIC: 'Basic', PRO: 'Pro'}
+    interval_labels = {MONTH: 'Monthly', YEAR: 'Yearly'}
     return tuple(
-        BillingPlanOption(tier, labels[tier], prices[tier], descriptions[tier])
+        BillingPlanOption(
+            tier,
+            labels[tier],
+            descriptions[tier],
+            tuple(
+                BillingIntervalOption(
+                    billing_interval,
+                    interval_labels[billing_interval],
+                    prices[(tier, billing_interval)],
+                )
+                for billing_interval in checkout_intervals()
+            ),
+        )
         for tier in checkout_tiers(founder=overview.founder_checkout_eligible)
     )
 
@@ -190,8 +217,11 @@ def billing_checkout_start(request):
         and access.introductory_benefit_consumed_at is None
     )
     plan_data = request.POST.copy()
-    if not settings.BILLING_TIERED_PRICING_ENABLED and not plan_data.get('plan'):
-        plan_data['plan'] = PRO
+    if not settings.BILLING_TIERED_PRICING_ENABLED:
+        if not plan_data.get('tier'):
+            plan_data['tier'] = PRO
+        if not plan_data.get('billing_interval'):
+            plan_data['billing_interval'] = MONTH
     form = BillingPlanSelectionForm(
         plan_data,
         founder=founder_checkout_eligible,
@@ -202,7 +232,8 @@ def billing_checkout_start(request):
     try:
         attempt, _ = reserve_checkout_attempt(
             request.user,
-            tier=form.cleaned_data['plan'],
+            tier=form.cleaned_data['tier'],
+            billing_interval=form.cleaned_data['billing_interval'],
         )
         customer = customer_for_user(request.user)
         hosted_url = create_checkout_session(

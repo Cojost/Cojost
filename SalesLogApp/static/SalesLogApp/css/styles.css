@@ -2079,6 +2079,25 @@ progress {
   border-color: var(--link-color);
 }
 
+.billing-price-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .85rem;
+  margin-top: .75rem;
+}
+
+.billing-price-option {
+  display: flex;
+  flex-direction: column;
+  padding: 1rem;
+  border: 1px solid var(--border-color);
+  border-radius: .75rem;
+}
+
+.billing-price-option h4 {
+  margin-top: 0;
+}
+
 .billing-status-list {
   margin: 0 0 1rem;
 }
@@ -2273,6 +2292,10 @@ progress {
 
 @media (max-width: 720px) {
   .billing-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .billing-price-options {
     grid-template-columns: 1fr;
   }
 

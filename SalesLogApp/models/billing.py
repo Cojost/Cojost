@@ -139,6 +139,9 @@ class BillingCheckoutAttempt(models.Model):
     BASIC = 'basic'
     PRO = 'pro'
     PLAN_TIER_CHOICES = [(BASIC, 'Basic'), (PRO, 'Pro')]
+    MONTH = 'month'
+    YEAR = 'year'
+    BILLING_INTERVAL_CHOICES = [(MONTH, 'Monthly'), (YEAR, 'Yearly')]
 
     public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     user = models.ForeignKey(
@@ -167,6 +170,11 @@ class BillingCheckoutAttempt(models.Model):
         max_length=12,
         choices=PLAN_TIER_CHOICES,
         default=PRO,
+    )
+    selected_billing_interval = models.CharField(
+        max_length=5,
+        choices=BILLING_INTERVAL_CHOICES,
+        default=MONTH,
     )
     selected_price_id = models.CharField(max_length=255, blank=True, default='')
     status = models.CharField(

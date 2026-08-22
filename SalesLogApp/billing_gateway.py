@@ -69,7 +69,8 @@ def create_checkout_session(*, user, customer, attempt, success_url, cancel_url)
         'billing_attempt': str(attempt.public_id),
         'intro_trial_kind': attempt.trial_kind or 'none',
         'selected_tier': attempt.selected_tier,
-        'billing_policy': 'tiered_v1',
+        'selected_billing_interval': attempt.selected_billing_interval,
+        'billing_policy': 'bill3_v1',
     }
     subscription_data = {'metadata': metadata}
     if attempt.trial_days:
