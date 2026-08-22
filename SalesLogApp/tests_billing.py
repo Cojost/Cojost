@@ -865,6 +865,37 @@ class BillingEntitlementAndWebhookTests(TestCase):
             )
         self.assertEqual(team.owner, self.user)
 
+    def test_internal_superuser_can_manage_teams_without_a_subscription(self):
+        self.user.is_staff = False
+        self.user.is_superuser = True
+        self.user.save(update_fields=['is_staff', 'is_superuser'])
+
+        team_entitlement = get_team_entitlement(self.user)
+
+        self.assertEqual(team_entitlement.tier, 'pro')
+        self.assertEqual(team_entitlement.source, 'internal_superuser')
+        self.assertTrue(team_entitlement.has_pro_access)
+        with override_settings(TEAMS_FEATURE_ENABLED=True):
+            team = create_team(
+                self.user,
+                name='Internal Operations Team',
+                timezone_name='UTC',
+                monthly_unit_goal=None,
+                display_mode=Team.RANKED,
+            )
+        self.assertEqual(team.owner, self.user)
+
+    def test_staff_without_subscription_does_not_receive_team_pro(self):
+        self.user.is_staff = True
+        self.user.is_superuser = False
+        self.user.save(update_fields=['is_staff', 'is_superuser'])
+
+        team_entitlement = get_team_entitlement(self.user)
+
+        self.assertEqual(team_entitlement.tier, 'basic')
+        self.assertEqual(team_entitlement.source, 'billing')
+        self.assertFalse(team_entitlement.has_pro_access)
+
     @override_settings(**{
         **BILLING_READY_SETTINGS,
         'BILLING_ENFORCEMENT_ENABLED': True,

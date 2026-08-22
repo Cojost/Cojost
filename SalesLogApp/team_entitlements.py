@@ -28,6 +28,12 @@ def founder_allowlist_entitlement(user):
 
 
 def billing_owned_entitlement(user):
+    if (
+        getattr(user, 'is_authenticated', False)
+        and getattr(user, 'is_superuser', False)
+    ):
+        return TeamEntitlement(tier='pro', source='internal_superuser')
+
     from .billing_entitlements import get_billing_entitlement
 
     billing = get_billing_entitlement(user)

@@ -18,7 +18,11 @@ and does not authorize any billing rollout flag to be enabled.
   charged automatically after an eligible trial unless the customer cancels.
 - Yearly messaging states both the synchronized yearly total and its computed
   monthly equivalent, and makes clear that the full yearly total is charged
-  after the trial.
+  when a standard customer subscribes or after an eligible Founder trial.
+
+The internal Django superuser retains Team-management access without creating
+a circular live Stripe subscription. This narrow operational exception does
+not apply to staff accounts or customers and does not change billing status.
 
 Templates do not contain monetary values. Display values come from locally
 synchronized dj-stripe `Price` rows, and the yearly monthly-equivalent display
