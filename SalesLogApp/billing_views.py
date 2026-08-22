@@ -25,7 +25,6 @@ from .billing_plans import (
 )
 from .billing_pricing import (
     display_plan_prices,
-    display_price,
     synchronized_plan_price_errors,
 )
 from .email_verification import has_verified_canonical_email
@@ -183,7 +182,6 @@ def billing_overview(request):
         'founder_form': FounderCodeRedemptionForm(),
         'standard_trial_days': settings.BILLING_STANDARD_TRIAL_DAYS,
         'founder_trial_days': settings.BILLING_FOUNDER_TRIAL_DAYS,
-        'display_price': display_price(),
         'plan_options': _plan_options(overview),
     })
 

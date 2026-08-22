@@ -9,7 +9,7 @@
     After the trial, Stripe bills {{ pro_upgrade_prompt.price_formatted }}
     unless you cancel first.
     {% else %}
-    The monthly price and trial details are shown on the billing page.
+    Stripe Checkout shows the current price and trial details before you confirm.
     {% endif %}
   </p>
   <a class="button button-primary" href="{% url 'billing_overview' %}">

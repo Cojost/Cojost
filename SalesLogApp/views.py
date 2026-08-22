@@ -526,11 +526,15 @@ def _pro_upgrade_prompt_context(user):
             and getattr(user, 'is_authenticated', False)
             and not activity_goals_authorized(user)
         ):
-            price = display_price()
+            price = (
+                display_price()
+                if settings.BILLING_TIERED_PRICING_ENABLED
+                else None
+            )
             prompt = {
                 'trial_days': settings.BILLING_STANDARD_TRIAL_DAYS,
-                'price_available': price.available,
-                'price_formatted': price.formatted,
+                'price_available': bool(price and price.available),
+                'price_formatted': price.formatted if price else '',
             }
     except Exception as exc:
         logger.warning(
