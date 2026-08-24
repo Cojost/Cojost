@@ -16,6 +16,7 @@ EXEMPT_NAMES = {
     'account_reset_password_from_key_done',
     'account_email_verification_sent',
     'account_confirm_email',
+    'profile',
     'profile_avatar_file',
     'billing_overview',
     'billing_checkout_start',

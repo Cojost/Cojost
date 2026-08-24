@@ -209,11 +209,11 @@ def _plan_options(overview):
     )
 
 
-@billing_feature_required
-def billing_overview(request):
+def billing_overview_context(user):
+    """Build the read-only billing context shared by Billing and Settings."""
     configuration = billing_configuration()
-    entitlement, overview = _overview_projection(request.user)
-    return render(request, 'SalesLogApp/billing/overview.html', {
+    entitlement, overview = _overview_projection(user)
+    return {
         'configuration': configuration,
         'entitlement': entitlement,
         'billing': overview,
@@ -221,7 +221,16 @@ def billing_overview(request):
         'standard_trial_days': settings.BILLING_STANDARD_TRIAL_DAYS,
         'founder_trial_days': settings.BILLING_FOUNDER_TRIAL_DAYS,
         'plan_options': _plan_options(overview),
-    })
+    }
+
+
+@billing_feature_required
+def billing_overview(request):
+    return render(
+        request,
+        'SalesLogApp/billing/overview.html',
+        billing_overview_context(request.user),
+    )
 
 
 @billing_feature_required

@@ -785,12 +785,19 @@ def print_activity_history(request):
 @login_required
 def profile(request):
     user_profile = get_user_profile(request.user)
+    allowed_sections = {'account', 'appearance', 'billing', 'security'}
+    requested_section = request.GET.get('section', '')
+    open_section = (
+        requested_section if requested_section in allowed_sections else ''
+    )
+    password_dialog_open = False
     password_form_class = (
         PasswordChangeForm if request.user.has_usable_password() else SetPasswordForm
     )
     if request.method == 'POST':
         action = request.POST.get('form_type')
         if action == 'appearance':
+            open_section = 'appearance'
             appearance_form = AppearanceForm(request.POST, instance=user_profile)
             if appearance_form.is_valid():
                 appearance_form.save()
@@ -803,6 +810,7 @@ def profile(request):
             messages.success(request, 'Header color reset to blue.')
             return redirect('profile')
         elif action == 'avatar':
+            open_section = 'account'
             old_name = user_profile.avatar.name if user_profile.avatar else ''
             old_storage = user_profile.avatar.storage if user_profile.avatar else None
             avatar_form = AvatarForm(request.POST, request.FILES, instance=user_profile)
@@ -822,12 +830,14 @@ def profile(request):
             messages.success(request, 'Profile picture removed.')
             return redirect('profile')
         elif action == 'password':
+            open_section = 'security'
             password_form = password_form_class(request.user, request.POST)
             if password_form.is_valid():
                 changed_user = password_form.save()
                 update_session_auth_hash(request, changed_user)
                 messages.success(request, 'Password updated securely.')
                 return redirect('profile')
+            password_dialog_open = True
 
     appearance_form = locals().get(
         'appearance_form', AppearanceForm(instance=user_profile)
@@ -836,14 +846,25 @@ def profile(request):
     password_form = locals().get(
         'password_form', password_form_class(request.user)
     )
+    billing_settings_enabled = bool(
+        settings.BILLING_FEATURE_ENABLED
+        or settings.BILLING_ENFORCEMENT_ENABLED
+    )
+    billing_context = {}
+    if billing_settings_enabled:
+        from .billing_views import billing_overview_context
+
+        billing_context = billing_overview_context(request.user)
     return render(request, 'profile.html', {
         'profile': user_profile,
         'appearance_form': appearance_form,
         'avatar_form': avatar_form,
         'password_form': password_form,
         'password_is_set': request.user.has_usable_password(),
-        'commission_instance': Commission.objects.filter(user=request.user).first(),
-        **_pro_upgrade_prompt_context(request.user),
+        'open_section': open_section,
+        'password_dialog_open': password_dialog_open,
+        'settings_billing_enabled': billing_settings_enabled,
+        **billing_context,
     })
 
 

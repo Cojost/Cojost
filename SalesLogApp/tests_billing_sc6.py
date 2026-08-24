@@ -187,9 +187,11 @@ class ProUpgradePromptTests(TestCase):
         self.assertContains(response, reverse('billing_overview'))
 
     @override_settings(**BILLING_READY_SETTINGS)
-    def test_prompt_shown_on_profile(self):
+    def test_billing_settings_replace_duplicate_profile_prompt(self):
         response = self.client.get(self.profile)
-        self.assertContains(response, self.PROMPT_TEXT)
+        self.assertNotContains(response, self.PROMPT_TEXT)
+        self.assertContains(response, 'Billing &amp; plan')
+        self.assertContains(response, 'Current billing status')
 
     @override_settings(**BILLING_READY_SETTINGS)
     def test_prompt_omits_price_when_unavailable(self):

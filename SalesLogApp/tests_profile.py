@@ -65,6 +65,65 @@ class ProfileTests(TestCase):
     def test_profile_requires_login(self):
         self.assertEqual(self.client.get(reverse('profile')).status_code, 302)
 
+    def test_profile_is_presented_as_collapsible_settings(self):
+        self.client.force_login(self.user)
+        response = self.client.get(reverse('profile'))
+
+        self.assertContains(response, '<title>Settings | STEW Log</title>', html=True)
+        self.assertContains(response, '<span>Settings</span>', html=True)
+        self.assertContains(response, 'id="account-settings"')
+        self.assertContains(response, 'id="appearance-settings"')
+        self.assertContains(response, 'id="security-settings"')
+        self.assertContains(response, 'class="settings-section"', count=3)
+        self.assertNotContains(response, 'id="billing-settings"')
+        self.assertContains(response, 'data-open-password-dialog')
+        self.assertContains(response, '<dialog')
+        self.assertContains(response, 'data-auto-open="false"')
+
+    def test_appearance_uses_visual_mode_controls_and_color_swatches(self):
+        self.client.force_login(self.user)
+        response = self.client.get(reverse('profile'))
+
+        self.assertContains(response, 'class="theme-mode-option"', count=3)
+        for color, label in UserProfile.HEADER_COLOR_CHOICES:
+            with self.subTest(color=color):
+                self.assertContains(response, f'swatch-{color}')
+                self.assertContains(response, f'>{label}</span>')
+
+    def test_requested_settings_section_is_allowlisted(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get(
+            reverse('profile'), {'section': 'appearance'},
+        )
+        self.assertEqual(response.context['open_section'], 'appearance')
+
+        response = self.client.get(
+            reverse('profile'), {'section': '<script>alert(1)</script>'},
+        )
+        self.assertEqual(response.context['open_section'], '')
+
+    @override_settings(
+        BILLING_FEATURE_ENABLED=True,
+        BILLING_ENFORCEMENT_ENABLED=False,
+        BILLING_ONBOARDING_ENABLED=False,
+    )
+    def test_billing_is_available_inside_settings_not_primary_navigation(self):
+        self.client.force_login(self.user)
+        response = self.client.get(
+            reverse('profile'), {'section': 'billing'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['open_section'], 'billing')
+        self.assertContains(response, 'id="billing-settings"')
+        self.assertContains(response, 'Billing &amp; plan')
+        self.assertContains(response, 'Current billing status')
+        self.assertNotContains(
+            response,
+            f'<a href="{reverse("billing_overview")}"',
+        )
+
     def test_blue_is_default_header_color(self):
         self.assertEqual(self.user.sales_profile.header_color, 'blue')
 
@@ -257,6 +316,8 @@ class ProfileTests(TestCase):
             'new_password2': 'New-secure-pass-456!',
         })
         self.assertContains(failed, 'old password')
+        self.assertEqual(failed.context['open_section'], 'security')
+        self.assertContains(failed, 'data-auto-open="true"')
         success = self.client.post(reverse('profile'), {
             'form_type': 'password', 'old_password': 'Old-pass-123!',
             'new_password1': 'New-secure-pass-456!',

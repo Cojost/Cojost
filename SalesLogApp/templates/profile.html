@@ -1,18 +1,260 @@
 {% extends 'SalesLogApp/base.html' %}
-{% block title %}Profile{% endblock %}
+{% block title %}Settings | STEW Log{% endblock %}
+{% block page_class %}settings-page{% endblock %}
 {% block content %}
-<div class="intro"><h2>Your private profile</h2><p>Manage your picture, appearance, and password.</p></div>
-{% include 'includes/pro_upgrade_prompt.html' %}
-<section class="card profile-summary">
-  <div class="profile-avatar-wrap">
-    {% if profile.avatar_available %}<img src="{{ profile.avatar.url }}" alt="" class="profile-avatar profile-avatar-large">{% else %}<span class="profile-avatar profile-avatar-large profile-initials" aria-label="Default profile picture">{{ user.username|slice:":1"|upper }}</span>{% endif %}
-  </div>
-  <dl><div><dt>Username</dt><dd>{{ user.username }}</dd></div><div><dt>Email</dt><dd>{{ user.email|default:"No email address" }}</dd></div><div><dt>Password</dt><dd>{% if password_is_set %}Password is set{% else %}Password is managed through a connected account{% endif %}</dd></div></dl>
-</section>
-<div class="profile-grid">
-  <form method="post" class="card form-card"><h3>Appearance settings</h3>{% csrf_token %}<input type="hidden" name="form_type" value="appearance">{{ appearance_form.non_field_errors }}<p>{{ appearance_form.theme_mode.errors }}{{ appearance_form.theme_mode.label_tag }}{{ appearance_form.theme_mode }}</p><fieldset><legend>Header Color</legend>{{ appearance_form.header_color.errors }}<div class="header-color-options">{% for radio in appearance_form.header_color %}<label class="header-color-option">{{ radio.tag }}<span class="header-color-swatch swatch-{{ radio.data.value }}" aria-hidden="true"></span><span>{{ radio.choice_label }}</span></label>{% endfor %}</div></fieldset><div class="actions"><button class="button button-primary" type="submit">Save appearance</button></div></form>
-  <section class="card form-card"><h3>Profile picture</h3><form method="post" enctype="multipart/form-data">{% csrf_token %}<input type="hidden" name="form_type" value="avatar">{{ avatar_form.as_p }}<button class="button button-primary" type="submit">Upload picture</button></form>{% if profile.avatar %}<form method="post" class="inline-form">{% csrf_token %}<input type="hidden" name="form_type" value="remove_avatar"><button class="button button-secondary" type="submit">Remove picture</button></form>{% endif %}</section>
+<div class="intro settings-intro">
+  <h2>Settings</h2>
+  <p>Manage your StewLog account, appearance, billing, and security.</p>
 </div>
-<form method="post" class="card form-card"><h3>{% if password_is_set %}Change password{% else %}Set a password{% endif %}</h3><p class="card-description">{% if password_is_set %}Your current password is required. Passwords are never displayed.{% else %}Add a password without disconnecting your social account.{% endif %}</p>{% csrf_token %}<input type="hidden" name="form_type" value="password">{{ password_form.as_p }}<button class="button button-primary" type="submit">{% if password_is_set %}Change Password{% else %}Set Password{% endif %}</button></form>
-<form method="post" class="card compact-form">{% csrf_token %}<input type="hidden" name="form_type" value="reset_header_color"><div><strong>Reset Header Color</strong><p class="card-description">Restore the standard blue header without changing Display Mode.</p></div><button class="button button-secondary" type="submit">Reset Header Color</button></form>
+
+<div class="settings-list" aria-label="Account settings">
+  <details
+    class="settings-section"
+    id="account-settings"
+    name="settings-section"
+    data-settings-panel
+    {% if open_section == 'account' %}open{% endif %}
+  >
+    <summary>
+      <span class="settings-section-heading">Profile &amp; account</span>
+      <span class="settings-section-summary">{{ user.username }}{% if user.email %} · {{ user.email }}{% endif %}</span>
+    </summary>
+    <div class="settings-section-content">
+      <div class="settings-account-layout">
+        <div class="settings-account-summary">
+          <div class="profile-avatar-wrap">
+            {% if profile.avatar_available %}
+              <img src="{{ profile.avatar.url }}" alt="Current profile picture" class="profile-avatar profile-avatar-large">
+            {% else %}
+              <span class="profile-avatar profile-avatar-large profile-initials" aria-label="Default profile picture">{{ user.username|slice:":1"|upper }}</span>
+            {% endif %}
+          </div>
+          <dl class="settings-account-details">
+            <div><dt>Username</dt><dd>{{ user.username }}</dd></div>
+            <div><dt>Email</dt><dd>{{ user.email|default:"No email address" }}</dd></div>
+          </dl>
+          <a class="button button-secondary" href="{% url 'account_email' %}">Manage email</a>
+        </div>
+
+        <div class="settings-form-group">
+          <h3>Profile picture</h3>
+          <p class="card-description">Use a JPEG, PNG, or WebP image up to 2 MB.</p>
+          <form method="post" enctype="multipart/form-data" class="form-card settings-embedded-form">
+            {% csrf_token %}
+            <input type="hidden" name="form_type" value="avatar">
+            {{ avatar_form.as_p }}
+            <button class="button button-primary" type="submit">Upload picture</button>
+          </form>
+          {% if profile.avatar %}
+            <form method="post" class="inline-form">
+              {% csrf_token %}
+              <input type="hidden" name="form_type" value="remove_avatar">
+              <button class="button button-secondary" type="submit">Remove picture</button>
+            </form>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </details>
+
+  <details
+    class="settings-section"
+    id="appearance-settings"
+    name="settings-section"
+    data-settings-panel
+    {% if open_section == 'appearance' %}open{% endif %}
+  >
+    <summary>
+      <span class="settings-section-heading">Appearance</span>
+      <span class="settings-section-summary" data-appearance-summary>{{ profile.get_theme_mode_display }} · {{ profile.get_header_color_display }}</span>
+    </summary>
+    <div class="settings-section-content">
+      <form method="post" class="form-card settings-embedded-form" data-appearance-form>
+        {% csrf_token %}
+        <input type="hidden" name="form_type" value="appearance">
+        {{ appearance_form.non_field_errors }}
+
+        <fieldset class="settings-fieldset">
+          <legend>Display mode</legend>
+          {{ appearance_form.theme_mode.errors }}
+          <div class="theme-mode-options">
+            {% for radio in appearance_form.theme_mode %}
+              <label class="theme-mode-option">
+                {{ radio.tag }}
+                <span class="theme-mode-icon" aria-hidden="true">
+                  {% if radio.data.value == 'light' %}☀{% elif radio.data.value == 'dark' %}☾{% else %}◐{% endif %}
+                </span>
+                <span>
+                  <strong>{{ radio.choice_label }}</strong>
+                  <small>{% if radio.data.value == 'light' %}Always light{% elif radio.data.value == 'dark' %}Always dark{% else %}Match this device{% endif %}</small>
+                </span>
+              </label>
+            {% endfor %}
+          </div>
+        </fieldset>
+
+        <fieldset class="settings-fieldset">
+          <legend>Header color</legend>
+          <p class="settings-field-help">Choose the actual color you want to see in the StewLog header.</p>
+          {{ appearance_form.header_color.errors }}
+          <div class="header-color-options">
+            {% for radio in appearance_form.header_color %}
+              <label class="header-color-option">
+                {{ radio.tag }}
+                <span class="header-color-swatch swatch-{{ radio.data.value }}" aria-hidden="true"></span>
+                <span class="header-color-name">{{ radio.choice_label }}</span>
+              </label>
+            {% endfor %}
+          </div>
+        </fieldset>
+
+        <div class="actions settings-form-actions">
+          <button class="button button-primary" type="submit">Save appearance</button>
+        </div>
+      </form>
+      <form method="post" class="settings-reset-form">
+        {% csrf_token %}
+        <input type="hidden" name="form_type" value="reset_header_color">
+        <div>
+          <strong>Reset header color</strong>
+          <p class="card-description">Restore the standard blue header without changing Display Mode.</p>
+        </div>
+        <button class="button button-secondary" type="submit">Reset to blue</button>
+      </form>
+    </div>
+  </details>
+
+  {% if settings_billing_enabled %}
+    <details
+      class="settings-section"
+      id="billing-settings"
+      name="settings-section"
+      data-settings-panel
+      {% if open_section == 'billing' %}open{% endif %}
+    >
+      <summary>
+        <span class="settings-section-heading">Billing &amp; plan</span>
+        <span class="settings-section-summary">
+          {% if entitlement.grandfathered %}Legacy Pro · Price protected{% elif entitlement.subscription_access %}{% if entitlement.tier == 'founder_pro' %}Founder Pro{% else %}{{ entitlement.tier|capfirst }}{% endif %} · {{ billing.status|capfirst }}{% else %}Choose or manage your plan{% endif %}
+        </span>
+      </summary>
+      <div class="settings-section-content settings-billing-content">
+        {% include 'includes/billing_settings.html' %}
+      </div>
+    </details>
+  {% endif %}
+
+  <details
+    class="settings-section"
+    id="security-settings"
+    name="settings-section"
+    data-settings-panel
+    {% if open_section == 'security' %}open{% endif %}
+  >
+    <summary>
+      <span class="settings-section-heading">Security</span>
+      <span class="settings-section-summary">{% if password_is_set %}Password is set{% else %}Connected account{% endif %}</span>
+    </summary>
+    <div class="settings-section-content settings-security-content">
+      <div>
+        <h3>{% if password_is_set %}Change password{% else %}Set a password{% endif %}</h3>
+        <p class="card-description">
+          {% if password_is_set %}Your current password is required. Passwords are never displayed.{% else %}Add a password without disconnecting your connected account.{% endif %}
+        </p>
+      </div>
+      <button class="button button-primary" type="button" data-open-password-dialog>
+        {% if password_is_set %}Change Password{% else %}Set Password{% endif %}
+      </button>
+    </div>
+  </details>
+</div>
+
+<dialog
+  class="settings-dialog"
+  data-password-dialog
+  data-auto-open="{% if password_dialog_open %}true{% else %}false{% endif %}"
+  aria-labelledby="password-dialog-title"
+>
+  <div class="settings-dialog-card">
+    <div class="settings-dialog-header">
+      <div>
+        <h2 id="password-dialog-title">{% if password_is_set %}Change password{% else %}Set a password{% endif %}</h2>
+        <p>{% if password_is_set %}Enter your current password, then choose a new one.{% else %}Choose a secure password for your StewLog account.{% endif %}</p>
+      </div>
+      <button class="settings-dialog-close" type="button" data-close-password-dialog aria-label="Close password dialog">&times;</button>
+    </div>
+    <form method="post" class="form-card settings-password-form">
+      {% csrf_token %}
+      <input type="hidden" name="form_type" value="password">
+      {{ password_form.as_p }}
+      <div class="actions settings-dialog-actions">
+        <button class="button button-secondary" type="button" data-close-password-dialog>Cancel</button>
+        <button class="button button-primary" type="submit">{% if password_is_set %}Change Password{% else %}Set Password{% endif %}</button>
+      </div>
+    </form>
+  </div>
+</dialog>
+{% endblock %}
+
+{% block page_scripts %}
+<script>
+  (() => {
+    const panels = Array.from(document.querySelectorAll('[data-settings-panel]'));
+    panels.forEach((panel) => {
+      panel.addEventListener('toggle', () => {
+        if (!panel.open) return;
+        panels.forEach((otherPanel) => {
+          if (otherPanel !== panel) otherPanel.open = false;
+        });
+      });
+    });
+
+    const appearanceForm = document.querySelector('[data-appearance-form]');
+    const appearanceSummary = document.querySelector('[data-appearance-summary]');
+    if (appearanceForm) {
+      const updateAppearancePreview = () => {
+        const theme = appearanceForm.querySelector('input[name="theme_mode"]:checked');
+        const color = appearanceForm.querySelector('input[name="header_color"]:checked');
+        if (theme) document.documentElement.dataset.theme = theme.value;
+        if (color) {
+          Array.from(document.body.classList).forEach((className) => {
+            if (className.startsWith('header-theme-')) document.body.classList.remove(className);
+          });
+          document.body.classList.add(`header-theme-${color.value}`);
+        }
+        if (appearanceSummary && theme && color) {
+          const themeLabel = theme.closest('label').querySelector('strong').textContent.trim();
+          const colorLabel = color.closest('label').querySelector('.header-color-name').textContent.trim();
+          appearanceSummary.textContent = `${themeLabel} · ${colorLabel}`;
+        }
+      };
+      appearanceForm.addEventListener('change', updateAppearancePreview);
+    }
+
+    const passwordDialog = document.querySelector('[data-password-dialog]');
+    const passwordTrigger = document.querySelector('[data-open-password-dialog]');
+    const closePasswordDialog = () => {
+      if (!passwordDialog) return;
+      if (typeof passwordDialog.close === 'function') passwordDialog.close();
+      else passwordDialog.removeAttribute('open');
+    };
+    const openPasswordDialog = () => {
+      if (!passwordDialog || passwordDialog.open) return;
+      if (typeof passwordDialog.showModal === 'function') passwordDialog.showModal();
+      else passwordDialog.setAttribute('open', '');
+      const firstInput = passwordDialog.querySelector('input:not([type="hidden"])');
+      if (firstInput) firstInput.focus();
+    };
+    if (passwordTrigger) passwordTrigger.addEventListener('click', openPasswordDialog);
+    document.querySelectorAll('[data-close-password-dialog]').forEach((button) => {
+      button.addEventListener('click', closePasswordDialog);
+    });
+    if (passwordDialog) {
+      passwordDialog.addEventListener('click', (event) => {
+        if (event.target === passwordDialog) closePasswordDialog();
+      });
+      if (passwordDialog.dataset.autoOpen === 'true') openPasswordDialog();
+    }
+  })();
+</script>
 {% endblock %}
