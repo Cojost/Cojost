@@ -13,14 +13,19 @@
             {% if user.is_authenticated %}<button type="button" class="menu-btn" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>{% endif %}
         </div>
         <div class="header-center">
-            <h1>Sales Log</h1>
-            <img
-                src="{% static 'SalesLogApp/images/stewlog-logo.png' %}"
-                alt="StewLog"
-                class="site-logo"
-                width="52"
-                height="52"
+            <a
+                href="{% if user.is_authenticated %}{% url 'view_sales' %}{% else %}{% url 'landing_page' %}{% endif %}"
+                class="site-logo-link"
+                aria-label="{% if user.is_authenticated %}StewLog Dashboard{% else %}StewLog home{% endif %}"
             >
+                <img
+                    src="{% static 'SalesLogApp/images/stewlog-mark.png' %}"
+                    alt=""
+                    class="site-logo"
+                    width="52"
+                    height="52"
+                >
+            </a>
         </div>
         <div class="header-right account-links">
             {% if user.is_authenticated %}<a href="{% url 'profile' %}" class="profile-link">{% if sales_profile.avatar_available %}<img src="{{ sales_profile.avatar.url }}" alt="" class="profile-avatar">{% else %}<span class="profile-avatar" aria-hidden="true">{{ user.username|slice:":1"|upper }}</span>{% endif %}<span>Profile</span></a><a href="{% url 'account_logout' %}">Sign out</a>{% else %}<a href="{% url 'account_login' %}">Sign in</a><a href="{% url 'account_signup' %}">Register</a>{% endif %}

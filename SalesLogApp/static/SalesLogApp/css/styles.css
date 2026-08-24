@@ -232,14 +232,22 @@ a:hover {
   display: flex;
   align-items: center;
   justify-self: center;
-  gap: 12px;
   min-width: 0;
 }
 
-.header-center h1 {
-  margin: 0;
-  font-size: 1.5rem;
-  white-space: nowrap;
+.site-logo-link {
+  display: block;
+  border-radius: 50%;
+  line-height: 0;
+}
+
+.site-logo-link:hover {
+  text-decoration: none;
+}
+
+.site-logo-link:focus-visible {
+  outline: 3px solid var(--header-foreground);
+  outline-offset: 3px;
 }
 
 .header-right {
@@ -1781,12 +1789,7 @@ progress {
   .header-center {
     position: absolute;
     left: 50%;
-    gap: 0;
     transform: translateX(-50%);
-  }
-
-  .header-center h1 {
-    display: none;
   }
 
   .header-left,
