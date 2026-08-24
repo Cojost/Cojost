@@ -524,6 +524,7 @@ class BillingEntitlementAndWebhookTests(TestCase):
     def subscription(
         self, status, *, suffix=None, trial_end=None,
         current_period_end=None, pause_collection=None, metadata=None,
+        cancel_at_period_end=False,
     ):
         suffix = suffix or status
         data = {
@@ -539,6 +540,7 @@ class BillingEntitlementAndWebhookTests(TestCase):
                 if current_period_end else None
             ),
             'pause_collection': pause_collection,
+            'cancel_at_period_end': cancel_at_period_end,
             'items': {'data': [{
                 'price': {'id': settings.STRIPE_BASIC_MONTHLY_PRICE_ID},
             }]},
@@ -646,6 +648,27 @@ class BillingEntitlementAndWebhookTests(TestCase):
         )
         self.use_subscription(expired)
         self.assertFalse(get_billing_entitlement(self.user).subscription_access)
+
+    def test_scheduled_cancellation_is_visible_without_an_upcoming_charge(self):
+        period_end = timezone.now() + timedelta(days=30)
+        subscription = self.subscription(
+            'trialing',
+            suffix='scheduled_cancellation',
+            trial_end=period_end,
+            current_period_end=period_end,
+            cancel_at_period_end=True,
+        )
+        self.use_subscription(subscription)
+        self.client.force_login(self.user)
+
+        entitlement = get_billing_entitlement(self.user)
+        response = self.client.get(reverse('billing_overview'))
+
+        self.assertTrue(entitlement.subscription_access)
+        self.assertTrue(entitlement.cancel_at_period_end)
+        self.assertContains(response, 'Renewal canceled.')
+        self.assertContains(response, 'Access ends')
+        self.assertNotContains(response, 'Upcoming billing date')
 
     def test_enforcement_disabled_preserves_existing_application_access(self):
         entitlement = get_billing_entitlement(self.user)
