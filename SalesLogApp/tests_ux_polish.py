@@ -60,6 +60,25 @@ class DashboardUxPolishTests(TestCase):
         )
         self.assertNotContains(response, 'dealâ€™s')
 
+    def test_header_uses_mark_only_logo_link_to_dashboard(self):
+        response = self.client.get(reverse('view_sales'))
+
+        self.assertContains(
+            response,
+            f'href="{reverse("view_sales")}"',
+        )
+        self.assertContains(response, 'class="site-logo-link"')
+        self.assertContains(response, 'aria-label="StewLog Dashboard"')
+        self.assertContains(
+            response,
+            "SalesLogApp/images/stewlog-mark.png",
+        )
+        self.assertNotContains(response, '<h1>Sales Log</h1>', html=True)
+        self.assertNotContains(
+            response,
+            "SalesLogApp/images/stewlog-logo.png",
+        )
+
     def enable_new_engine(self):
         profile = self.user.sales_profile
         profile.commission_system = UserProfile.PAY_PLAN_V2
