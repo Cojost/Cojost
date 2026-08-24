@@ -3,7 +3,8 @@
 {% block content %}
 <div class="intro">
   <h2>Monthly Eligibility</h2>
-  <p>Set qualification facts for a specific month. These settings do not alter another month or delete historical eligibility.</p>
+  <p>The current month starts Eligible for requirements in your active pay plan. You can change the current month, while previous months remain preserved as read-only history.</p>
+  <p><strong>{{ selected_month|date:"F Y" }}</strong>{% if not is_current_month %} · Historical record{% endif %}</p>
 </div>
 <form method="post" class="card form-card" novalidate>
   {% csrf_token %}
@@ -20,7 +21,7 @@
   </div>{% endif %}
   <div class="actions">
     <a class="button button-secondary" href="{% url 'view_commission' %}">Cancel</a>
-    <button class="button button-primary" type="submit">Save Monthly Eligibility</button>
+    {% if is_current_month %}<button class="button button-primary" type="submit">Save Monthly Eligibility</button>{% endif %}
   </div>
 </form>
 <section class="card">
@@ -39,7 +40,7 @@
         {% if plan_requirements.calls %}<td>{{ item.call_requirement_met|yesno:"Met,Not met,Unknown" }}</td>{% endif %}
         {% if plan_requirements.video %}<td>{{ item.video_requirement_met|yesno:"Met,Not met,Unknown" }}</td>{% endif %}
         {% if plan_requirements.holiday %}<td>{% if item.holiday_bonus_forfeited %}Forfeited{% else %}{{ item.holiday_bonus_eligible|yesno:"Eligible,Not eligible,Pending" }}{% endif %}</td>{% endif %}
-        <td><a href="{% url 'pay_plan_eligibility' %}?month={{ item.month_start|date:'Y-m' }}">Edit</a></td>
+        <td><a href="{% url 'pay_plan_eligibility' %}?month={{ item.month_start|date:'Y-m' }}">{% if item.month_start == current_month %}Edit{% else %}View{% endif %}</a></td>
       </tr>
     {% empty %}<tr><td colspan="7">No monthly eligibility has been recorded.</td></tr>{% endfor %}
     </tbody>

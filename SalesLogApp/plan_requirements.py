@@ -159,6 +159,9 @@ class PlanRequirementService:
             'version_id': version.id,
             'has_monthly_requirements': any(
                 output[key] is not None
-                for key in ('nps', 'ar', 'green_pea', 'training', 'calls', 'video')
+                for key in (
+                    'nps', 'nps_bonus', 'ar', 'green_pea', 'training',
+                    'calls', 'video', 'holiday',
+                )
             ),
         }

@@ -147,7 +147,7 @@ class DashboardUxPolishTests(TestCase):
         self.assertIs(record.nps_projection_passing, True)
         self.assertEqual(record.nps_projected_good_surveys, 8)
         self.assertEqual(record.nps_projected_bad_surveys, 2)
-        self.assertEqual(record.nps_status, PayPlanEligibility.NPS_PENDING)
+        self.assertEqual(record.nps_status, PayPlanEligibility.NPS_ELIGIBLE)
         self.assertEqual(record.nps_qualifying_surveys, 0)
         self.assertEqual(record.nps_low_score_surveys, 0)
         other_record.refresh_from_db()
