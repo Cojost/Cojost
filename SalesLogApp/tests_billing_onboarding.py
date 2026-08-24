@@ -21,7 +21,12 @@ from .billing_services import (
 )
 from .billing_webhooks import reconcile_billing_event
 from .checks import billing_configuration_check
-from .models import BillingAccess, BillingCheckoutAttempt
+from .models import (
+    BillingAccess,
+    BillingCheckoutAttempt,
+    PayPlan,
+    PayPlanAssignment,
+)
 
 
 BILLING_ONBOARDING_SETTINGS = {
@@ -117,6 +122,55 @@ class BillingSignupOnboardingTests(TestCase):
         self.assertFalse(
             EmailAddress.objects.get(user=user, primary=True).verified
         )
+        self.assertFalse(
+            PayPlanAssignment.objects.filter(user=user, is_active=True).exists()
+        )
+        self.assertFalse(
+            PayPlan.objects.filter(
+                owner_user=user,
+                name='Legacy Automotive Pay Plan',
+            ).exists()
+        )
+        onboarding = user.pay_plan_onboarding
+        self.assertEqual(onboarding.status, onboarding.NOT_STARTED)
+        self.assertIsNone(onboarding.current_pay_plan_id)
+        self.assertIsNone(onboarding.current_version_id)
+
+    @override_settings(BILLING_ENFORCEMENT_ENABLED=True)
+    def test_new_signup_billing_page_uses_customer_onboarding_wording(self):
+        user = self.create_user('wording-owner', verified=True)
+        self.client.force_login(user)
+
+        response = self.client.get(reverse('billing_overview'))
+
+        self.assertContains(
+            response,
+            'Choose a StewLog plan to continue setting up your account.',
+        )
+        self.assertNotContains(
+            response,
+            'This account is not enrolled for billing enforcement.',
+        )
+
+    def test_confirmed_new_signup_sees_empty_normalized_pay_plan_setup(self):
+        response = self.client.post(reverse('account_signup'), {
+            'username': 'normalized-owner',
+            'email': 'normalized-owner@example.test',
+            'password1': 'A-strong-local-test-password-482!',
+            'password2': 'A-strong-local-test-password-482!',
+        })
+        self.assertEqual(response.status_code, 302)
+        user = get_user_model().objects.get(username='normalized-owner')
+        EmailAddress.objects.filter(user=user).update(verified=True)
+        self.subscription(user, suffix='normalized-owner')
+        self.client.force_login(user)
+
+        response = self.client.get(reverse('my_pay_plan'))
+
+        self.assertContains(response, 'Set up your pay plan')
+        self.assertContains(response, 'Upload my pay plan')
+        self.assertNotContains(response, 'Active pay plan')
+        self.assertNotContains(response, 'Legacy Automotive Pay Plan')
 
     def test_email_confirmation_continues_to_billing(self):
         self.client.post(reverse('account_signup'), {

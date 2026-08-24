@@ -24,9 +24,11 @@
         <div><dt>Status</dt><dd>{{ billing.status|capfirst }}</dd></div>
         <div><dt>Access tier</dt><dd>{{ entitlement.tier|capfirst }}</dd></div>
         {% if billing.trial_end %}<div><dt>Trial ends</dt><dd>{{ billing.trial_end|date:"M j, Y g:i A T" }}</dd></div>{% endif %}
+        {% if billing.cancellation_scheduled and billing.access_ends_at %}<div><dt>Access ends</dt><dd>{{ billing.access_ends_at|date:"M j, Y" }}</dd></div>{% endif %}
         {% if billing.upcoming_billing_date %}<div><dt>Upcoming billing date</dt><dd>{{ billing.upcoming_billing_date|date:"M j, Y" }}</dd></div>{% endif %}
     </dl>
     <p>{{ billing.reason }}</p>
+    {% if billing.cancellation_scheduled %}<p class="notice" role="status"><strong>Renewal canceled.</strong> Your current access remains available through the date shown above, and this subscription will not renew.</p>{% endif %}
     {% if entitlement.source == 'synchronization_pending' %}<p role="status">Synchronization is pending. Reaching the success page does not grant access.</p>{% endif %}
     {% if billing.can_manage_billing %}<form method="post" action="{% url 'billing_portal' %}">{% csrf_token %}<button class="button button-secondary" type="submit">Manage billing in Stripe</button></form><p class="card-description">Use Stripe’s hosted portal for payment methods, invoices, and cancellation.</p>{% endif %}
 </section>

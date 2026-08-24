@@ -52,6 +52,8 @@ class BillingOverviewView:
     reason: str
     trial_end: object
     upcoming_billing_date: object
+    access_ends_at: object
+    cancellation_scheduled: bool
     founder_redeemed: bool
     introductory_benefit_consumed: bool
     offered_trial_days: int
@@ -121,16 +123,40 @@ def _overview_projection(user):
         can_manage = existing_customer_for_user(user) is not None
     except BillingGatewayError:
         can_manage = False
-    upcoming = (
+    cancellation_scheduled = bool(
+        entitlement.subscription_access
+        and entitlement.cancel_at_period_end
+    )
+    access_ends_at = None
+    if cancellation_scheduled:
+        access_ends_at = max(
+            (
+                value for value in (
+                    entitlement.trial_end,
+                    entitlement.current_period_end,
+                ) if value is not None
+            ),
+            default=None,
+        )
+    upcoming = None if cancellation_scheduled else (
         entitlement.trial_end
         if entitlement.subscription_status == 'trialing'
         else entitlement.current_period_end
     )
+    reason = entitlement.reason
+    if (
+        billing_onboarding_marked(user)
+        and not entitlement.subscription_access
+        and entitlement.source == 'enforcement_not_enrolled'
+    ):
+        reason = 'Choose a StewLog plan to continue setting up your account.'
     return entitlement, BillingOverviewView(
         status=entitlement.subscription_status,
-        reason=entitlement.reason,
+        reason=reason,
         trial_end=entitlement.trial_end,
         upcoming_billing_date=upcoming,
+        access_ends_at=access_ends_at,
+        cancellation_scheduled=cancellation_scheduled,
         founder_redeemed=founder_redeemed,
         introductory_benefit_consumed=consumed,
         offered_trial_days=offered_trial_days,

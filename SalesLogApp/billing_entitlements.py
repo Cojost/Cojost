@@ -23,6 +23,7 @@ class BillingEntitlement:
     subscription_status: str
     trial_end: object
     current_period_end: object
+    cancel_at_period_end: bool
     founder: bool
     grandfathered: bool
     configuration_ready: bool
@@ -98,6 +99,7 @@ def get_billing_entitlement(user, *, at_time=None):
             subscription_status='none',
             trial_end=None,
             current_period_end=None,
+            cancel_at_period_end=False,
             founder=False,
             grandfathered=False,
             configuration_ready=configuration.ready,
@@ -123,6 +125,9 @@ def get_billing_entitlement(user, *, at_time=None):
     status = subscription.status if subscription else 'none'
     trial_end = subscription.trial_end if subscription else None
     current_period_end = subscription.current_period_end if subscription else None
+    cancel_at_period_end = bool(
+        subscription and getattr(subscription, 'cancel_at_period_end', False)
+    )
     grace_end = None
     subscription_access = False
     tier = 'basic'
@@ -265,6 +270,7 @@ def get_billing_entitlement(user, *, at_time=None):
         subscription_status=status,
         trial_end=trial_end,
         current_period_end=current_period_end,
+        cancel_at_period_end=cancel_at_period_end,
         founder=founder,
         grandfathered=bool(
             subscription_plan

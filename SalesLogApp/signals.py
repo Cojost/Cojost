@@ -5,9 +5,53 @@ from django.urls import reverse
 from .models import Commission, Sale
 from .models import UserProfile, PayPlanOnboarding
 from django.conf import settings
+from django.db import transaction
 from django.db.models.signals import post_save, pre_delete
 from django.utils import timezone
 from djstripe.signals import webhook_post_process
+
+
+LEGACY_PLACEHOLDER_PLAN_NAME = 'Legacy Automotive Pay Plan'
+LEGACY_PLACEHOLDER_VERSION_NAME = 'Imported Legacy Settings'
+
+
+def _remove_new_signup_legacy_placeholder(user):
+    """Remove only the empty compatibility plan created before allauth signup."""
+    from .models import PayPlan, PayPlanAssignment, PayPlanOnboarding
+
+    placeholder = (
+        PayPlan.objects.filter(
+            owner_user=user,
+            name=LEGACY_PLACEHOLDER_PLAN_NAME,
+            versions__version_name=LEGACY_PLACEHOLDER_VERSION_NAME,
+        )
+        .distinct()
+        .first()
+    )
+    if placeholder is None:
+        return
+    versions = placeholder.versions.all()
+    if versions.count() != 1 or versions.filter(rules__isnull=False).exists():
+        return
+    version = versions.get()
+    with transaction.atomic():
+        PayPlanOnboarding.objects.filter(
+            user=user,
+            current_pay_plan=placeholder,
+            current_version=version,
+        ).update(
+            status=PayPlanOnboarding.NOT_STARTED,
+            setup_method='',
+            current_pay_plan=None,
+            current_version=None,
+            completed_at=None,
+            last_error='',
+        )
+        PayPlanAssignment.objects.filter(
+            user=user,
+            pay_plan_version=version,
+        ).delete()
+        placeholder.delete()
 
 
 @receiver(user_signed_up)
@@ -17,6 +61,7 @@ def redirect_to_commission_setup(request, user, **kwargs):
     UserProfile.objects.filter(user=user).update(
         commission_system=UserProfile.PAY_PLAN_V2,
     )
+    _remove_new_signup_legacy_placeholder(user)
     PayPlanOnboarding.objects.get_or_create(
         user=user,
         defaults={
@@ -63,7 +108,7 @@ def ensure_automotive_pay_plan(sender, instance, created, **kwargs):
     plan = PayPlan.objects.create(
         industry=automotive,
         owner_user=instance,
-        name='Legacy Automotive Pay Plan',
+        name=LEGACY_PLACEHOLDER_PLAN_NAME,
         description=(
             'Compatibility plan created from the existing automotive commission '
             'foundation. Rules will be migrated in a later stage.'
@@ -75,7 +120,7 @@ def ensure_automotive_pay_plan(sender, instance, created, **kwargs):
     start_date = joined_date
     version = PayPlanVersion.objects.create(
         pay_plan=plan,
-        version_name='Imported Legacy Settings',
+        version_name=LEGACY_PLACEHOLDER_VERSION_NAME,
         effective_start_date=start_date,
         status=PayPlanVersion.ACTIVE,
     )
