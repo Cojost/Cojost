@@ -262,7 +262,7 @@ class BillingSignupOnboardingTests(TestCase):
         user = self.create_user('direct-route-owner')
         self.client.force_login(user)
 
-        for route_name in ('view_sales', 'profile', 'pay_plan_setup'):
+        for route_name in ('view_sales', 'pay_plan_setup'):
             with self.subTest(route_name=route_name):
                 response = self.client.get(reverse(route_name))
                 self.assertRedirects(
@@ -270,6 +270,13 @@ class BillingSignupOnboardingTests(TestCase):
                     reverse('account_email_verification_sent'),
                     fetch_redirect_response=False,
                 )
+
+        settings_response = self.client.get(
+            reverse('profile'), {'section': 'billing'},
+        )
+        self.assertEqual(settings_response.status_code, 200)
+        self.assertContains(settings_response, 'id="billing-settings"')
+        self.assertContains(settings_response, 'Verify your email before Checkout.')
 
         EmailAddress.objects.filter(user=user).update(verified=True)
         response = self.client.get(reverse('pay_plan_setup'))

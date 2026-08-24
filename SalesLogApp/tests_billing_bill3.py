@@ -618,6 +618,12 @@ class Bill3SubscriptionTests(TestCase):
         self.assertTrue(entitlement.subscription_access)
         self.assertTrue(entitlement.has_pro_access)
         self.assertTrue(entitlement.grandfathered)
+        self.client.force_login(self.user)
+        response = self.client.get(
+            reverse('profile'), {'section': 'billing'},
+        )
+        self.assertContains(response, 'Legacy Pro · Price protected')
+        self.assertContains(response, 'Legacy Pro — Price protected')
 
     def test_unknown_mixed_and_duplicate_subscriptions_fail_closed(self):
         cases = (

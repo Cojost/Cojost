@@ -693,6 +693,11 @@ class BillingEntitlementAndWebhookTests(TestCase):
             fetch_redirect_response=False,
         )
         self.assertEqual(self.client.get(reverse('billing_overview')).status_code, 200)
+        settings_response = self.client.get(
+            reverse('profile'), {'section': 'billing'},
+        )
+        self.assertEqual(settings_response.status_code, 200)
+        self.assertContains(settings_response, 'id="billing-settings"')
 
     def test_webhook_finalizes_trial_once_and_duplicate_is_idempotent(self):
         _, raw_code = generate_founder_grant()

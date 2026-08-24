@@ -1,0 +1,88 @@
+{% if not configuration.ready %}
+  <div class="notice notice-warning" role="status"><strong>Billing configuration unavailable.</strong> Checkout and the portal remain disabled. No credential values are displayed.</div>
+{% endif %}
+{% if not entitlement.billing_enforcement_enabled %}
+  <div class="notice" role="status"><strong>Billing enforcement is off.</strong> Your existing application access is unchanged while subscription flows are tested.</div>
+{% endif %}
+{% if not billing.email_verified %}
+  <div class="notice notice-warning" role="alert"><strong>Verify your email before Checkout.</strong> Stripe Checkout stays unavailable until the email on this StewLog account is verified. <a href="{% url 'account_email' %}">Manage email verification</a>.</div>
+{% endif %}
+
+<div class="billing-grid">
+  <section class="card{% if configuration.tiered_pricing_enabled %} billing-status-card{% endif %}">
+    <h3>Current billing status</h3>
+    <dl class="billing-status-list">
+      <div><dt>Status</dt><dd>{{ billing.status|capfirst }}</dd></div>
+      <div><dt>Access tier</dt><dd>{% if entitlement.grandfathered %}Legacy Pro — Price protected{% elif entitlement.tier == 'founder_pro' %}Founder Pro{% else %}{{ entitlement.tier|capfirst }}{% endif %}</dd></div>
+      {% if billing.trial_end %}<div><dt>Trial ends</dt><dd>{{ billing.trial_end|date:"M j, Y g:i A T" }}</dd></div>{% endif %}
+      {% if billing.cancellation_scheduled and billing.access_ends_at %}<div><dt>Access ends</dt><dd>{{ billing.access_ends_at|date:"M j, Y" }}</dd></div>{% endif %}
+      {% if billing.upcoming_billing_date %}<div><dt>Upcoming billing date</dt><dd>{{ billing.upcoming_billing_date|date:"M j, Y" }}</dd></div>{% endif %}
+    </dl>
+    <p>{{ billing.reason }}</p>
+    {% if billing.cancellation_scheduled %}<p class="notice" role="status"><strong>Renewal canceled.</strong> Your current access remains available through the date shown above, and this subscription will not renew.</p>{% endif %}
+    {% if entitlement.source == 'synchronization_pending' %}<p role="status">Synchronization is pending. Reaching the success page does not grant access.</p>{% endif %}
+    {% if billing.can_manage_billing %}
+      <form method="post" action="{% url 'billing_portal' %}">
+        {% csrf_token %}
+        <button class="button button-secondary" type="submit">Manage billing in Stripe</button>
+      </form>
+      <p class="card-description">Use Stripe’s hosted portal for payment methods, invoices, and cancellation.</p>
+    {% endif %}
+  </section>
+
+  {% for plan in plan_options %}
+    <section class="card billing-plan-card{% if plan.tier == 'pro' %} billing-plan-card-pro{% endif %}">
+      <h3>{{ plan.name }}{% if plan.tier == 'pro' and configuration.tiered_pricing_enabled %} <span class="status-pill">Recommended</span>{% endif %}</h3>
+      <p>{{ plan.description }}</p>
+      {% if billing.introductory_benefit_consumed %}
+        <p>Your introductory benefit has already been used. A new eligible subscription starts without another trial.</p>
+      {% elif billing.founder_redeemed %}
+        <p>Your server-verified founder grant provides a {{ billing.offered_trial_days }}-day trial on either Pro billing interval.</p>
+      {% elif plan.tier == 'basic' %}
+        <p>Basic Monthly includes a {{ standard_trial_days }}-day introductory trial. Basic Yearly starts without a trial.</p>
+      {% else %}
+        <p>Standard Pro subscriptions start without a trial.</p>
+      {% endif %}
+      <div class="billing-price-options">
+        {% for option in plan.prices %}
+          <div class="billing-price-option">
+            <h4>{{ option.name }}</h4>
+            {% if configuration.tiered_pricing_enabled and option.price.available %}
+              <p><strong>{{ option.price.formatted }}</strong>{% if option.billing_interval == 'year' %} total, billed yearly{% endif %}</p>
+              {% if option.price.equivalent_monthly_formatted %}<p>{{ option.price.equivalent_monthly_formatted }}</p>{% endif %}
+              {% if option.trial_days %}
+                {% if option.billing_interval == 'year' %}<p>A payment method is required. After your {{ option.trial_days }}-day trial, Stripe will charge the full {{ option.price.formatted }} unless you cancel first.</p>{% else %}<p>A payment method is required. Stripe will charge {{ option.price.formatted }} after your {{ option.trial_days }}-day trial unless you cancel first.</p>{% endif %}
+              {% else %}
+                {% if option.billing_interval == 'year' %}<p>No trial. A payment method is required, and Stripe will charge the full {{ option.price.formatted }} when you subscribe.</p>{% else %}<p>No trial. A payment method is required, and Stripe will charge {{ option.price.formatted }} when you subscribe.</p>{% endif %}
+              {% endif %}
+            {% else %}
+              <p>A payment method is required. Stripe Checkout shows the current price before you confirm.</p>
+            {% endif %}
+            {% if billing.can_start_checkout %}
+              <form method="post" action="{% url 'billing_checkout_start' %}">
+                {% csrf_token %}
+                <input type="hidden" name="tier" value="{{ plan.tier }}">
+                <input type="hidden" name="billing_interval" value="{{ option.billing_interval }}">
+                <button class="button button-primary" type="submit">Choose {{ plan.name }} {{ option.name }}</button>
+              </form>
+            {% else %}
+              <button class="button button-primary" type="button" disabled>Checkout unavailable</button>
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+  {% endfor %}
+</div>
+
+{% if billing.email_verified and not billing.introductory_benefit_consumed and not billing.founder_redeemed %}
+  <section class="card billing-founder-card">
+    <h3>Founder or Kickstarter code</h3>
+    <p>Eligible unique codes provide a {{ founder_trial_days }}-day introductory trial on Pro. Founder and standard trials cannot be combined.</p>
+    <form method="post" action="{% url 'billing_founder_redeem' %}" class="form-card billing-inline-form">
+      {% csrf_token %}
+      {{ founder_form.as_p }}
+      <button class="button button-secondary" type="submit">Redeem founder code</button>
+    </form>
+  </section>
+{% endif %}

@@ -1422,7 +1422,10 @@ class AppearanceForm(forms.ModelForm):
             'theme_mode': 'Display Mode',
             'header_color': 'Header Color',
         }
-        widgets = {'header_color': forms.RadioSelect}
+        widgets = {
+            'theme_mode': forms.RadioSelect,
+            'header_color': forms.RadioSelect,
+        }
 
 
 class AvatarForm(forms.ModelForm):

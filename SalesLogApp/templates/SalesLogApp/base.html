@@ -28,7 +28,7 @@
             </a>
         </div>
         <div class="header-right account-links">
-            {% if user.is_authenticated %}<a href="{% url 'profile' %}" class="profile-link">{% if sales_profile.avatar_available %}<img src="{{ sales_profile.avatar.url }}" alt="" class="profile-avatar">{% else %}<span class="profile-avatar" aria-hidden="true">{{ user.username|slice:":1"|upper }}</span>{% endif %}<span>Profile</span></a><a href="{% url 'account_logout' %}">Sign out</a>{% else %}<a href="{% url 'account_login' %}">Sign in</a><a href="{% url 'account_signup' %}">Register</a>{% endif %}
+            {% if user.is_authenticated %}<a href="{% url 'profile' %}" class="profile-link"{% if request.resolver_match.url_name == 'profile' %} aria-current="page"{% endif %}>{% if sales_profile.avatar_available %}<img src="{{ sales_profile.avatar.url }}" alt="" class="profile-avatar">{% else %}<span class="profile-avatar" aria-hidden="true">{{ user.username|slice:":1"|upper }}</span>{% endif %}<span>Settings</span></a><a href="{% url 'account_logout' %}">Sign out</a>{% else %}<a href="{% url 'account_login' %}">Sign in</a><a href="{% url 'account_signup' %}">Register</a>{% endif %}
         </div>
     </header>
     {% if user.is_authenticated %}
@@ -37,7 +37,6 @@
         <a href="{% url 'view_commission' %}"{% if request.resolver_match.url_name == 'view_commission' %} class="active" aria-current="page"{% endif %}>View Commission</a>
         <a href="{% url 'my_pay_plan' %}"{% if request.resolver_match.url_name == 'my_pay_plan' %} class="active" aria-current="page"{% endif %}>My Pay Plan</a>
         {% if activity_goals_authorized %}<a href="{% url 'activity_goals' %}"{% if request.resolver_match.url_name == 'activity_goals' or request.resolver_match.url_name == 'edit_activity' %} class="active" aria-current="page"{% endif %}>Activity &amp; Goals <span aria-label="Pro feature">(Pro)</span></a>{% endif %}
-        {% if billing_feature_enabled %}<a href="{% url 'billing_overview' %}"{% if request.resolver_match.url_name|slice:":8" == 'billing_' %} class="active" aria-current="page"{% endif %}>Billing</a>{% endif %}
         {% if teams_feature_enabled %}<a href="{% url 'team_home' %}"{% if request.resolver_match.url_name|slice:":5" == 'team_' %} class="active" aria-current="page"{% endif %}>Teams</a>{% endif %}
     </nav>
     {% endif %}
