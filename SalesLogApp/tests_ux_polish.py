@@ -240,6 +240,56 @@ class DashboardUxPolishTests(TestCase):
         self.assertNotContains(passing_not_required, 'requires passing NPS')
         self.assertContains(passing_not_required, '$1500.00')
 
+    def test_dashboard_nps_projection_uses_compact_dialog_controls(self):
+        version = self.enable_new_engine()
+        self.add_nps_survey_rule(version)
+        PayPlanEligibility.objects.create(
+            user=self.user,
+            month_start=self.month,
+            nps_projection_passing=True,
+            nps_projected_good_surveys=8,
+            nps_projected_bad_surveys=2,
+        )
+
+        response = self.client.get(reverse('view_sales'))
+        content = response.content.decode()
+
+        self.assertContains(response, 'class="card nps-projection-card"')
+        self.assertContains(
+            response,
+            'aria-label="NPS survey projection summary"',
+        )
+        self.assertContains(response, '>Passing<', html=False)
+        self.assertContains(response, '>Good surveys<', html=False)
+        self.assertContains(response, '>Bad surveys<', html=False)
+        self.assertContains(response, '>Projected payout<', html=False)
+        self.assertContains(response, 'data-dialog="nps-projection-dialog"')
+        self.assertContains(response, 'id="nps-projection-dialog"')
+        self.assertContains(response, 'npsProjectionDialog.showModal()')
+        self.assertLess(
+            content.index('id="nps-projection-dialog"'),
+            content.index('<form method="post" novalidate>'),
+        )
+
+    def test_invalid_nps_projection_reopens_dialog_with_errors(self):
+        version = self.enable_new_engine()
+        self.add_nps_survey_rule(version)
+
+        response = self.client.post(reverse('view_sales'), {
+            'form_type': 'nps_projection',
+            'month': self.month.strftime('%Y-%m'),
+            'nps_projection_passing': 'True',
+            'nps_projected_good_surveys': '2',
+            'nps_projected_bad_surveys': '-1',
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'data-open-on-load="true"')
+        self.assertContains(
+            response,
+            'Ensure this value is greater than or equal to 0',
+        )
+
     def test_print_uses_authoritative_total_and_draw_without_clamping(self):
         version = self.enable_new_engine()
         PayPlanRule.objects.create(

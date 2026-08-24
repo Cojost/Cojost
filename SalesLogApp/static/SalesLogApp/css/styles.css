@@ -1060,8 +1060,88 @@ legend {
   font-size: 1.25rem;
 }
 
-.nps-projection-results {
-  margin-top: 24px;
+.nps-projection-card {
+  padding: 18px;
+}
+
+.nps-projection-header {
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.nps-projection-header h2,
+.nps-projection-header p {
+  margin-top: 0;
+}
+
+.nps-projection-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.nps-summary-control,
+.nps-summary-result {
+  min-height: 76px;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--muted-surface);
+  color: var(--primary-text);
+  text-align: left;
+}
+
+.nps-summary-control {
+  cursor: pointer;
+}
+
+.nps-summary-control:hover,
+.nps-summary-control:focus-visible {
+  border-color: var(--link-color);
+  background: var(--row-hover-background);
+}
+
+.nps-summary-control:focus-visible {
+  outline: 3px solid var(--link-color);
+  outline-offset: 2px;
+}
+
+.nps-summary-control span,
+.nps-summary-control strong,
+.nps-summary-result span,
+.nps-summary-result strong {
+  display: block;
+}
+
+.nps-summary-control strong,
+.nps-summary-result strong {
+  margin-top: 5px;
+  color: var(--link-color);
+  font-size: 1.15rem;
+}
+
+.nps-projection-tier {
+  margin: 12px 0 0;
+  color: var(--muted-text);
+  font-size: .9rem;
+}
+
+.nps-projection-dialog-body {
+  padding: 18px;
+}
+
+.nps-projection-dialog-body form {
+  margin-top: 18px;
+}
+
+@media (max-width: 760px) {
+  .nps-projection-header {
+    align-items: stretch;
+  }
+
+  .nps-projection-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 progress {
