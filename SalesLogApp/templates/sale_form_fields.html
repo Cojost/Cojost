@@ -3,7 +3,21 @@
     <p>
       {{ field.errors }}
       {{ field.label_tag }}
-      {{ field }}
+      {% if field.name == "frontEnd" %}
+        <span class="front-end-gross-control">
+          {{ field }}
+          <button
+            type="button"
+            class="button button-secondary front-end-sign-toggle"
+            aria-label="Toggle Front End Gross sign"
+            aria-controls="{{ field.id_for_label }}"
+            aria-pressed="false"
+            data-front-end-sign-toggle
+          >&plusmn;</button>
+        </span>
+      {% else %}
+        {{ field }}
+      {% endif %}
       {% if field.help_text %}<span class="helptext">{{ field.help_text }}</span>{% endif %}
     </p>
   {% endif %}
@@ -23,6 +37,39 @@ document.addEventListener('DOMContentLoaded', function () {
   const section = document.getElementById('split-deal-section');
   const splitInput = document.getElementById('{{ form.split_with_name.id_for_label|escapejs }}');
   const countControls = document.querySelectorAll('[name="{{ form.count.html_name|escapejs }}"]');
+  const frontEndInput = document.getElementById('{{ form.frontEnd.id_for_label|escapejs }}');
+  const frontEndSignToggle = document.querySelector('[data-front-end-sign-toggle]');
+  let frontEndIsNegative = frontEndInput.value.startsWith('-');
+
+  function updateFrontEndSignToggle() {
+    frontEndSignToggle.setAttribute('aria-pressed', String(frontEndIsNegative));
+  }
+
+  frontEndSignToggle.addEventListener('click', function () {
+    const value = frontEndInput.value;
+    frontEndIsNegative = !frontEndIsNegative;
+    if (value.startsWith('-')) {
+      frontEndInput.value = value.slice(1);
+    } else if (value) {
+      frontEndInput.value = `-${value}`;
+    }
+    updateFrontEndSignToggle();
+    frontEndInput.focus();
+  });
+
+  frontEndInput.addEventListener('input', function () {
+    const value = frontEndInput.value;
+    if (!value) return;
+    if (frontEndIsNegative && !value.startsWith('-')) {
+      frontEndInput.value = `-${value}`;
+    } else {
+      frontEndIsNegative = value.startsWith('-');
+    }
+    updateFrontEndSignToggle();
+  });
+
+  updateFrontEndSignToggle();
+
   function selectedCount() {
     const checked = document.querySelector('[name="{{ form.count.html_name|escapejs }}"]:checked');
     if (checked) return checked.value;

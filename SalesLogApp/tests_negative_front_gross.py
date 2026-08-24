@@ -134,6 +134,7 @@ class NegativeFrontGrossTests(TestCase):
         page = self.client.get(reverse('add_sale'))
         front_widget = page.context['form']['frontEnd']
         self.assertNotIn('min', front_widget.field.widget.attrs)
+        self.assertEqual(front_widget.field.widget.attrs['step'], '0.01')
 
         response = self.client.post(
             reverse('add_sale'),
@@ -150,7 +151,7 @@ class NegativeFrontGrossTests(TestCase):
             {
                 **self.sale_data(
                     deal_number=sale.dealNumber,
-                    front_end='-250.50',
+                    front_end='-1250.00',
                 ),
                 'year': '',
                 'make': '',
@@ -163,7 +164,34 @@ class NegativeFrontGrossTests(TestCase):
         )
         self.assertRedirects(response, reverse('view_sales'))
         sale.refresh_from_db()
-        self.assertEqual(sale.frontEnd, Decimal('-250.50'))
+        self.assertEqual(sale.frontEnd, Decimal('-1250.00'))
+
+    def test_add_and_edit_pages_have_non_submit_front_gross_sign_toggle(self):
+        sale = self.make_sale(front_end='-1250.00')
+
+        for url in (
+            reverse('add_sale'),
+            reverse('edit_sale', args=[sale.pk]),
+        ):
+            with self.subTest(url=url):
+                page = self.client.get(url)
+                self.assertEqual(page.status_code, 200)
+                front_widget = page.context['form']['frontEnd']
+                self.assertEqual(front_widget.id_for_label, 'id_frontEnd')
+                self.assertEqual(front_widget.html_name, 'frontEnd')
+                self.assertNotIn('min', front_widget.field.widget.attrs)
+                self.assertEqual(
+                    front_widget.field.widget.attrs['step'], '0.01',
+                )
+                self.assertInHTML(
+                    '<button type="button" '
+                    'class="button button-secondary front-end-sign-toggle" '
+                    'aria-label="Toggle Front End Gross sign" '
+                    'aria-controls="id_frontEnd" aria-pressed="false" '
+                    'data-front-end-sign-toggle>±</button>',
+                    page.content.decode(),
+                    count=1,
+                )
 
     def test_negative_gross_reaches_percentage_rule_without_invented_minimum(self):
         self.add_percentage_rule()
