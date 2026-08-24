@@ -1,4 +1,6 @@
 from django import forms
+from django.core.exceptions import ValidationError
+from django.utils import timezone
 
 from .models.pay_plans import PayPlanEligibility
 
@@ -50,7 +52,13 @@ class PayPlanEligibilityForm(forms.ModelForm):
             'holiday_bonus_forfeited', 'notes',
         ]
 
-    def __init__(self, *args, enabled_requirements=None, **kwargs):
+    def __init__(
+        self,
+        *args,
+        enabled_requirements=None,
+        read_only=False,
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
         enabled = set(enabled_requirements or [])
         field_requirements = {
@@ -66,11 +74,24 @@ class PayPlanEligibilityForm(forms.ModelForm):
             'holiday_bonus_forfeited': 'holiday',
         }
         for field_name, requirement in field_requirements.items():
+            if (
+                field_name == 'nps_status'
+                and enabled & {'nps', 'nps_bonus'}
+            ):
+                continue
             if requirement not in enabled:
                 self.fields.pop(field_name, None)
+        if read_only:
+            for field in self.fields.values():
+                field.disabled = True
 
     def clean_month_start(self):
-        return self.cleaned_data['month_start'].replace(day=1)
+        month_start = self.cleaned_data['month_start'].replace(day=1)
+        if month_start != timezone.localdate().replace(day=1):
+            raise ValidationError(
+                'Only the current month can be updated. Past eligibility is kept as history.'
+            )
+        return month_start
 
 
 class DashboardNPSProjectionForm(forms.ModelForm):

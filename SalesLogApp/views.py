@@ -114,6 +114,7 @@ from .stew_coach_projection import (
 )
 from .commission_service import CommissionEngineService, CommissionHelpContext
 from .nps_projection import NPSSurveyProjectionService
+from .monthly_eligibility import ensure_current_month_eligibility
 from .plan_requirements import ActivePayPlanService, PlanRequirementService
 from .pay_plan_management import (
     PayPlanActivationService,
@@ -673,6 +674,7 @@ def activity_goals(request, activity_id=None):
 @pay_plan_onboarding_required
 def view_sales(request):
     selected_month = _selected_month(request)
+    ensure_current_month_eligibility(request.user, selected_month)
     projection_rules = NPSSurveyProjectionService.rules_for_user(
         request.user, selected_month,
     )
@@ -991,6 +993,7 @@ def view_commission(request):
     )
 
     if uses_new_engine(user):
+        ensure_current_month_eligibility(user, start_of_month)
         context = sales_month_context(request.user, start_of_month)
         help_context = CommissionHelpContext.build(request.user)
         return render(request, 'new_view_commission.html', {
@@ -2265,9 +2268,13 @@ def pay_plan_eligibility(request):
         selected_month = datetime.strptime(raw_month, '%Y-%m').date()
     except (TypeError, ValueError):
         selected_month = timezone.localdate().replace(day=1)
-    instance = PayPlanEligibility.objects.filter(
-        user=request.user, month_start=selected_month,
-    ).first()
+    current_month = timezone.localdate().replace(day=1)
+    is_current_month = selected_month == current_month
+    instance, _created = ensure_current_month_eligibility(
+        request.user,
+        selected_month,
+        plan_requirements=plan_requirements,
+    )
     if request.method == 'POST':
         form = PayPlanEligibilityForm(
             request.POST, instance=instance,
@@ -2291,6 +2298,7 @@ def pay_plan_eligibility(request):
             instance=instance,
             initial={'month_start': selected_month},
             enabled_requirements=enabled_requirements,
+            read_only=not is_current_month,
         )
     history = PayPlanEligibility.objects.filter(user=request.user)[:12]
     return render(request, 'pay_plan_eligibility.html', {
@@ -2299,6 +2307,8 @@ def pay_plan_eligibility(request):
         'eligibility': instance,
         'history': history,
         'plan_requirements': plan_requirements,
+        'current_month': current_month,
+        'is_current_month': is_current_month,
     })
 
 def create_default_bonus_levels(user):
