@@ -1,0 +1,83 @@
+{% extends "SalesLogApp/base.html" %}
+{% block title %}Ask Stew AI-1A Lab{% endblock %}
+{% block page_class %}ask-stew-page{% endblock %}
+{% block content %}
+{% include "components/_page_header.html" with heading="Ask Stew AI-1A Lab" description="Superuser-only monitoring for the in-house conversational pilot." %}
+
+<section class="card">
+  <div class="section-heading-row">
+    <div>
+      <h2>Last {{ window_days }} days</h2>
+      <p class="card-description">Use feedback and reviewed transcripts together; a high helpful rate alone does not prove calculation accuracy.</p>
+    </div>
+    <a class="button button-secondary" href="{% url 'ask_stew_ai' %}">Test Ask Stew</a>
+  </div>
+  <div class="metric-grid">
+    <div><span>Conversations</span><strong>{{ conversation_count }}</strong></div>
+    <div><span>Answers</span><strong>{{ answer_stats.total|default:0 }}</strong></div>
+    <div><span>Verified answers</span><strong>{{ answer_stats.verified_rate }}%</strong></div>
+    <div><span>AI-routed questions</span><strong>{{ answer_stats.provider_route_rate }}%</strong></div>
+    <div><span>Declined answers</span><strong>{{ answer_stats.declined_rate }}%</strong></div>
+    <div><span>Feedback responses</span><strong>{{ feedback_stats.total|default:0 }}</strong></div>
+    <div><span>Helpful feedback</span><strong>{{ feedback_stats.helpful_rate }}%</strong></div>
+    <div><span>Average latency</span><strong>{{ answer_stats.average_duration_ms|default:0|floatformat:0 }} ms</strong></div>
+  </div>
+</section>
+
+<section class="card">
+  <h2>Pilot review gates</h2>
+  <p class="card-description">Before widening access, review every negative rating and a sample of positive answers. Confirm no cross-user disclosure, no production mutation, deterministic calculation parity, and acceptable response time.</p>
+  <div class="notice" role="note">
+    <strong>Transcript privacy</strong>
+    <p>This page contains user-entered questions and StewLog answers. Limit access to approved superusers and purge conversations on the configured retention schedule.</p>
+  </div>
+</section>
+
+<section class="card" aria-labelledby="recent-answers-heading">
+  <h2 id="recent-answers-heading">Recent answers</h2>
+  <p class="card-description">Up to 50 answers from the current review window.</p>
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>When</th>
+          <th>User</th>
+          <th>Conversation</th>
+          <th>Intent and route</th>
+          <th>Status</th>
+          <th>Feedback</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for answer in recent_answers %}
+        <tr>
+          <td>{{ answer.created_at|date:"M j, g:i a" }}</td>
+          <td>{{ answer.conversation.user.username }}</td>
+          <td class="ask-stew-lab-transcript">
+            <p><strong>User:</strong> {{ answer.reply_to.content|truncatechars:240 }}</p>
+            <p><strong>Stew:</strong> {{ answer.content|truncatechars:360 }}</p>
+          </td>
+          <td>
+            {{ answer.intent|default:"—" }}<br>
+            <span class="card-description">{{ answer.get_route_source_display|default:"—" }}</span>
+          </td>
+          <td>
+            {% if answer.verified %}<span class="status-badge status-active">Verified</span>{% else %}<span class="status-badge status-warning">Review</span>{% endif %}<br>
+            <span class="card-description">{{ answer.provider_status|default:"not requested" }} · {{ answer.duration_ms }} ms</span>
+          </td>
+          <td>
+            {% if answer.feedback %}
+              {% if answer.feedback.helpful %}<span class="status-badge status-active">Helpful</span>{% else %}<span class="status-badge status-behind">Not helpful</span>{% endif %}
+            {% else %}
+              <span class="card-description">No response</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td class="empty-state" colspan="6">No Ask Stew answers have been recorded in this window.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

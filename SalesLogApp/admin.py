@@ -2,6 +2,9 @@ from django.contrib import admin
 from .models.sales import DailyActivity, MonthlyGoal
 from .models import (
     ArchivedVehicle,
+    AskStewConversation,
+    AskStewFeedback,
+    AskStewTurn,
     Industry,
     PayPlan,
     PayPlanActivationEvent,
@@ -178,6 +181,43 @@ class PayPlanAssistantUsageEventAdmin(admin.ModelAdmin):
 
     def has_change_permission(self, request, obj=None):
         return False
+
+
+class AskStewTurnInline(admin.TabularInline):
+    model = AskStewTurn
+    extra = 0
+    can_delete = False
+    fields = (
+        'sequence', 'role', 'content', 'intent', 'route_source',
+        'provider_status', 'provider_used', 'verified', 'duration_ms',
+        'created_at',
+    )
+    readonly_fields = fields
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(AskStewConversation)
+class AskStewConversationAdmin(ReadOnlyOperationalAdmin):
+    list_display = (
+        'public_id', 'user', 'status', 'last_intent', 'created_at', 'updated_at',
+    )
+    list_filter = ('status', 'last_intent', 'created_at')
+    search_fields = ('public_id', 'user__username', 'user__email')
+    readonly_fields = [field.name for field in AskStewConversation._meta.fields]
+    inlines = (AskStewTurnInline,)
+
+
+@admin.register(AskStewFeedback)
+class AskStewFeedbackAdmin(ReadOnlyOperationalAdmin):
+    list_display = ('updated_at', 'user', 'helpful', 'assistant_turn')
+    list_filter = ('helpful', 'updated_at')
+    search_fields = (
+        'user__username', 'user__email',
+        'assistant_turn__conversation__public_id',
+    )
+    readonly_fields = [field.name for field in AskStewFeedback._meta.fields]
 
 
 @admin.register(CommissionSandbox)

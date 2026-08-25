@@ -8,6 +8,12 @@ import unicodedata
 from django.utils import timezone
 
 from .ask_stew_provider import configured_ask_stew_gateway
+from .ask_stew_router import (
+    CLARIFICATION as ROUTER_CLARIFICATION,
+    SUPPORTED_ROUTER_INTENTS,
+    UNSUPPORTED as ROUTER_UNSUPPORTED,
+    configured_ask_stew_router,
+)
 from .models import PayPlanEligibility, Sale
 from .plan_requirements import ActivePayPlanService, PlanRequirementService
 from .services import sales_month_context
@@ -179,6 +185,64 @@ SUPPORTED_REQUEST_PATTERNS = (
             rf'(?:\s+requirements?)?{_REQUEST_END}'
         ),
     ),
+    (
+        ACTIVE_PLAN_EXPLANATION,
+        re.compile(
+            rf'(?:how\s+(?:am\s+i|do\s+i\s+get)\s+paid|'
+            rf'what\s+does\s+my\s+pay\s+plan\s+pay){_REQUEST_END}'
+        ),
+    ),
+    (
+        RECORDED_SALE_EXPLANATION,
+        re.compile(
+            rf'(?:break\s+down|explain\s+the\s+payout\s+for)\s+'
+            rf'{_SALE_REFERENCE}{_REQUEST_END}'
+        ),
+    ),
+    (
+        RECORDED_SALE_EXPLANATION,
+        re.compile(
+            rf'(?:why|what|how\s+much)\s+(?:did|was)\s+{_SALE_REFERENCE}\s+'
+            rf'(?:pay|paid|calculate|calculated)(?:\s+me)?'
+            rf'(?:\s+that\s+amount)?{_REQUEST_END}'
+        ),
+    ),
+    (
+        CURRENT_MONTH_SUMMARY,
+        re.compile(
+            rf'(?:what|how\s+much)\s+(?:have\s+i|did\s+i)\s+'
+            rf'(?:make|made|earn|earned)(?:\s+in\s+commission)?'
+            rf'(?:\s+this\s+month|\s+so\s+far){_REQUEST_END}'
+        ),
+    ),
+    (
+        CURRENT_MONTH_SUMMARY,
+        re.compile(
+            rf'(?:where|what)\s+am\s+i\s+at\s+(?:for\s+commission\s+)?'
+            rf'this\s+month{_REQUEST_END}'
+        ),
+    ),
+    (
+        BONUS_PROGRESS,
+        re.compile(
+            rf'how\s+close\s+am\s+i\s+to\s+(?:my\s+)?next\s+'
+            rf'bonus(?:\s+tier)?{_REQUEST_END}'
+        ),
+    ),
+    (
+        BONUS_PROGRESS,
+        re.compile(
+            rf'what\s+do\s+i\s+need\s+(?:for|to\s+reach)\s+(?:my\s+)?'
+            rf'next\s+bonus(?:\s+tier)?{_REQUEST_END}'
+        ),
+    ),
+    (
+        ELIGIBILITY_EXPLANATION,
+        re.compile(
+            rf'what\s+(?:eligibility\s+)?(?:information|requirements?)\s+'
+            rf'am\s+i\s+missing{_REQUEST_END}'
+        ),
+    ),
 )
 
 
@@ -187,6 +251,9 @@ class AskStewIntentDecision:
     category: str
     allowed: bool
     response: str = ''
+    route_source: str = 'deterministic'
+    provider_status: str = 'not_requested'
+    provider_used: bool = False
 
 
 @dataclass(frozen=True)
@@ -203,6 +270,9 @@ class AskStewAnswer:
     provider_status: str
     provider_used: bool = False
     notice: str = ''
+    route_source: str = 'deterministic'
+    source_label: str = ''
+    verified: bool = False
 
 
 def _normalized_question(question: str):
@@ -562,22 +632,174 @@ def _provider_notice(status):
     )
 
 
+def _source_label(explanation):
+    facts = explanation.facts or {}
+    if explanation.intent == ACTIVE_PLAN_EXPLANATION:
+        return str(facts.get('plan_name') or 'Active pay plan')[:160]
+    if explanation.intent == RECORDED_SALE_EXPLANATION:
+        return str(facts.get('sale_label') or 'Recorded sale')[:160]
+    if explanation.intent in {
+        CURRENT_MONTH_SUMMARY,
+        BONUS_PROGRESS,
+        ELIGIBILITY_EXPLANATION,
+    }:
+        month = str(facts.get('month') or '').strip()
+        return f'StewLog calculations for {month}'[:160] if month else ''
+    return ''
+
+
+def _provider_routing_decision(
+    user,
+    question,
+    *,
+    submission_token='',
+    previous_intent='',
+    router_gateway=None,
+):
+    # Invalid/control-character input is never forwarded to the provider.
+    if _normalized_question(question) is None:
+        return None
+    gateway = router_gateway or configured_ask_stew_router(
+        user,
+        submission_token=submission_token,
+    )
+    result = gateway.route(
+        question=question,
+        previous_intent=previous_intent,
+    )
+    # When provider routing is intentionally unavailable, retain the original
+    # deterministic declined response and its not_requested status. Runtime
+    # failures and limits still receive a visible, fail-closed fallback.
+    if not result.provider_used and result.status in {
+        'disabled',
+        'missing_credentials',
+        'unsupported_provider',
+        'invalid_configuration',
+        'configuration_error',
+        'rollout_excluded',
+    }:
+        return None
+    if (
+        result.provider_used
+        and result.confidence == 'high'
+        and result.intent in SUPPORTED_ROUTER_INTENTS
+    ):
+        return AskStewIntentDecision(
+            result.intent,
+            True,
+            route_source='provider_router',
+            provider_status=result.status,
+            provider_used=True,
+        )
+    if result.provider_used and result.intent == ROUTER_CLARIFICATION:
+        return AskStewIntentDecision(
+            CLARIFICATION,
+            False,
+            (
+                'I can help with that, but I need one more detail. Specify your '
+                'active pay plan, a recorded deal number, this month’s total, '
+                'bonus progress, or eligibility.'
+            ),
+            route_source='provider_router',
+            provider_status=result.status,
+            provider_used=True,
+        )
+    if result.provider_used and (
+        result.intent == ROUTER_UNSUPPORTED or result.confidence != 'high'
+    ):
+        return AskStewIntentDecision(
+            DECLINED_UNSUPPORTED,
+            False,
+            (
+                'I can explain your active pay plan, a recorded deal, this '
+                'month’s commission, bonus progress, or eligibility. I cannot '
+                'change data or run projections in this pilot.'
+            ),
+            route_source='provider_router',
+            provider_status=result.status,
+            provider_used=True,
+        )
+    return AskStewIntentDecision(
+        DECLINED_UNSUPPORTED,
+        False,
+        (
+            'I could not safely determine which StewLog explanation you need. '
+            'Try a starter question or include a recorded deal number.'
+        ),
+        route_source='safe_fallback',
+        provider_status=result.status,
+        provider_used=False,
+    )
+
+
 class AskStewService:
     @classmethod
-    def answer(cls, user, question, *, submission_token='') -> AskStewAnswer:
+    def answer(
+        cls,
+        user,
+        question,
+        *,
+        submission_token='',
+        previous_intent='',
+        previous_question='',
+        router_gateway=None,
+    ) -> AskStewAnswer:
         decision = classify_ask_stew_question(question)
+        if decision.category == DECLINED_UNSUPPORTED:
+            routed = _provider_routing_decision(
+                user,
+                question,
+                submission_token=submission_token,
+                previous_intent=previous_intent,
+                router_gateway=router_gateway,
+            )
+            if routed is not None:
+                decision = routed
         if not decision.allowed:
             return AskStewAnswer(
                 decision.category,
                 decision.response,
-                'not_requested',
+                decision.provider_status,
+                decision.provider_used,
+                route_source=(
+                    decision.route_source
+                    if decision.route_source != 'deterministic'
+                    else 'declined'
+                ),
             )
-        explanation = EXPLANATION_BUILDERS[decision.category](user, question)
+        explanation_question = question
+        if (
+            decision.category == RECORDED_SALE_EXPLANATION
+            and previous_intent == RECORDED_SALE_EXPLANATION
+            and DEAL_NUMBER_PATTERN.search(question or '') is None
+            and previous_question
+        ):
+            explanation_question = f'{previous_question} {question}'
+        explanation = EXPLANATION_BUILDERS[decision.category](
+            user,
+            explanation_question,
+        )
         if explanation.intent == CLARIFICATION:
             return AskStewAnswer(
                 CLARIFICATION,
                 explanation.answer,
-                'not_requested',
+                decision.provider_status,
+                decision.provider_used,
+                route_source=decision.route_source,
+            )
+        source_label = _source_label(explanation)
+        # A provider-routed question has already consumed its single bounded
+        # provider call. The verified deterministic explanation is returned
+        # directly rather than making a second presentation request.
+        if decision.route_source == 'provider_router':
+            return AskStewAnswer(
+                explanation.intent,
+                explanation.answer,
+                decision.provider_status,
+                decision.provider_used,
+                route_source=decision.route_source,
+                source_label=source_label,
+                verified=True,
             )
         gateway = configured_ask_stew_gateway(
             user,
@@ -595,4 +817,7 @@ class AskStewService:
             result.status,
             result.provider_used,
             _provider_notice(result.status),
+            route_source=decision.route_source,
+            source_label=source_label,
+            verified=True,
         )

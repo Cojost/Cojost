@@ -40,6 +40,16 @@ urlpatterns = [
         name='ask_stew_ai',
     ),
     path(
+        'commission/ask-stew/<uuid:conversation_id>/feedback/<int:turn_id>/',
+        views.ask_stew_feedback,
+        name='ask_stew_feedback',
+    ),
+    path(
+        'commission/ask-stew/lab/',
+        views.ask_stew_lab,
+        name='ask_stew_lab',
+    ),
+    path(
         'commission/pay-plan/assistant/',
         views.pay_plan_assistant,
         name='pay_plan_assistant',
@@ -221,7 +231,6 @@ urlpatterns = [
 
 
  
-
 
 
 

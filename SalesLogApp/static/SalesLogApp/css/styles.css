@@ -689,6 +689,70 @@ a:hover {
   width: 100%;
 }
 
+.ask-stew-intro {
+  display: grid;
+  gap: 4px;
+}
+
+.ask-stew-intro > .status-badge {
+  margin-top: 8px;
+}
+
+.section-heading-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.ask-stew-verified {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-color);
+  color: var(--success-text);
+  font-size: .88rem;
+}
+
+.ask-stew-verified span {
+  color: var(--muted-text);
+}
+
+.ask-stew-feedback {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.ask-stew-feedback form {
+  margin: 0;
+}
+
+.button-compact {
+  min-height: 34px;
+  padding: 6px 11px;
+  font-size: .88rem;
+}
+
+.ask-stew-lab-transcript {
+  min-width: 240px;
+  max-width: 440px;
+}
+
+.ask-stew-lab-transcript p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.ask-stew-lab-transcript p + p {
+  margin-top: 8px;
+}
+
 .ask-stew-starters {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1854,6 +1918,7 @@ progress {
 .status-draft,
 .status-needs_review,
 .status-review_required,
+.status-warning,
 .scenario-status-draft {
   border-color: var(--warning-border);
   background: var(--warning-background);
@@ -2223,6 +2288,15 @@ progress {
   .toolbar,
   .actions {
     flex-wrap: wrap;
+  }
+
+  .section-heading-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .section-heading-row > .button {
+    width: 100%;
   }
 
   .ask-stew-starters {

@@ -539,6 +539,10 @@ class PayPlanRuleConditionEditForm(forms.Form):
 
 
 class AskStewQuestionForm(forms.Form):
+    conversation_id = forms.UUIDField(
+        required=False,
+        widget=forms.HiddenInput(),
+    )
     submission_token = forms.CharField(
         max_length=256,
         widget=forms.HiddenInput(),
@@ -554,6 +558,14 @@ class AskStewQuestionForm(forms.Form):
             ),
             'autocomplete': 'off',
         }),
+    )
+
+
+class AskStewFeedbackForm(forms.Form):
+    helpful = forms.TypedChoiceField(
+        choices=(('true', 'Helpful'), ('false', 'Not helpful')),
+        coerce=lambda value: value == 'true',
+        widget=forms.HiddenInput(),
     )
 
 

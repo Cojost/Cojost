@@ -22,6 +22,8 @@ from .ask_stew_provider import (
     validate_ask_stew_output,
 )
 from .models import (
+    AskStewConversation,
+    AskStewTurn,
     Commission,
     CommissionSandbox,
     PayPlanAssistantUsageEvent,
@@ -68,8 +70,18 @@ class AskStewEntitlementTests(TestCase):
         self.assertFalse(ask_stew_ai_authorized(self.user))
 
     def test_explicit_immutable_user_id_grants_access(self):
-        with override_settings(ASK_STEW_AI_PILOT_USER_IDS=(str(self.user.pk),)):
+        with override_settings(
+            ASK_STEW_AI_LAB_ONLY=False,
+            ASK_STEW_AI_PILOT_USER_IDS=(str(self.user.pk),),
+        ):
             self.assertTrue(ask_stew_ai_authorized(self.user))
+
+    @override_settings(ASK_STEW_AI_LAB_ONLY=True)
+    def test_lab_only_mode_denies_allowlisted_customers(self):
+        with override_settings(
+            ASK_STEW_AI_PILOT_USER_IDS=(str(self.user.pk),),
+        ):
+            self.assertFalse(ask_stew_ai_authorized(self.user))
 
     @override_settings(ASK_STEW_AI_PILOT_USER_IDS=())
     def test_staff_and_superusers_retain_internal_access(self):
@@ -82,7 +94,11 @@ class AskStewEntitlementTests(TestCase):
         self.assertTrue(ask_stew_ai_authorized(superuser))
 
 
-@override_settings(PAY_PLAN_ASSISTANT_PROVIDER_ENABLED=False)
+@override_settings(
+    PAY_PLAN_ASSISTANT_PROVIDER_ENABLED=False,
+    ASK_STEW_AI_LAB_ONLY=False,
+    ASK_STEW_AI_SHORT_WINDOW_LIMIT=100,
+)
 class AskStewAIViewTests(TestCase):
     password = 'ask-stew-test-password'
 
@@ -615,6 +631,8 @@ class AskStewAIViewTests(TestCase):
         self.assertEqual(answer.call_count, 1)
         self.assertFalse(PayPlanConversation.objects.exists())
         self.assertFalse(PayPlanConversationTurn.objects.exists())
+        self.assertEqual(AskStewConversation.objects.count(), 1)
+        self.assertEqual(AskStewTurn.objects.count(), 2)
 
 
 class AskStewProviderValidationTests(TestCase):
@@ -660,7 +678,10 @@ class AskStewProviderValidationTests(TestCase):
             model_name='test-model',
             prevent_duplicate_reference=True,
         )
-        with override_settings(ASK_STEW_AI_PILOT_USER_IDS=(str(user.pk),)):
+        with override_settings(
+            ASK_STEW_AI_LAB_ONLY=False,
+            ASK_STEW_AI_PILOT_USER_IDS=(str(user.pk),),
+        ):
             first = recorder.authorize_ask_stew_attempt(configuration)
             second = recorder.authorize_ask_stew_attempt(configuration)
         self.assertTrue(first.allowed)

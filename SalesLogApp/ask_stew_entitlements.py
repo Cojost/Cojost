@@ -29,6 +29,8 @@ def ask_stew_ai_authorized(user) -> bool:
         return False
     if user.is_staff or user.is_superuser:
         return True
+    if getattr(settings, 'ASK_STEW_AI_LAB_ONLY', True):
+        return False
     return user.pk in _configured_pilot_user_ids()
 
 

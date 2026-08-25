@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from functools import wraps
 import logging
 import mimetypes
+from time import perf_counter
 from uuid import uuid4
 from django.http import FileResponse, Http404, JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
@@ -23,6 +24,7 @@ from .forms import (
     BasicPayPlanActivationForm,
     BasicPayPlanReplacementForm,
     BasicPayPlanRuleForm,
+    AskStewFeedbackForm,
     AskStewQuestionForm,
     ManualPayPlanRuleForm,
     PayPlanRuleConditionEditForm,
@@ -55,6 +57,7 @@ from django.core.exceptions import ObjectDoesNotExist, PermissionDenied, Validat
 from django.core import signing
 from django.core.signing import BadSignature, SignatureExpired
 from django.db import IntegrityError, connection, transaction
+from django.db.models import Avg, Count, Q
 from django.views.decorators.http import (
     require_GET,
     require_http_methods,
@@ -70,7 +73,13 @@ from .forms import AppearanceForm, AvatarForm
 from .profile_context import get_user_profile
 from django.conf import settings
 
-from .ask_stew import AskStewAnswer, AskStewService
+from .ask_stew import AskStewService
+from .ask_stew_conversations import (
+    AskStewConversationError,
+    AskStewConversationService,
+    AskStewRateLimitError,
+    safe_failure_answer,
+)
 from .ask_stew_entitlements import ask_stew_ai_required
 from .ask_stew_provider import ask_stew_provider_availability
 from .billing_entitlements import get_billing_entitlement
@@ -135,6 +144,9 @@ from .pay_plan_conversations import (
 )
 from .pay_plan_intents.openai_provider import provider_availability_for_user
 from .models import (
+    AskStewConversation,
+    AskStewFeedback,
+    AskStewTurn,
     PayPlanAssignment,
     PayPlanDescriptionSubmission,
     PayPlanDocument,
@@ -1608,11 +1620,31 @@ def ask_stew_ai(request):
     def new_submission_token():
         return signing.dumps(uuid4().hex, salt=token_salt, compress=True)
 
+    conversation = None
+    turns = ()
+    requested_conversation_id = (
+        request.POST.get('conversation_id')
+        if request.method == 'POST'
+        else request.GET.get('conversation')
+    )
+    if requested_conversation_id:
+        try:
+            conversation = AskStewConversationService.load_owned(
+                request.user,
+                requested_conversation_id,
+            )
+        except AskStewConversationError as exc:
+            if request.method == 'GET':
+                messages.info(request, '; '.join(exc.messages))
+
     form = (
         AskStewQuestionForm(request.POST)
         if request.method == 'POST'
         else AskStewQuestionForm(initial={
             'submission_token': new_submission_token(),
+            'conversation_id': (
+                conversation.public_id if conversation is not None else None
+            ),
         })
     )
     answer = None
@@ -1627,53 +1659,195 @@ def ask_stew_ai(request):
                 'This question form expired. Refresh the page and try again.',
             )
         else:
-            if request.session.get('ask_stew_last_submission_token') == token:
-                submitted_question = form.cleaned_data['question']
-                answer = AskStewAnswer(
-                    intent='clarification',
-                    answer=(
-                        'That question was already submitted. No duplicate request '
-                        'was sent. Start a new conversation or ask another question.'
-                    ),
-                    provider_status='not_requested',
+            submitted_question = form.cleaned_data['question']
+            try:
+                prepared = AskStewConversationService.prepare_submission(
+                    request.user,
+                    submitted_question,
+                    token,
+                    conversation_id=form.cleaned_data.get('conversation_id'),
                 )
+            except AskStewRateLimitError as exc:
+                form.add_error(None, '; '.join(exc.messages))
+            except AskStewConversationError as exc:
+                form.add_error(None, '; '.join(exc.messages))
             else:
-                request.session['ask_stew_last_submission_token'] = token
-                submitted_question = form.cleaned_data['question']
-                try:
-                    answer = AskStewService.answer(
+                conversation = prepared.conversation
+                if prepared.duplicate:
+                    messages.info(
+                        request,
+                        'That question was already submitted. No duplicate AI '
+                        'request was sent.',
+                    )
+                else:
+                    started = perf_counter()
+                    try:
+                        answer = AskStewService.answer(
+                            request.user,
+                            submitted_question,
+                            submission_token=token,
+                            previous_intent=prepared.previous_intent,
+                            previous_question=prepared.previous_question,
+                        )
+                    except Exception as exc:
+                        logger.error(
+                            'Unexpected Ask Stew explanation failure for '
+                            'user_id=%s error_type=%s',
+                            request.user.pk,
+                            type(exc).__name__,
+                        )
+                        answer = safe_failure_answer()
+                    AskStewConversationService.complete_submission(
                         request.user,
-                        submitted_question,
-                        submission_token=token,
+                        prepared,
+                        answer,
+                        duration_ms=int((perf_counter() - started) * 1000),
                     )
-                except Exception as exc:
-                    logger.error(
-                        'Unexpected Ask Stew explanation failure for user_id=%s error_type=%s',
-                        request.user.pk,
-                        type(exc).__name__,
-                    )
-                    answer = AskStewAnswer(
-                        intent='clarification',
-                        answer=(
-                            'I could not prepare that explanation safely. No account '
-                            'data was changed. Try a more specific question or try again.'
-                        ),
-                        provider_status='provider_unavailable',
-                    )
-            form = AskStewQuestionForm(initial={
-                'submission_token': new_submission_token(),
-            })
+                form = AskStewQuestionForm(initial={
+                    'submission_token': new_submission_token(),
+                    'conversation_id': conversation.public_id,
+                })
+
+    if conversation is not None:
+        turns = AskStewConversationService.turns_for(conversation)
+
+    starter_questions = [
+        'How am I paid?',
+        'What have I made this month?',
+        'How close am I to my next bonus?',
+        'What eligibility information am I missing?',
+    ]
+    recent_deals = list(
+        Sale.objects.filter(user=request.user)
+        .order_by('-date', '-id')
+        .values('dealNumber', 'date')[:3]
+    )
+    starter_questions.extend(
+        f'Break down deal #{deal["dealNumber"]}.'
+        for deal in recent_deals
+    )
+    follow_up_questions = {
+        'active_plan_explanation': (
+            'What have I made this month?',
+            'How close am I to my next bonus?',
+        ),
+        'recorded_sale_explanation': (
+            'What have I made this month?',
+            'How close am I to my next bonus?',
+        ),
+        'current_month_summary': (
+            'How close am I to my next bonus?',
+            'What eligibility information am I missing?',
+        ),
+        'bonus_progress': (
+            'What have I made this month?',
+            'What eligibility information am I missing?',
+        ),
+        'eligibility_explanation': (
+            'What have I made this month?',
+            'How close am I to my next bonus?',
+        ),
+    }.get(conversation.last_intent if conversation else '', ())
+
     return render(request, 'ask_stew_ai.html', {
         'form': form,
+        'feedback_form': AskStewFeedbackForm(),
         'answer': answer,
         'submitted_question': submitted_question,
+        'conversation': conversation,
+        'turns': turns,
         'provider_availability': ask_stew_provider_availability(request.user),
-        'starter_questions': (
-            'Explain my active pay plan.',
-            'What are my current-month commission totals?',
-            'How many credited units do I need for my next bonus?',
-            'Which eligibility information is still missing?',
+        'starter_questions': tuple(starter_questions),
+        'follow_up_questions': follow_up_questions,
+        'lab_only': settings.ASK_STEW_AI_LAB_ONLY,
+    })
+
+
+@ask_stew_ai_required
+@require_POST
+def ask_stew_feedback(request, conversation_id, turn_id):
+    form = AskStewFeedbackForm(request.POST)
+    if form.is_valid():
+        try:
+            AskStewConversationService.record_feedback(
+                request.user,
+                conversation_id,
+                turn_id,
+                form.cleaned_data['helpful'],
+            )
+        except AskStewConversationError as exc:
+            messages.error(request, '; '.join(exc.messages))
+        else:
+            messages.success(request, 'Thanks—your pilot feedback was recorded.')
+    else:
+        messages.error(request, 'Choose whether that Ask Stew answer was helpful.')
+    return redirect(
+        f'{reverse("ask_stew_ai")}?conversation={conversation_id}',
+    )
+
+
+@login_required
+@require_GET
+def ask_stew_lab(request):
+    if not request.user.is_superuser:
+        raise PermissionDenied
+    since = timezone.now() - timedelta(days=7)
+    answers = AskStewTurn.objects.filter(
+        role=AskStewTurn.ASSISTANT,
+        created_at__gte=since,
+    )
+    answer_stats = answers.aggregate(
+        total=Count('id'),
+        verified=Count('id', filter=Q(verified=True)),
+        provider_routed=Count(
+            'id',
+            filter=Q(route_source=AskStewTurn.ROUTE_PROVIDER),
         ),
+        declined=Count(
+            'id',
+            filter=Q(intent__startswith='declined_'),
+        ),
+        average_duration_ms=Avg('duration_ms'),
+    )
+    feedback = AskStewFeedback.objects.filter(
+        assistant_turn__created_at__gte=since,
+    )
+    feedback_stats = feedback.aggregate(
+        total=Count('id'),
+        helpful_count=Count('id', filter=Q(helpful=True)),
+        not_helpful_count=Count('id', filter=Q(helpful=False)),
+    )
+    answer_total = answer_stats['total'] or 0
+    feedback_total = feedback_stats['total'] or 0
+    answer_stats['verified_rate'] = (
+        round((answer_stats['verified'] or 0) * 100 / answer_total)
+        if answer_total else 0
+    )
+    answer_stats['provider_route_rate'] = (
+        round((answer_stats['provider_routed'] or 0) * 100 / answer_total)
+        if answer_total else 0
+    )
+    answer_stats['declined_rate'] = (
+        round((answer_stats['declined'] or 0) * 100 / answer_total)
+        if answer_total else 0
+    )
+    feedback_stats['helpful_rate'] = (
+        round((feedback_stats['helpful_count'] or 0) * 100 / feedback_total)
+        if feedback_total else 0
+    )
+    recent_answers = answers.select_related(
+        'conversation__user',
+        'reply_to',
+        'feedback',
+    ).order_by('-created_at', '-id')[:50]
+    return render(request, 'ask_stew_lab.html', {
+        'window_days': 7,
+        'answer_stats': answer_stats,
+        'feedback_stats': feedback_stats,
+        'recent_answers': recent_answers,
+        'conversation_count': AskStewConversation.objects.filter(
+            created_at__gte=since,
+        ).count(),
     })
 
 

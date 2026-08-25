@@ -126,6 +126,24 @@ PAY_PLAN_ASSISTANT_EVENT_RETENTION_DAYS = env_int(
 # the legacy pay-plan-change assistant rollout. Only immutable user IDs listed
 # here receive customer access; an empty list denies every non-staff user.
 ASK_STEW_AI_PILOT_USER_IDS = env_list('ASK_STEW_AI_PILOT_USER_IDS')
+# AI-1A starts as an in-house lab. While this is true, customer allowlist IDs
+# cannot grant access; authenticated staff and superusers remain authorized.
+ASK_STEW_AI_LAB_ONLY = env_strict_bool('ASK_STEW_AI_LAB_ONLY', True)
+ASK_STEW_AI_MAX_TURNS = env_bounded_int(
+    'ASK_STEW_AI_MAX_TURNS', 12, minimum=2, maximum=40,
+)
+ASK_STEW_AI_CONVERSATION_TTL_HOURS = env_bounded_int(
+    'ASK_STEW_AI_CONVERSATION_TTL_HOURS', 24, minimum=1, maximum=168,
+)
+ASK_STEW_AI_SHORT_WINDOW_SECONDS = env_bounded_int(
+    'ASK_STEW_AI_SHORT_WINDOW_SECONDS', 60, minimum=10, maximum=3600,
+)
+ASK_STEW_AI_SHORT_WINDOW_LIMIT = env_bounded_int(
+    'ASK_STEW_AI_SHORT_WINDOW_LIMIT', 6, minimum=1, maximum=100,
+)
+ASK_STEW_AI_CONVERSATION_RETENTION_DAYS = env_bounded_int(
+    'ASK_STEW_AI_CONVERSATION_RETENTION_DAYS', 30, minimum=1, maximum=365,
+)
 
 # Phase 2A Teams is dark-launched. This flag is deliberately strict so a
 # misspelled production value cannot accidentally enable a social surface.
