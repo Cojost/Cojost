@@ -2,7 +2,7 @@ from zoneinfo import available_timezones
 
 from django import forms
 
-from .models import Team, TeamComment, TeamMembership, TeamReaction
+from .models import Team, TeamComment, TeamReaction
 
 
 TIMEZONE_CHOICES = [(name, name) for name in sorted(available_timezones())]
@@ -56,10 +56,6 @@ class InvitationCodeForm(forms.Form):
         strip=True,
         widget=forms.PasswordInput(render_value=True),
     )
-
-
-class SharingPreferenceForm(forms.Form):
-    sharing_preference = forms.ChoiceField(choices=TeamMembership.SHARING_CHOICES)
 
 
 class TeamCommentForm(forms.ModelForm):

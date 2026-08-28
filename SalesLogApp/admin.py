@@ -67,9 +67,9 @@ class TeamAdmin(ReadOnlyOperationalAdmin):
 @admin.register(TeamMembership)
 class TeamMembershipAdmin(ReadOnlyOperationalAdmin):
     list_display = (
-        'team', 'user', 'role', 'status', 'sharing_preference', 'updated_at',
+        'team', 'user', 'role', 'status', 'updated_at',
     )
-    list_filter = ('role', 'status', 'sharing_preference')
+    list_filter = ('role', 'status')
     search_fields = (
         'team__name', 'user__username', 'user__email',
     )

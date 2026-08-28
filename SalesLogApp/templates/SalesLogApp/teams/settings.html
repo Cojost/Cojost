@@ -1,0 +1,39 @@
+{% extends 'SalesLogApp/base.html' %}
+{% block title %}Team settings | {{ team.name }}{% endblock %}
+{% block page_class %}teams-page{% endblock %}
+{% block content %}
+<div class="team-heading">
+    <div><h2>Team settings</h2><p>Manage {{ team.name }}.</p></div>
+    <a class="button button-secondary" href="{% url 'team_detail' team.public_id %}">Back to team</a>
+</div>
+
+{% if show_owner_read_only %}<div class="notice notice-warning"><strong>Team management is read-only.</strong> Your future Pro entitlement is not active. Existing members, activity, comments, and reactions are preserved.</div>{% endif %}
+{% if one_time_invitation_code %}<div class="notice notice-success"><label for="invitation-code"><strong>Invitation email sent</strong></label><input id="invitation-code" class="team-copy-field" type="text" readonly value="{{ one_time_invitation_code }}"><p>The complete code was emailed and is shown here once as a backup. It is never placed in a URL or stored in recoverable form.</p></div>{% endif %}
+
+<section class="card">
+    <h3>Team details</h3>
+    <form method="post" class="form-card team-inline-form">{% csrf_token %}{{ form.as_p }}{% if not read_only %}<button class="button button-primary" type="submit">{{ submit_label }}</button>{% endif %}</form>
+</section>
+
+<section class="card">
+    <h3>Members</h3>
+    <p class="card-description">Every active member contributes unit totals and sale activity. Customer names, gross, commission, deal numbers, and pay-plan details stay private.</p>
+    <ul class="team-member-list">
+    {% for member in members %}
+        <li><div class="team-person">{% if member.avatar_url %}<img src="{{ member.avatar_url }}" alt="" class="team-avatar">{% else %}<span class="team-initial" aria-hidden="true">{{ member.initial }}</span>{% endif %}<span><strong>{{ member.display_name }}</strong>{% if member.is_self %} (you){% endif %}<br><span class="card-description">{{ member.role_label }}</span></span></div>
+        {% if can_manage and not member.is_self and member.role != 'owner' %}<div class="team-row-actions">
+            {% if can_manage_roles %}{% if member.role == 'member' %}<form method="post" action="{% url 'team_member_role' team.public_id member.public_id 'promote' %}">{% csrf_token %}<button class="button button-secondary" type="submit">Make admin</button></form>{% elif member.role == 'admin' %}<form method="post" action="{% url 'team_member_role' team.public_id member.public_id 'demote' %}">{% csrf_token %}<button class="button button-secondary" type="submit">Make member</button></form>{% endif %}<form method="post" action="{% url 'team_transfer_ownership' team.public_id member.public_id %}">{% csrf_token %}<button class="button button-secondary" type="submit">Transfer ownership</button></form>{% endif %}
+            <form method="post" action="{% url 'team_member_remove' team.public_id member.public_id %}">{% csrf_token %}<button class="button button-danger" type="submit">Remove</button></form>
+        </div>{% endif %}</li>
+    {% endfor %}
+    </ul>
+    {% if membership.role != 'owner' %}<form method="post" action="{% url 'team_leave' team.public_id %}">{% csrf_token %}<button class="button button-danger" type="submit">Leave team</button></form>{% endif %}
+</section>
+
+{% if can_manage %}<div class="team-columns">
+<section class="card"><h3>Invite by email</h3><form method="post" action="{% url 'team_invite' team.public_id %}" class="form-card team-inline-form">{% csrf_token %}{{ invite_form.as_p }}<button class="button button-primary" type="submit">Send invitation</button></form><p class="card-description">The recipient can register or sign in, verify this address, and enter the one-time code. Joining makes their safe unit totals and sale activity visible to the team.</p></section>
+<section class="card"><h3>Pending invitations</h3><ul class="team-member-list">{% for invitation in pending_invitations %}<li><div><strong>{{ invitation.display_name }}</strong><br><span class="card-description">Code prefix {{ invitation.token_prefix }}… · expires {{ invitation.expires_at|date:"M j, Y" }}</span></div><form method="post" action="{% url 'team_invitation_revoke' team.public_id invitation.public_id %}">{% csrf_token %}<button class="button button-danger" type="submit">Revoke</button></form></li>{% empty %}<li>No pending invitations.</li>{% endfor %}</ul></section>
+</div>{% endif %}
+
+{% if can_manage_roles %}<section class="card team-danger-zone"><h3>Deactivate team</h3><p>Access stops immediately, while team history remains preserved.</p><form method="post" action="{% url 'team_deactivate' team.public_id %}">{% csrf_token %}<button class="button button-danger" type="submit">Deactivate team</button></form></section>{% endif %}
+{% endblock %}

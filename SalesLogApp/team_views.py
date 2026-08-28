@@ -36,7 +36,6 @@ from .team_entitlements import can_create_team, get_team_entitlement
 from .team_forms import (
     ReactionForm,
     InvitationCodeForm,
-    SharingPreferenceForm,
     TeamCommentForm,
     TeamCreateForm,
     TeamGoalForm,
@@ -70,7 +69,6 @@ from .team_services import (
     revoke_invitation,
     safe_display_name,
     team_is_effectively_read_only,
-    update_sharing_preference,
     visible_activity_or_404,
 )
 
@@ -264,10 +262,6 @@ def team_detail(request, team_id):
     membership = get_team_membership_or_404(request.user, team_id)
     team = membership.team
     read_only = team_is_effectively_read_only(team)
-    can_manage = (
-        membership.role in {TeamMembership.OWNER, TeamMembership.ADMIN}
-        and not read_only
-    )
     month_start, totals, team_total = build_month_totals(
         team,
         request.user.pk,
@@ -275,11 +269,6 @@ def team_detail(request, team_id):
     )
     page = Paginator(build_feed_queryset(team), 25).get_page(request.GET.get('page'))
     page.object_list = [project_activity(item, membership) for item in page.object_list]
-    member_models = TeamMembership.objects.select_related('user').filter(
-        team=team,
-        status=TeamMembership.ACTIVE,
-    ).order_by('role', 'user__username')
-    members = tuple(as_member_view(item, request.user.pk) for item in member_models)
     goal = team.monthly_unit_goal
     goal_percent = None
     units_remaining = None
@@ -287,15 +276,9 @@ def team_detail(request, team_id):
         goal_percent = (team_total / goal * Decimal('100')) if goal else Decimal('0')
         units_remaining = max(goal - team_total, Decimal('0'))
 
-    one_time_invitation_code = None
-    invitation_once = request.session.pop('team_invitation_once', None)
-    if invitation_once and invitation_once.get('team') == str(team.public_id):
-        one_time_invitation_code = invitation_once.get('code')
-
     return render(request, 'SalesLogApp/teams/detail.html', {
         'team': as_team_view(team),
         'membership': as_member_view(membership, request.user.pk),
-        'members': members,
         'totals': totals,
         'team_total': team_total,
         'month_start': month_start,
@@ -304,16 +287,8 @@ def team_detail(request, team_id):
         'units_remaining': units_remaining,
         'activity_page': page,
         'comment_form': TeamCommentForm(),
-        'sharing_form': SharingPreferenceForm(initial={
-            'sharing_preference': membership.sharing_preference,
-        }),
-        'invite_form': TeamInviteForm() if can_manage else None,
-        'pending_invitations': pending_invitation_views(team) if can_manage else (),
-        'can_manage': can_manage,
-        'can_manage_roles': membership.role == TeamMembership.OWNER and not read_only,
         'read_only': read_only,
         'show_owner_read_only': membership.role == TeamMembership.OWNER and read_only,
-        'one_time_invitation_code': one_time_invitation_code,
     })
 
 
@@ -321,10 +296,11 @@ def team_detail(request, team_id):
 @require_http_methods(['GET', 'POST'])
 def team_settings(request, team_id):
     membership = get_team_membership_or_404(request.user, team_id)
-    if membership.role not in {TeamMembership.OWNER, TeamMembership.ADMIN}:
-        raise PermissionDenied
+    is_manager = membership.role in {
+        TeamMembership.OWNER, TeamMembership.ADMIN,
+    }
     read_only = team_is_effectively_read_only(membership.team)
-    if request.method == 'POST' and read_only:
+    if request.method == 'POST' and (read_only or not is_manager):
         raise PermissionDenied
     form_class = (
         TeamSettingsForm
@@ -332,15 +308,29 @@ def team_settings(request, team_id):
         else TeamGoalForm
     )
     form = form_class(request.POST or None, instance=membership.team)
-    if read_only:
+    settings_read_only = read_only or not is_manager
+    if settings_read_only:
         for field in form.fields.values():
             field.disabled = True
     if request.method == 'POST' and form.is_valid():
         require_management(membership)
         form.save()
         messages.success(request, 'Team settings updated.')
-        return redirect('team_detail', team_id=membership.team.public_id)
-    return render(request, 'SalesLogApp/teams/form.html', {
+        return redirect('team_settings', team_id=membership.team.public_id)
+    one_time_invitation_code = None
+    invitation_once = request.session.pop('team_invitation_once', None)
+    if (
+        invitation_once
+        and invitation_once.get('team') == str(membership.team.public_id)
+    ):
+        one_time_invitation_code = invitation_once.get('code')
+    member_models = TeamMembership.objects.select_related(
+        'user', 'user__sales_profile',
+    ).filter(
+        team=membership.team,
+        status=TeamMembership.ACTIVE,
+    ).order_by('role', 'user__username')
+    return render(request, 'SalesLogApp/teams/settings.html', {
         'form': form,
         'heading': (
             'Team settings'
@@ -348,9 +338,23 @@ def team_settings(request, team_id):
             else 'Team goal'
         ),
         'submit_label': 'Save settings',
-        'read_only': read_only,
+        'read_only': settings_read_only,
         'show_owner_read_only': membership.role == TeamMembership.OWNER and read_only,
         'team': as_team_view(membership.team),
+        'membership': as_member_view(membership, request.user.pk),
+        'members': tuple(
+            as_member_view(item, request.user.pk) for item in member_models
+        ),
+        'invite_form': TeamInviteForm() if is_manager and not read_only else None,
+        'pending_invitations': (
+            pending_invitation_views(membership.team)
+            if is_manager and not read_only else ()
+        ),
+        'can_manage': is_manager and not read_only,
+        'can_manage_roles': (
+            membership.role == TeamMembership.OWNER and not read_only
+        ),
+        'one_time_invitation_code': one_time_invitation_code,
     })
 
 
@@ -386,7 +390,7 @@ def team_invite(request, team_id):
             )
     else:
         messages.error(request, 'Enter a valid email address.')
-    return redirect('team_detail', team_id=membership.team.public_id)
+    return redirect('team_settings', team_id=membership.team.public_id)
 
 
 @teams_feature_required
@@ -395,7 +399,7 @@ def team_invitation_revoke(request, team_id, invitation_id):
     membership = get_team_membership_or_404(request.user, team_id)
     revoke_invitation(membership, invitation_id)
     messages.success(request, 'Invitation revoked.')
-    return redirect('team_detail', team_id=membership.team.public_id)
+    return redirect('team_settings', team_id=membership.team.public_id)
 
 
 @teams_feature_required
@@ -590,18 +594,6 @@ def team_invitation_accept(request):
 
 @teams_feature_required
 @require_POST
-def team_sharing(request, team_id):
-    membership = get_team_membership_or_404(request.user, team_id)
-    form = SharingPreferenceForm(request.POST)
-    if not form.is_valid():
-        return HttpResponseBadRequest('Invalid sharing preference.')
-    update_sharing_preference(membership, form.cleaned_data['sharing_preference'])
-    messages.success(request, 'Your sharing preference was updated immediately.')
-    return redirect('team_detail', team_id=membership.team.public_id)
-
-
-@teams_feature_required
-@require_POST
 def team_comment_add(request, team_id, activity_id):
     membership = get_team_membership_or_404(request.user, team_id)
     activity = visible_activity_or_404(membership, activity_id)
@@ -731,7 +723,7 @@ def team_member_remove(request, team_id, membership_id):
     target.save(update_fields=['status', 'updated_at'])
     target.activities.update(is_visible=False)
     messages.success(request, 'Member removed.')
-    return redirect('team_detail', team_id=actor.team.public_id)
+    return redirect('team_settings', team_id=actor.team.public_id)
 
 
 @teams_feature_required
@@ -750,7 +742,7 @@ def team_member_role(request, team_id, membership_id, action):
         return HttpResponseBadRequest('Invalid role transition.')
     target.save(update_fields=['role', 'updated_at'])
     messages.success(request, 'Member role updated.')
-    return redirect('team_detail', team_id=actor.team.public_id)
+    return redirect('team_settings', team_id=actor.team.public_id)
 
 
 @teams_feature_required
@@ -773,7 +765,7 @@ def team_transfer_ownership(request, team_id, membership_id):
         target.role = TeamMembership.OWNER
         target.save(update_fields=['role', 'updated_at'])
     messages.success(request, 'Team ownership transferred.')
-    return redirect('team_detail', team_id=team.public_id)
+    return redirect('team_settings', team_id=team.public_id)
 
 
 @teams_feature_required

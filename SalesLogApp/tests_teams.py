@@ -538,6 +538,8 @@ class Phase2ATeamsTests(TestCase):
         self.assertIn('http://testserver/accounts/signup/', mail['message'])
         self.assertIn('http://testserver/accounts/login/', mail['message'])
         self.assertIn('http://testserver/SalesLogApp/teams/invitations/', mail['message'])
+        self.assertIn('sale dates, and unit credits', mail['message'])
+        self.assertIn('Customer names', mail['message'])
         self.assertIn(raw_code, mail['message'])
         for line in mail['message'].splitlines():
             if line.startswith(('http://', 'https://')):
@@ -1637,7 +1639,7 @@ class Phase2ATeamsTests(TestCase):
         _, _, total = build_month_totals(self.team, self.member.pk)
         self.assertEqual(total, Decimal('0'))
 
-    def test_totals_only_hides_activity_and_paused_hides_all_sharing(self):
+    def test_legacy_sharing_preferences_do_not_hide_activity_or_totals(self):
         self.make_sale(count='0.5')
         self.member_membership.sharing_preference = TeamMembership.TOTALS_ONLY
         self.member_membership.save()
@@ -1645,16 +1647,18 @@ class Phase2ATeamsTests(TestCase):
         self.assertEqual(total, Decimal('0.5'))
         self.login()
         response = self.client.get(reverse('team_detail', args=[self.team.public_id]))
-        self.assertEqual(len(response.context['activity_page']), 0)
+        self.assertEqual(len(response.context['activity_page']), 1)
 
-        self.client.post(reverse('team_sharing', args=[self.team.public_id]), {
-            'sharing_preference': TeamMembership.PAUSED,
-        })
+        self.member_membership.sharing_preference = TeamMembership.PAUSED
+        self.member_membership.save(update_fields=['sharing_preference'])
         _, rows, total = build_month_totals(self.team, self.member.pk)
-        self.assertEqual(total, Decimal('0'))
-        self.assertFalse(any(row.public_id == self.member_membership.public_id for row in rows))
+        self.assertEqual(total, Decimal('0.5'))
+        self.assertTrue(any(
+            row.public_id == self.member_membership.public_id for row in rows
+        ))
+        self.assertEqual(build_feed_queryset(self.team).count(), 1)
 
-    def test_hidden_activity_is_inaccessible_by_direct_comment_or_reaction_url(self):
+    def test_legacy_preference_does_not_block_comment_or_reaction(self):
         activity = TeamActivity.objects.get(sale=self.make_sale())
         self.member_membership.sharing_preference = TeamMembership.TOTALS_ONLY
         self.member_membership.save(update_fields=['sharing_preference'])
@@ -1665,32 +1669,75 @@ class Phase2ATeamsTests(TestCase):
         reaction_url = reverse('team_reaction_toggle', args=[
             self.team.public_id, activity.public_id
         ])
-        self.assertEqual(self.client.post(comment_url, {'body': 'hidden'}).status_code, 404)
+        self.assertEqual(self.client.post(comment_url, {'body': 'visible'}).status_code, 302)
         self.assertEqual(self.client.post(
             reaction_url, {'code': TeamReaction.CELEBRATE}
-        ).status_code, 404)
-        self.assertFalse(TeamComment.objects.filter(activity=activity).exists())
-        self.assertFalse(TeamReaction.objects.filter(activity=activity).exists())
+        ).status_code, 302)
+        self.assertTrue(TeamComment.objects.filter(activity=activity).exists())
+        self.assertTrue(TeamReaction.objects.filter(activity=activity).exists())
 
-    def test_sharing_request_cannot_forge_role(self):
+    def test_team_page_has_no_sharing_control_or_management_sections(self):
         self.login()
-        self.client.post(reverse('team_sharing', args=[self.team.public_id]), {
-            'sharing_preference': TeamMembership.TOTALS_ONLY,
-            'role': TeamMembership.OWNER,
-            'status': TeamMembership.ACTIVE,
-        })
+        response = self.client.get(reverse('team_detail', args=[self.team.public_id]))
+        self.assertNotContains(response, 'Your sharing')
+        self.assertNotContains(response, 'Update sharing')
+        self.assertNotContains(response, 'Invite by email')
+        self.assertNotContains(response, '<h3>Members</h3>', html=True)
         self.member_membership.refresh_from_db()
         self.assertEqual(self.member_membership.role, TeamMembership.MEMBER)
-        self.assertEqual(
-            self.member_membership.sharing_preference,
-            TeamMembership.TOTALS_ONLY,
+
+    def test_team_page_orders_progress_before_activity_and_settings_owns_management(self):
+        self.login(self.owner)
+        detail = self.client.get(reverse('team_detail', args=[self.team.public_id]))
+        content = detail.content.decode()
+        self.assertLess(content.index('progress</h3>'), content.index('Team activity'))
+        self.assertNotContains(detail, 'Invite by email')
+        self.assertContains(detail, 'Team settings')
+
+        settings_page = self.client.get(
+            reverse('team_settings', args=[self.team.public_id])
+        )
+        self.assertContains(settings_page, '<h3>Members</h3>', html=True)
+        self.assertContains(settings_page, 'Invite by email')
+        self.assertContains(settings_page, 'Pending invitations')
+
+    def test_regular_member_can_open_settings_and_leave_without_management_access(self):
+        self.login()
+        response = self.client.get(
+            reverse('team_settings', args=[self.team.public_id])
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Leave team')
+        self.assertNotContains(response, 'Invite by email')
+        self.assertNotContains(response, 'Deactivate team')
+
+    def test_profile_picture_is_used_in_progress_activity_and_member_management(self):
+        self.make_sale()
+        self.login(self.owner)
+        with patch(
+            'SalesLogApp.team_services.safe_avatar_url',
+            return_value='/media/profile_avatars/member/avatar.png',
+        ):
+            detail = self.client.get(
+                reverse('team_detail', args=[self.team.public_id])
+            )
+            settings_page = self.client.get(
+                reverse('team_settings', args=[self.team.public_id])
+            )
+        self.assertContains(
+            detail, 'src="/media/profile_avatars/member/avatar.png"', count=3
+        )
+        self.assertContains(
+            settings_page,
+            'src="/media/profile_avatars/member/avatar.png"',
+            count=2,
         )
 
-    def test_sale_saved_while_totals_only_does_not_create_activity(self):
+    def test_sale_saved_with_legacy_totals_only_creates_activity(self):
         self.member_membership.sharing_preference = TeamMembership.TOTALS_ONLY
         self.member_membership.save()
         sale = self.make_sale()
-        self.assertFalse(TeamActivity.objects.filter(sale=sale).exists())
+        self.assertTrue(TeamActivity.objects.filter(sale=sale, is_visible=True).exists())
         _, _, total = build_month_totals(self.team, self.member.pk)
         self.assertEqual(total, Decimal('1.0'))
 
@@ -1833,9 +1880,10 @@ class Phase2ATeamsTests(TestCase):
     def test_mutating_routes_require_csrf(self):
         csrf_client = Client(enforce_csrf_checks=True)
         csrf_client.force_login(self.member)
-        response = csrf_client.post(reverse('team_sharing', args=[self.team.public_id]), {
-            'sharing_preference': TeamMembership.PAUSED,
-        })
+        activity = TeamActivity.objects.get(sale=self.make_sale())
+        response = csrf_client.post(reverse('team_comment_add', args=[
+            self.team.public_id, activity.public_id,
+        ]), {'body': 'blocked'})
         self.assertEqual(response.status_code, 403)
 
     def test_role_remove_leave_and_deactivate_lifecycle(self):

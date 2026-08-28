@@ -2621,6 +2621,7 @@ progress {
 
 .team-heading,
 .team-section-heading,
+.team-person,
 .team-activity-summary,
 .team-member-list li,
 .team-row-actions,
@@ -2682,6 +2683,21 @@ progress {
   font-weight: 700;
   background: var(--action-background);
   border-radius: 50%;
+}
+
+.team-avatar {
+  display: block;
+  flex: 0 0 2rem;
+  width: 2rem;
+  height: 2rem;
+  object-fit: cover;
+  border: 1px solid var(--border-color);
+  border-radius: 50%;
+}
+
+.team-person {
+  display: inline-flex;
+  min-width: 0;
 }
 
 .team-member-list {

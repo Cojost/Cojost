@@ -11,7 +11,7 @@ from allauth.account.models import EmailAddress
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core import signing
-from django.core.exceptions import PermissionDenied, ValidationError
+from django.core.exceptions import ObjectDoesNotExist, PermissionDenied, ValidationError
 from django.core.mail import send_mail
 from django.core.validators import validate_email
 from django.db import transaction
@@ -73,10 +73,9 @@ class MemberView:
     public_id: object
     display_name: str
     initial: str
+    avatar_url: str
     role: str
     role_label: str
-    sharing_preference: str
-    sharing_label: str
     is_self: bool
 
 
@@ -106,6 +105,7 @@ class ActivityView:
     public_id: object
     actor_name: str
     actor_initial: str
+    actor_avatar_url: str
     unit_credit: Decimal
     activity_date: date
     comments: tuple
@@ -117,6 +117,7 @@ class MemberTotalView:
     public_id: object
     display_name: str
     initial: str
+    avatar_url: str
     units: Decimal
     rank: int | None
     is_self: bool
@@ -132,6 +133,19 @@ class InvitationView:
 
 def safe_display_name(user):
     return user.get_full_name().strip() or user.username
+
+
+def safe_avatar_url(user):
+    try:
+        profile = user.sales_profile
+    except ObjectDoesNotExist:
+        return ''
+    if not profile.avatar_available:
+        return ''
+    try:
+        return profile.avatar.url
+    except (OSError, ValueError):
+        return ''
 
 
 def as_team_view(team):
@@ -150,10 +164,9 @@ def as_member_view(membership, current_user_id):
         public_id=membership.public_id,
         display_name=name,
         initial=(name[:1] or '?').upper(),
+        avatar_url=safe_avatar_url(membership.user),
         role=membership.role,
         role_label=membership.get_role_display(),
-        sharing_preference=membership.sharing_preference,
-        sharing_label=membership.get_sharing_preference_display(),
         is_self=membership.user_id == current_user_id,
     )
 
@@ -424,6 +437,9 @@ def _invitation_email_body(
 ):
     return (
         f'{inviter_name} invited you to join {team.name} on STEW Log.\n\n'
+        'By joining, your profile name and picture, sale dates, and unit '
+        'credits will be visible to active team members. Customer names, '
+        'deal numbers, gross, commission, and pay-plan details remain private.\n\n'
         'If you do not have an account, register here:\n'
         f'{signup_url}\n\n'
         'If you already have an account, sign in here:\n'
@@ -638,7 +654,7 @@ def sync_sale_activity(sale):
         )
         .first()
     )
-    if not membership or membership.sharing_preference != TeamMembership.INDIVIDUAL_AND_TOTALS:
+    if not membership:
         TeamActivity.objects.filter(sale=sale).update(is_visible=False)
         return
     TeamActivity.objects.update_or_create(
@@ -656,11 +672,6 @@ def sync_sale_activity(sale):
 
 def withdraw_sale_activity(sale):
     TeamActivity.objects.filter(sale=sale).update(is_visible=False)
-
-
-def update_sharing_preference(membership, preference):
-    membership.sharing_preference = preference
-    membership.save(update_fields=['sharing_preference', 'updated_at'])
 
 
 def _month_bounds(team, month_value=None):
@@ -685,9 +696,8 @@ def _month_bounds(team, month_value=None):
 def build_month_totals(team, current_user_id, month_value=None):
     month_start, month_end = _month_bounds(team, month_value)
     memberships = list(
-        TeamMembership.objects.select_related('user')
+        TeamMembership.objects.select_related('user', 'user__sales_profile')
         .filter(team=team, status=TeamMembership.ACTIVE)
-        .exclude(sharing_preference=TeamMembership.PAUSED)
     )
     eligible = Q(pk__in=[])
     by_user = {}
@@ -738,6 +748,7 @@ def build_month_totals(team, current_user_id, month_value=None):
             public_id=row['membership'].public_id,
             display_name=row['name'],
             initial=(row['name'][:1] or '?').upper(),
+            avatar_url=safe_avatar_url(row['membership'].user),
             units=row['units'],
             rank=rank_by_member[row['membership'].pk] if team.display_mode == Team.RANKED else None,
             is_self=row['membership'].user_id == current_user_id,
@@ -757,9 +768,8 @@ def build_feed_queryset(team):
             team=team,
             is_visible=True,
             membership__status=TeamMembership.ACTIVE,
-            membership__sharing_preference=TeamMembership.INDIVIDUAL_AND_TOTALS,
         )
-        .select_related('membership__user')
+        .select_related('membership__user', 'membership__user__sales_profile')
         .prefetch_related(
             Prefetch('comments', queryset=visible_comments, to_attr='visible_comments'),
             'reactions',
@@ -809,6 +819,7 @@ def project_activity(activity, current_membership):
         public_id=activity.public_id,
         actor_name=actor_name,
         actor_initial=(actor_name[:1] or '?').upper(),
+        actor_avatar_url=safe_avatar_url(activity.membership.user),
         unit_credit=activity.unit_credit,
         activity_date=activity.activity_date,
         comments=comments,
@@ -824,7 +835,6 @@ def visible_activity_or_404(membership, activity_public_id):
             team__is_active=True,
             is_visible=True,
             membership__status=TeamMembership.ACTIVE,
-            membership__sharing_preference=TeamMembership.INDIVIDUAL_AND_TOTALS,
         )
     except TeamActivity.DoesNotExist as exc:
         raise Http404('Activity not found.') from exc

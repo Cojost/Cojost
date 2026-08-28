@@ -120,7 +120,8 @@ class TeamMembership(models.Model):
     sharing_preference = models.CharField(
         max_length=28,
         choices=SHARING_CHOICES,
-        default=TOTALS_ONLY,
+        default=INDIVIDUAL_AND_TOTALS,
+        editable=False,
     )
     joined_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

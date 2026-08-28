@@ -216,7 +216,6 @@ urlpatterns = [
     path('teams/<uuid:team_id>/settings/', team_views.team_settings, name='team_settings'),
     path('teams/<uuid:team_id>/invitations/', team_views.team_invite, name='team_invite'),
     path('teams/<uuid:team_id>/invitations/<uuid:invitation_id>/revoke/', team_views.team_invitation_revoke, name='team_invitation_revoke'),
-    path('teams/<uuid:team_id>/sharing/', team_views.team_sharing, name='team_sharing'),
     path('teams/<uuid:team_id>/activity/<uuid:activity_id>/comments/', team_views.team_comment_add, name='team_comment_add'),
     path('teams/<uuid:team_id>/activity/<uuid:activity_id>/comments/<uuid:comment_id>/edit/', team_views.team_comment_edit, name='team_comment_edit'),
     path('teams/<uuid:team_id>/activity/<uuid:activity_id>/comments/<uuid:comment_id>/delete/', team_views.team_comment_delete, name='team_comment_delete'),
@@ -231,6 +230,5 @@ urlpatterns = [
 
 
  
-
 
 
