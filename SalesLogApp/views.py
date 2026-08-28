@@ -160,6 +160,8 @@ from .models import (
     SandboxRun,
     SellingDayClosure,
     StewCoachNudgeDismissal,
+    TeamMembership,
+    UserProfile,
 )
 from .models.nudges import NUDGE_KEYS
 from .models.sales import SaleType
@@ -882,14 +884,31 @@ def profile(request):
 
 @login_required
 def profile_avatar_file(request, user_id, filename):
-    """Serve only the authenticated user's exact stored avatar file."""
+    """Serve an avatar to its owner or an active teammate."""
     if request.user.pk != user_id:
-        raise Http404('Profile picture not found.')
+        if not settings.TEAMS_FEATURE_ENABLED:
+            raise Http404('Profile picture not found.')
+        viewer_team_ids = TeamMembership.objects.filter(
+            user=request.user,
+            status=TeamMembership.ACTIVE,
+            team__is_active=True,
+        ).values_list('team_id', flat=True)
+        if not TeamMembership.objects.filter(
+            user_id=user_id,
+            status=TeamMembership.ACTIVE,
+            team__is_active=True,
+            team_id__in=viewer_team_ids,
+        ).exists():
+            raise Http404('Profile picture not found.')
     if not filename or '/' in filename or '\\' in filename:
         raise Http404('Profile picture not found.')
-    user_profile = get_user_profile(request.user)
+    user_profile = UserProfile.objects.filter(user_id=user_id).first()
     expected_name = f'profile_avatars/{user_id}/{filename}'
-    if not user_profile.avatar or user_profile.avatar.name != expected_name:
+    if (
+        user_profile is None
+        or not user_profile.avatar
+        or user_profile.avatar.name != expected_name
+    ):
         raise Http404('Profile picture not found.')
     content_type = mimetypes.guess_type(filename)[0]
     if content_type not in {'image/jpeg', 'image/png', 'image/webp'}:
@@ -907,7 +926,7 @@ def profile_avatar_file(request, user_id, filename):
         )
         raise Http404('Profile picture not found.') from exc
     response = FileResponse(avatar_file, content_type=content_type)
-    response['Cache-Control'] = 'private, max-age=3600'
+    response['Cache-Control'] = 'private, no-store'
     response['X-Content-Type-Options'] = 'nosniff'
     return response
 

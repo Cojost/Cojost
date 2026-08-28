@@ -10,7 +10,7 @@ from django.contrib.staticfiles import finders
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
-from .models import UserProfile
+from .models import Team, TeamMembership, UserProfile
 
 
 class ProfileTests(TestCase):
@@ -284,6 +284,36 @@ class ProfileTests(TestCase):
         self.client.force_login(self.other)
         self.assertEqual(self.client.get(avatar_url).status_code, 404)
         self.assertFalse(self.other.sales_profile.avatar)
+
+    @override_settings(TEAMS_FEATURE_ENABLED=True)
+    def test_avatar_file_is_available_to_an_active_teammate_only(self):
+        self.client.force_login(self.user)
+        self.client.post(reverse('profile'), {
+            'form_type': 'avatar',
+            'avatar': self.image_upload(),
+        })
+        avatar_url = UserProfile.objects.get(user=self.user).avatar.url
+        team = Team.objects.create(owner=self.user, name='Avatar Team')
+        TeamMembership.objects.create(
+            team=team,
+            user=self.user,
+            role=TeamMembership.OWNER,
+            status=TeamMembership.ACTIVE,
+        )
+        teammate_membership = TeamMembership.objects.create(
+            team=team,
+            user=self.other,
+            status=TeamMembership.ACTIVE,
+        )
+
+        self.client.force_login(self.other)
+        served = self.client.get(avatar_url)
+        self.assertEqual(served.status_code, 200)
+        self.assertEqual(served['Cache-Control'], 'private, no-store')
+
+        teammate_membership.status = TeamMembership.REMOVED
+        teammate_membership.save(update_fields=['status'])
+        self.assertEqual(self.client.get(avatar_url).status_code, 404)
 
     def test_bad_and_oversized_avatars_are_rejected(self):
         self.client.force_login(self.user)
