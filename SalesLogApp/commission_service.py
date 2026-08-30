@@ -415,8 +415,10 @@ class _UnitBonusCalculator:
         empty = {
             'amount': Decimal('0.00'),
             'units': units,
+            'bonus_units': units,
             'new_units': Decimal('0.0'),
             'used_units': Decimal('0.0'),
+            'tiers': [],
             'current_tier': None,
             'next_tier': None,
             'units_needed': None,
@@ -474,7 +476,17 @@ class _UnitBonusCalculator:
             ):
                 qualification_pending = True
                 continue
-            tiers.extend(rule.configuration.get('tiers') or [])
+            tiers.extend([
+                {
+                    **tier,
+                    '_rule_id': rule.id,
+                    '_rule_name': rule.name,
+                    '_tier_mode': rule.configuration.get(
+                        'tier_mode', 'highest_only',
+                    ),
+                }
+                for tier in (rule.configuration.get('tiers') or [])
+            ])
             metric_name = rule.configuration.get('unit_metric', 'monthly_units')
             tier_units = Decimal(str(metrics.get(metric_name, units)))
         ordered = sorted(
@@ -497,6 +509,7 @@ class _UnitBonusCalculator:
             'bonus_units': tier_units,
             'new_units': metrics.get('monthly_new_units', Decimal('0.0')),
             'used_units': metrics.get('monthly_used_units', Decimal('0.0')),
+            'tiers': ordered,
             'current_tier': current,
             'next_tier': next_tier,
             'units_needed': (

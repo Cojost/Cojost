@@ -1124,6 +1124,94 @@ legend {
   font-size: 1.25rem;
 }
 
+.metric-grid .bonus-metric-card {
+  padding: 0;
+}
+
+.bonus-breakdown-trigger {
+  width: 100%;
+  min-height: 100%;
+  padding: 14px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--primary-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.bonus-breakdown-trigger:hover,
+.bonus-breakdown-trigger:focus-visible {
+  background: var(--row-hover-background);
+}
+
+.bonus-breakdown-trigger:focus-visible {
+  outline: 3px solid var(--focus-color);
+  outline-offset: 2px;
+}
+
+.bonus-breakdown-trigger small {
+  display: block;
+  margin-top: 8px;
+  color: var(--link-color);
+  font-weight: 700;
+}
+
+.bonus-breakdown-body {
+  padding: 18px;
+}
+
+.bonus-breakdown-body > :first-child {
+  margin-top: 0;
+}
+
+.bonus-component-list {
+  display: grid;
+  gap: 10px;
+  margin: 18px 0;
+}
+
+.bonus-component-list > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.bonus-component-list dt {
+  font-weight: 700;
+}
+
+.bonus-component-list dd {
+  margin: 0;
+  color: var(--link-color);
+  font-weight: 700;
+}
+
+.bonus-component-list .bonus-component-total {
+  border-bottom: 0;
+  font-size: 1.08rem;
+}
+
+.bonus-tier-current td {
+  background: var(--success-background);
+}
+
+.bonus-tier-current .bonus-tier-status {
+  color: var(--success-text);
+  font-weight: 700;
+}
+
+.bonus-tier-next .bonus-tier-status {
+  color: var(--link-color);
+  font-weight: 700;
+}
+
+.bonus-empty-state {
+  margin: 0;
+}
+
 .nps-projection-card {
   padding: 18px;
 }

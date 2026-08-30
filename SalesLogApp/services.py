@@ -83,6 +83,158 @@ def commission_totals(user, sales):
             'adjustments': adjustments, 'total': front + back + bonus + adjustments}
 
 
+def _bonus_tier_rows(tiers, bonus_units, current_tier=None, next_tier=None):
+    """Normalize configured tiers into display-only progress rows."""
+    rows = []
+    next_found = False
+    included_tier_ids = set()
+    tier_groups = {}
+    for tier in tiers:
+        if tier.get('_rule_id') is not None:
+            tier_groups.setdefault(tier['_rule_id'], []).append(tier)
+    for rule_tiers in tier_groups.values():
+        qualifying = [
+            tier for tier in rule_tiers
+            if bonus_units >= Decimal(str(tier.get('minimum_units', 0)))
+            and (
+                tier.get('maximum_units') in (None, '')
+                or bonus_units <= Decimal(str(tier['maximum_units']))
+            )
+        ]
+        if not qualifying:
+            continue
+        if rule_tiers[0].get('_tier_mode') == 'cumulative':
+            included_tier_ids.update(id(tier) for tier in qualifying)
+        else:
+            included_tier_ids.add(id(max(
+                qualifying,
+                key=lambda tier: Decimal(str(tier.get('amount', 0))),
+            )))
+    current_minimum = (
+        Decimal(str(current_tier.get('minimum_units', 0)))
+        if current_tier else None
+    )
+    next_minimum = (
+        Decimal(str(next_tier.get('minimum_units', 0)))
+        if next_tier else None
+    )
+    for tier in sorted(
+        tiers, key=lambda item: Decimal(str(item.get('minimum_units', 0)))
+    ):
+        minimum = Decimal(str(tier.get('minimum_units', 0)))
+        maximum_value = tier.get('maximum_units')
+        maximum = (
+            Decimal(str(maximum_value))
+            if maximum_value not in (None, '') else None
+        )
+        amount = Decimal(str(tier.get('amount', 0)))
+        is_configured_match = id(tier) in included_tier_ids
+        is_current = (
+            not tier_groups
+            and current_minimum is not None
+            and minimum == current_minimum
+            and amount == Decimal(str(current_tier.get('amount', 0)))
+        )
+        is_next = (
+            not next_found
+            and next_minimum is not None
+            and minimum == next_minimum
+        )
+        if is_current or is_configured_match:
+            status = 'current'
+            status_label = 'Included now'
+            units_needed = None
+        elif is_next:
+            status = 'next'
+            units_needed = max(Decimal('0'), minimum - bonus_units)
+            unit_label = 'unit' if units_needed == Decimal('1') else 'units'
+            units_text = format(units_needed.normalize(), 'f')
+            status_label = f'{units_text} {unit_label} away'
+            next_found = True
+        elif minimum <= bonus_units:
+            status = 'passed'
+            status_label = 'Passed'
+            units_needed = None
+        else:
+            status = 'available'
+            status_label = 'Available'
+            units_needed = minimum - bonus_units
+        rows.append({
+            'minimum_units': minimum,
+            'maximum_units': maximum,
+            'amount': amount,
+            'status': status,
+            'status_label': status_label,
+            'units_needed': units_needed,
+        })
+    return rows
+
+
+def bonus_breakdown(user, totals, diagnostics):
+    """Describe the authoritative bonus total without recalculating it."""
+    if uses_new_engine(user):
+        unit_bonus = diagnostics.get('unit_bonus') or {}
+        bonus_units = Decimal(str(unit_bonus.get('bonus_units', totals['units'])))
+        tiers = _bonus_tier_rows(
+            unit_bonus.get('tiers') or [],
+            bonus_units,
+            unit_bonus.get('current_tier'),
+            unit_bonus.get('next_tier'),
+        )
+        tier_modes = {
+            tier.get('_tier_mode', 'highest_only')
+            for tier in (unit_bonus.get('tiers') or [])
+        }
+        return {
+            'total': totals['bonus'],
+            'unit_bonus': diagnostics.get('period_unit_bonus', ZERO),
+            'deal_bonus': diagnostics.get('total_deal_bonus', ZERO),
+            'bonus_units': bonus_units,
+            'tiers': tiers,
+            'qualification_pending': unit_bonus.get('qualification_pending', False),
+            'tier_policy': (
+                'cumulative' if tier_modes == {'cumulative'}
+                else 'highest_only' if tier_modes <= {'highest_only'}
+                else 'mixed'
+            ),
+        }
+
+    commission = Commission.objects.filter(user=user).first()
+    levels = list(
+        BonusLevel.objects.filter(
+            user=user, commission=commission, active=True,
+        ).order_by('count_threshold', 'id')
+    ) if commission else []
+    raw_tiers = [
+        {
+            'minimum_units': level.count_threshold,
+            'maximum_units': None,
+            'amount': level.amount,
+        }
+        for level in levels
+    ]
+    qualifying = [
+        tier for tier in raw_tiers
+        if totals['units'] >= Decimal(str(tier['minimum_units']))
+    ]
+    current_tier = qualifying[-1] if qualifying else None
+    next_tier = next((
+        tier for tier in raw_tiers
+        if Decimal(str(tier['minimum_units'])) > totals['units']
+    ), None)
+    return {
+        'total': totals['bonus'],
+        'unit_bonus': totals['bonus'],
+        'deal_bonus': ZERO,
+        'bonus_units': totals['units'],
+        'tiers': _bonus_tier_rows(
+            raw_tiers, totals['units'], current_tier, next_tier,
+        ),
+        'qualification_pending': False,
+        'tier_policy': 'highest_only',
+    }
+
+
 def reporting_commission_totals(user, records):
     """Use the accepted live/archive reporting policy for a record collection."""
 
@@ -243,6 +395,7 @@ def sales_month_context(user, month_start):
         'total_front_end': totals['front'],
         'total_back_end': totals['back'],
         'total_bonus': totals['bonus'],
+        'bonus_breakdown': bonus_breakdown(user, totals, diagnostics),
         'total_adjustments': totals['adjustments'],
         'total_commission': totals['total'],
         'draw_amount': draw_amount,

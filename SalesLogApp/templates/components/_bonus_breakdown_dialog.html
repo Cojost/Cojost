@@ -1,0 +1,38 @@
+<dialog id="bonus-breakdown-dialog" class="vehicle-dialog bonus-breakdown-dialog" aria-labelledby="bonus-breakdown-dialog-title">
+  <div class="vehicle-dialog-header">
+    <h3 id="bonus-breakdown-dialog-title">Current bonus details</h3>
+    <button type="button" class="vehicle-dialog-close" aria-label="Close bonus details">&times;</button>
+  </div>
+  <div class="bonus-breakdown-body">
+    <p class="card-description">Based on {{ bonus_breakdown.bonus_units|floatformat:1 }} bonus-eligible units for {{ selected_month|date:"F Y" }}.</p>
+
+    <dl class="bonus-component-list">
+      <div><dt>Period bonus</dt><dd>${{ bonus_breakdown.unit_bonus|floatformat:2 }}</dd></div>
+      {% if bonus_breakdown.deal_bonus %}<div><dt>Deal-specific bonuses</dt><dd>${{ bonus_breakdown.deal_bonus|floatformat:2 }}</dd></div>{% endif %}
+      <div class="bonus-component-total"><dt>Included in Current bonus</dt><dd>${{ bonus_breakdown.total|floatformat:2 }}</dd></div>
+    </dl>
+
+    <h4>Available unit bonus tiers</h4>
+    {% if bonus_breakdown.tiers %}
+      <div class="table-wrap">
+        <table class="data-table bonus-tier-table">
+          <thead><tr><th scope="col">Units</th><th scope="col">Bonus</th><th scope="col">Status</th></tr></thead>
+          <tbody>
+            {% for tier in bonus_breakdown.tiers %}
+              <tr class="bonus-tier-{{ tier.status }}">
+                <td>{% if tier.maximum_units is not None %}{{ tier.minimum_units|floatformat:1 }}–{{ tier.maximum_units|floatformat:1 }}{% else %}{{ tier.minimum_units|floatformat:1 }}+{% endif %}</td>
+                <td>${{ tier.amount|floatformat:2 }}</td>
+                <td><span class="bonus-tier-status">{{ tier.status_label }}</span></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if bonus_breakdown.tier_policy == 'highest_only' %}<p class="card-description">Unit tiers do not stack. Only the highest qualifying tier is included in the period bonus.</p>{% elif bonus_breakdown.tier_policy == 'cumulative' %}<p class="card-description">This plan uses cumulative tiers, so every qualifying tier is included.</p>{% else %}<p class="card-description">This plan contains both highest-only and cumulative bonus rules. Included payouts follow each rule’s configuration.</p>{% endif %}
+    {% else %}
+      <p class="empty-state bonus-empty-state">No active unit bonus tiers are configured for this pay plan.</p>
+    {% endif %}
+    {% if bonus_breakdown.qualification_pending %}<p class="notice notice-warning">Eligibility must be confirmed before a unit tier can be shown as included.</p>{% endif %}
+    <p class="card-description">Adjustments are shown separately in Commission totals and are not part of Current bonus.</p>
+  </div>
+</dialog>

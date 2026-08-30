@@ -94,6 +94,36 @@ class CommissionBonusTests(TestCase):
         self.assertEqual(response.context['total_bonus'], Decimal('250.00'))
         self.assertEqual(list(response.context['sales']), [Sale.objects.get(dealNumber=1)])
 
+    def test_dashboard_bonus_dialog_lists_owned_tiers_and_current_payout(self):
+        self.make_sale(count='2.0', deal_number=11)
+        self.make_tier(1, '100.00')
+        self.make_tier(2, '250.00')
+        self.make_tier(3, '500.00')
+        self.make_tier(
+            1, '999.00', user=self.other_user,
+            commission=self.other_commission,
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse('view_sales'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'class="bonus-breakdown-trigger"')
+        self.assertContains(response, 'id="bonus-breakdown-dialog"')
+        self.assertContains(response, 'Included in Current bonus')
+        self.assertContains(response, '$250.00')
+        self.assertContains(response, '1 unit away')
+        self.assertContains(
+            response,
+            'Only the highest qualifying tier is included in the period bonus.',
+        )
+        self.assertNotContains(response, '$999.00')
+        rows = response.context['bonus_breakdown']['tiers']
+        self.assertEqual(
+            [row['status'] for row in rows],
+            ['passed', 'current', 'next'],
+        )
+
     def test_sale_commission_properties_use_the_sale_owner_settings(self):
         sale = self.make_sale()
         Commission.objects.filter(pk=self.other_commission.pk).update(

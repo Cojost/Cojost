@@ -130,6 +130,56 @@ class Phase1AUserInterfaceTests(TestCase):
         self.assertEqual(components, response.context['total_commission'])
         self.assertEqual(response.context['total_commission'], expected['total_commission'])
 
+    def test_dashboard_bonus_dialog_uses_active_pay_plan_tiers(self):
+        self.rule.configuration = {
+            'tiers': [
+                {'minimum_units': '1', 'maximum_units': None, 'amount': '100.00'},
+                {'minimum_units': '2', 'maximum_units': None, 'amount': '250.00'},
+                {'minimum_units': '4', 'maximum_units': None, 'amount': '500.00'},
+            ],
+            'tier_mode': 'highest_only',
+        }
+        self.rule.save(update_fields=['configuration', 'updated_at'])
+        self.make_sale()
+
+        response = self.client.get(reverse('view_sales'))
+
+        self.assertContains(response, 'View bonus details')
+        self.assertContains(response, 'Available unit bonus tiers')
+        self.assertContains(response, 'Included now')
+        self.assertContains(response, '1 unit away')
+        self.assertEqual(response.context['bonus_breakdown']['total'], Decimal('100.00'))
+        self.assertEqual(
+            [row['status'] for row in response.context['bonus_breakdown']['tiers']],
+            ['current', 'next', 'available'],
+        )
+
+    def test_dashboard_bonus_dialog_marks_every_cumulative_tier_included(self):
+        self.rule.configuration = {
+            'tiers': [
+                {'minimum_units': '1', 'maximum_units': None, 'amount': '100.00'},
+                {'minimum_units': '2', 'maximum_units': None, 'amount': '250.00'},
+                {'minimum_units': '4', 'maximum_units': None, 'amount': '500.00'},
+            ],
+            'tier_mode': 'cumulative',
+        }
+        self.rule.save(update_fields=['configuration', 'updated_at'])
+        sale = self.make_sale()
+        sale.count = Decimal('2.0')
+        sale.save(update_fields=['count'])
+
+        response = self.client.get(reverse('view_sales'))
+
+        self.assertEqual(response.context['bonus_breakdown']['total'], Decimal('350.00'))
+        self.assertEqual(
+            [row['status'] for row in response.context['bonus_breakdown']['tiers']],
+            ['current', 'current', 'next'],
+        )
+        self.assertContains(
+            response,
+            'This plan uses cumulative tiers, so every qualifying tier is included.',
+        )
+
     def test_commission_amount_is_accessible_trigger_for_existing_dialog(self):
         sale = self.make_sale()
         response = self.client.get(reverse('view_sales'))
