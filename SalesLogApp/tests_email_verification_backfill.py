@@ -228,10 +228,13 @@ class EmailVerificationBackfillCommandTests(TestCase):
 
     def test_case_insensitive_ownership_conflict_is_blocked(self):
         first = self.create_user('conflict-one', email='Shared@Example.com')
-        second = self.create_user('conflict-two', email='shared@example.com')
+        second = self.create_user(
+            'conflict-two',
+            email='different-owner@example.com',
+        )
         EmailAddress.objects.create(
             user=second,
-            email=second.email,
+            email='shared@example.com',
             primary=True,
             verified=False,
         )

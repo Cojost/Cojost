@@ -94,23 +94,21 @@ class PayPlanEligibilityForm(forms.ModelForm):
         return month_start
 
 
-class DashboardNPSProjectionForm(forms.ModelForm):
-    nps_projection_passing = forms.TypedChoiceField(
-        label='Is your current NPS passing?',
-        choices=((True, 'Yes'), (False, 'No')),
-        coerce=lambda value: value in {True, 'True', 'true', '1'},
-        empty_value=None,
+class DashboardNPSBonusForm(forms.ModelForm):
+    nps_status = forms.ChoiceField(
+        label='Current NPS status',
+        choices=PayPlanEligibility.NPS_CHOICES,
         widget=forms.RadioSelect,
     )
-    nps_projected_good_surveys = forms.IntegerField(
-        label='Projected good surveys',
+    nps_qualifying_surveys = forms.IntegerField(
+        label='Qualifying surveys',
         min_value=0,
         widget=forms.NumberInput(attrs={
             'min': '0', 'step': '1', 'inputmode': 'numeric',
         }),
     )
-    nps_projected_bad_surveys = forms.IntegerField(
-        label='Projected bad surveys',
+    nps_low_score_surveys = forms.IntegerField(
+        label='Low-score surveys',
         min_value=0,
         widget=forms.NumberInput(attrs={
             'min': '0', 'step': '1', 'inputmode': 'numeric',
@@ -120,7 +118,7 @@ class DashboardNPSProjectionForm(forms.ModelForm):
     class Meta:
         model = PayPlanEligibility
         fields = [
-            'nps_projection_passing',
-            'nps_projected_good_surveys',
-            'nps_projected_bad_surveys',
+            'nps_status',
+            'nps_qualifying_surveys',
+            'nps_low_score_surveys',
         ]

@@ -149,6 +149,12 @@ class Phase1AUserInterfaceTests(TestCase):
         self.assertContains(response, 'Included now')
         self.assertContains(response, '1 unit away')
         self.assertEqual(response.context['bonus_breakdown']['total'], Decimal('100.00'))
+        items = response.context['bonus_breakdown']['items']
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]['label'], 'Standard Volume Bonus')
+        self.assertEqual(items[0]['rule_type'], 'volume_bonus')
+        self.assertEqual(items[0]['amount'], Decimal('100.00'))
+        self.assertEqual(items[0]['display_amount'], '$100.00')
         self.assertEqual(
             [row['status'] for row in response.context['bonus_breakdown']['tiers']],
             ['current', 'next', 'available'],
@@ -179,6 +185,27 @@ class Phase1AUserInterfaceTests(TestCase):
             response,
             'This plan uses cumulative tiers, so every qualifying tier is included.',
         )
+
+    def test_view_commission_bonus_card_opens_itemized_breakdown(self):
+        self.rule.configuration = {
+            'tiers': [{
+                'minimum_units': '1',
+                'maximum_units': None,
+                'amount': '100.00',
+            }],
+            'tier_mode': 'highest_only',
+        }
+        self.rule.save(update_fields=['configuration', 'updated_at'])
+        self.make_sale()
+
+        response = self.client.get(reverse('view_commission'))
+
+        self.assertContains(response, 'class="summary-card summary-card-bonus"')
+        self.assertContains(response, 'data-dialog="bonus-breakdown-dialog"')
+        self.assertContains(response, 'id="bonus-breakdown-dialog"')
+        self.assertContains(response, 'Standard Volume Bonus')
+        self.assertContains(response, '$100.00')
+        self.assertContains(response, 'dialog.showModal()')
 
     def test_commission_amount_is_accessible_trigger_for_existing_dialog(self):
         sale = self.make_sale()

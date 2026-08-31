@@ -1,4 +1,26 @@
-from django.contrib import admin
+from django.contrib import admin, messages
+from allauth.account.admin import EmailAddressAdmin as AllauthEmailAddressAdmin
+from allauth.account.models import EmailAddress
+from django.contrib.auth import get_user_model
+from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
+from django.db import transaction
+from django.db.utils import IntegrityError
+from django.http import HttpResponseRedirect
+
+from .auth_forms import (
+    NormalizedAdminUserChangeForm,
+    NormalizedAdminUserCreationForm,
+    NormalizedEmailAddressAdminForm,
+)
+from .auth_identity import (
+    EMAIL_UNAVAILABLE_MESSAGE,
+    USERNAME_UNAVAILABLE_MESSAGE,
+    email_addresses_matching_email,
+    synchronize_primary_address_from_user,
+    synchronize_user_from_addresses,
+    users_matching_email,
+    users_matching_username,
+)
 from .models.sales import DailyActivity, MonthlyGoal
 from .models import (
     ArchivedVehicle,
@@ -35,6 +57,109 @@ from .models import (
     VehicleMake,
     VehicleModel,
 )
+
+
+class NormalizedUserAdmin(DjangoUserAdmin):
+    form = NormalizedAdminUserChangeForm
+    add_form = NormalizedAdminUserCreationForm
+
+    @transaction.atomic
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        if change and 'email' in form.changed_data:
+            synchronize_primary_address_from_user(obj)
+
+    def changeform_view(
+        self,
+        request,
+        object_id=None,
+        form_url='',
+        extra_context=None,
+    ):
+        try:
+            return super().changeform_view(
+                request,
+                object_id=object_id,
+                form_url=form_url,
+                extra_context=extra_context,
+            )
+        except IntegrityError:
+            users_by_name = users_matching_username(
+                request.POST.get('username'),
+            )
+            users_by_email = users_matching_email(request.POST.get('email'))
+            addresses = email_addresses_matching_email(
+                request.POST.get('email'),
+            )
+            if object_id:
+                users_by_name = users_by_name.exclude(pk=object_id)
+                users_by_email = users_by_email.exclude(pk=object_id)
+                addresses = addresses.exclude(user_id=object_id)
+            username_collision = users_by_name.exists()
+            email_collision = users_by_email.exists() or addresses.exists()
+            if not username_collision and not email_collision:
+                raise
+            error = (
+                USERNAME_UNAVAILABLE_MESSAGE
+                if username_collision
+                else EMAIL_UNAVAILABLE_MESSAGE
+            )
+            self.message_user(request, error, level=messages.ERROR)
+            return HttpResponseRedirect(request.get_full_path())
+
+
+class NormalizedEmailAddressAdmin(AllauthEmailAddressAdmin):
+    form = NormalizedEmailAddressAdminForm
+
+    @transaction.atomic
+    def save_model(self, request, obj, form, change):
+        previous_user_id = None
+        if change and obj.pk:
+            previous_user_id = EmailAddress.objects.filter(
+                pk=obj.pk,
+            ).values_list('user_id', flat=True).first()
+        super().save_model(request, obj, form, change)
+        for user_id in {previous_user_id, obj.user_id} - {None}:
+            synchronize_user_from_addresses(user_id)
+
+    def changeform_view(
+        self,
+        request,
+        object_id=None,
+        form_url='',
+        extra_context=None,
+    ):
+        try:
+            return super().changeform_view(
+                request,
+                object_id=object_id,
+                form_url=form_url,
+                extra_context=extra_context,
+            )
+        except IntegrityError:
+            addresses = email_addresses_matching_email(
+                request.POST.get('email'),
+            )
+            if object_id:
+                addresses = addresses.exclude(pk=object_id)
+            if not addresses.exists():
+                raise
+            self.message_user(
+                request,
+                EMAIL_UNAVAILABLE_MESSAGE,
+                level=messages.ERROR,
+            )
+            return HttpResponseRedirect(request.get_full_path())
+
+
+user_model = get_user_model()
+if admin.site.is_registered(user_model):
+    admin.site.unregister(user_model)
+admin.site.register(user_model, NormalizedUserAdmin)
+
+if admin.site.is_registered(EmailAddress):
+    admin.site.unregister(EmailAddress)
+admin.site.register(EmailAddress, NormalizedEmailAddressAdmin)
 
 admin.site.register(DailyActivity)
 admin.site.register(MonthlyGoal)

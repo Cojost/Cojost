@@ -3,13 +3,14 @@
 {% block content %}
 {% include "components/_page_header.html" with heading="View Commission" description="Your authoritative estimated earnings summary for the current pay period." %}
 {% if ask_stew_ai_authorized %}<section class="card ask-stew-entry" aria-labelledby="commission-ask-stew-heading"><h2 id="commission-ask-stew-heading">Ask Stew AI</h2><p>Ask for a read-only explanation of your current commission results, pay plan, bonuses, or eligibility.</p><a class="button button-primary" href="{% url 'ask_stew_ai' %}">Ask Stew AI</a></section>{% endif %}
-{% if commission_diagnostics.results %}
+{% if commission_diagnostics.results or total_bonus %}
 <section class="card">
   <div class="section-heading-row">
     <h3>{{ selected_month|date:'F Y' }} earnings</h3>
     {% if ask_stew_entry_points.month_summary %}<a class="button button-secondary button-compact" href="{{ ask_stew_entry_points.month_summary }}">Explain this total</a>{% endif %}
   </div>
   {% include "components/_commission_totals.html" %}
+  {% include 'components/_bonus_breakdown_dialog.html' %}
 </section>
 {% else %}
 <section class="card">{% url 'add_sale' as add_sale_url %}{% include "components/_empty_state.html" with heading="Commission is not available yet" description="No sales have been recorded for this pay period." action_url=add_sale_url action_label="Add sale" %}</section>
@@ -62,14 +63,14 @@
 {% if commission_diagnostics.unit_bonus %}
 <section class="card">
   <div class="section-heading-row">
-    <h3>Vehicle Bonus Progress</h3>
+    <h3>Monthly Bonus Progress</h3>
     {% if ask_stew_entry_points.bonus_progress %}<a class="button button-secondary button-compact" href="{{ ask_stew_entry_points.bonus_progress }}">How close am I?</a>{% endif %}
   </div>
   <dl class="commission-grid">
     <div><dt>Unit credit</dt><dd>{{ commission_diagnostics.unit_bonus.units }}</dd></div>
     <div><dt>New vehicles</dt><dd>{{ commission_diagnostics.unit_bonus.new_units }}</dd></div>
     <div><dt>Used vehicles</dt><dd>{{ commission_diagnostics.unit_bonus.used_units }}</dd></div>
-    <div><dt>Bonus earned</dt><dd>${{ commission_diagnostics.period_unit_bonus|floatformat:2 }}</dd></div>
+    <div><dt>Monthly bonuses earned</dt><dd>${{ commission_diagnostics.period_unit_bonus|floatformat:2 }}</dd></div>
     <div><dt>Vehicles to next bonus</dt><dd>{% if commission_diagnostics.unit_bonus.qualification_pending %}Eligibility confirmation required{% elif commission_diagnostics.unit_bonus.units_needed is not None %}{{ commission_diagnostics.unit_bonus.units_needed }}{% else %}Highest bonus reached{% endif %}</dd></div>
   </dl>
 </section>
@@ -90,3 +91,6 @@
 </section>
 {% endif %}
 {% endblock %}
+{% block page_scripts %}<script>
+document.querySelectorAll('.bonus-breakdown-trigger').forEach(function (trigger) { const dialog = document.getElementById(trigger.dataset.dialog); trigger.addEventListener('click', function () { dialog.showModal(); }); dialog.querySelector('.vehicle-dialog-close').addEventListener('click', function () { dialog.close(); }); });
+</script>{% endblock %}

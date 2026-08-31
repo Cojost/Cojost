@@ -124,6 +124,19 @@ class CommissionBonusTests(TestCase):
             ['passed', 'current', 'next'],
         )
 
+    def test_legacy_commission_page_opens_bonus_breakdown(self):
+        self.make_sale(count='2.0', deal_number=12)
+        self.make_tier(2, '250.00')
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse('view_commission'))
+
+        self.assertContains(response, 'class="summary-row summary-row-bonus')
+        self.assertContains(response, 'data-dialog="bonus-breakdown-dialog"')
+        self.assertContains(response, 'id="bonus-breakdown-dialog"')
+        self.assertContains(response, 'Unit bonus')
+        self.assertContains(response, '$250.00')
+
     def test_sale_commission_properties_use_the_sale_owner_settings(self):
         sale = self.make_sale()
         Commission.objects.filter(pk=self.other_commission.pk).update(

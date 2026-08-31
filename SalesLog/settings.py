@@ -458,6 +458,10 @@ ACCOUNT_LOGIN_REDIRECT_URL = '/SalesLogApp/pay-plan/setup/'
 # Email is the stable identity boundary for account recovery and Teams
 # invitations. Verification remains optional for general beta access, but a
 # verified address is required before an emailed Team invitation can be used.
+ACCOUNT_FORMS = {
+    'signup': 'SalesLogApp.auth_forms.NormalizedSignupForm',
+    'add_email': 'SalesLogApp.auth_forms.NormalizedAddEmailForm',
+}
 ACCOUNT_SIGNUP_FIELDS = [
     'username*',
     'email*',

@@ -46,7 +46,7 @@ from .forms import (
     ScenarioSaveAsForm,
     ScenarioSaveForm,
 )
-from .eligibility_forms import DashboardNPSProjectionForm, PayPlanEligibilityForm
+from .eligibility_forms import DashboardNPSBonusForm, PayPlanEligibilityForm
 from django.utils import timezone
 from django.contrib.auth.views import LoginView
 from django.contrib.auth import update_session_auth_hash
@@ -108,6 +108,8 @@ from .access import (
 from .services import (
     activity_history_context,
     activity_month_context,
+    bonus_breakdown,
+    format_bonus_amount,
     month_bounds,
     sales_month_context,
 )
@@ -128,7 +130,7 @@ from .stew_coach_projection import (
     StewCoachProjectionService,
 )
 from .commission_service import CommissionEngineService, CommissionHelpContext
-from .nps_projection import NPSSurveyProjectionService
+from .nps_projection import NPSSurveyBonusService
 from .monthly_eligibility import ensure_current_month_eligibility
 from .plan_requirements import ActivePayPlanService, PlanRequirementService
 from .pay_plan_management import (
@@ -705,44 +707,53 @@ def activity_goals(request, activity_id=None):
 @pay_plan_onboarding_required
 def view_sales(request):
     selected_month = _selected_month(request)
+    current_month = timezone.localdate().replace(day=1)
     ensure_current_month_eligibility(request.user, selected_month)
-    projection_rules = NPSSurveyProjectionService.rules_for_user(
-        request.user, selected_month,
+    nps_bonus_rules = (
+        NPSSurveyBonusService.rules_for_user(request.user, selected_month)
+        if uses_new_engine(request.user) else []
     )
-    nps_projection_visible = bool(projection_rules)
+    nps_bonus_visible = bool(nps_bonus_rules)
+    nps_bonus_editable = nps_bonus_visible and selected_month == current_month
     eligibility = PayPlanEligibility.objects.filter(
         user=request.user,
         month_start=selected_month,
     ).first()
-    is_projection_post = (
+    is_nps_bonus_post = (
         request.method == 'POST'
-        and request.POST.get('form_type') == 'nps_projection'
+        and request.POST.get('form_type') == 'nps_bonus'
     )
-    if is_projection_post and not nps_projection_visible:
+    if is_nps_bonus_post and not nps_bonus_visible:
         messages.error(
             request,
-            'NPS survey projection is not available for this pay plan.',
+            'NPS survey bonus inputs are not available for this pay plan.',
         )
         return redirect(f"{reverse('view_sales')}?month={selected_month:%Y-%m}")
-    if is_projection_post:
-        nps_projection_form = DashboardNPSProjectionForm(
+    if is_nps_bonus_post and not nps_bonus_editable:
+        messages.error(
+            request,
+            'Only the current month’s NPS bonus inputs can be updated.',
+        )
+        return redirect(f"{reverse('view_sales')}?month={selected_month:%Y-%m}")
+    if is_nps_bonus_post:
+        nps_bonus_form = DashboardNPSBonusForm(
             request.POST, instance=eligibility,
         )
-        if nps_projection_form.is_valid():
-            eligibility = nps_projection_form.save(commit=False)
+        if nps_bonus_form.is_valid():
+            eligibility = nps_bonus_form.save(commit=False)
             eligibility.user = request.user
             eligibility.month_start = selected_month
             eligibility.updated_by = request.user
             eligibility.save()
             messages.success(
                 request,
-                'NPS survey projection updated for the selected month.',
+                'NPS bonus updated and commission totals recalculated.',
             )
             return redirect(
                 f"{reverse('view_sales')}?month={selected_month:%Y-%m}"
             )
     else:
-        nps_projection_form = DashboardNPSProjectionForm(instance=eligibility)
+        nps_bonus_form = DashboardNPSBonusForm(instance=eligibility)
     context = sales_month_context(request.user, selected_month)
     context.update(_ask_stew_entry_context(
         request.user,
@@ -752,18 +763,47 @@ def view_sales(request):
             selected_month == timezone.localdate().replace(day=1)
         ),
     ))
-    projection_source = eligibility or PayPlanEligibility()
-    nps_projection = NPSSurveyProjectionService.calculate(
-        projection_rules,
+    saved_eligibility = PayPlanEligibility.objects.filter(
+        user=request.user,
+        month_start=selected_month,
+    ).first()
+    nps_bonus = NPSSurveyBonusService.calculate(
+        nps_bonus_rules,
         selected_month,
-        passing=projection_source.nps_projection_passing,
-        good_surveys=projection_source.nps_projected_good_surveys,
-        bad_surveys=projection_source.nps_projected_bad_surveys,
+        eligibility=saved_eligibility,
+    )
+    nps_bonus_rule_ids = {rule.id for rule in nps_bonus_rules}
+    nps_bonus['payout'] = sum(
+        (
+            item['amount']
+            for item in context['commission_diagnostics']['unit_bonus']['line_items']
+            if item.get('rule_id') in nps_bonus_rule_ids
+        ),
+        Decimal('0.00'),
+    )
+    nps_bonus['display_payout'] = format_bonus_amount(nps_bonus['payout'])
+    has_survey_results = bool(
+        nps_bonus['good_surveys'] or nps_bonus['bad_surveys']
+    )
+    nps_bonus['eligibility_warning'] = (
+        has_survey_results
+        and nps_bonus['payout'] == Decimal('0.00')
+        and (
+            (
+                nps_bonus['bonus_eligibility_required']
+                and not nps_bonus['bonus_eligible']
+            )
+            or (
+                nps_bonus['finance_eligibility_required']
+                and nps_bonus['finance_eligible'] is not True
+            )
+        )
     )
     context.update({
-        'nps_projection_visible': nps_projection_visible,
-        'nps_projection_form': nps_projection_form,
-        'nps_projection': nps_projection,
+        'nps_bonus_visible': nps_bonus_visible,
+        'nps_bonus_editable': nps_bonus_editable,
+        'nps_bonus_form': nps_bonus_form,
+        'nps_bonus': nps_bonus,
     })
     if activity_goals_authorized(request.user):
         stew_context = _stew_coach_context(request.user, selected_month)
@@ -1140,6 +1180,7 @@ def view_commission(request):
 
     context = {
         'commission_instance': commission_instance,
+        'selected_month': start_of_month,
         'total_count': total_count,
         'total_front_end': total_calculated_front_end,
         'total_back_end': total_calculated_back_end,
@@ -1149,6 +1190,18 @@ def view_commission(request):
         'total_commission': total_calculated_front_end + total_calculated_back_end + total_bonus + total_adjustments,
         'sales': sales,
     }
+    context['bonus_breakdown'] = bonus_breakdown(
+        user,
+        {
+            'units': total_count,
+            'front': total_calculated_front_end,
+            'back': total_calculated_back_end,
+            'bonus': total_bonus,
+            'adjustments': total_adjustments,
+            'total': context['total_commission'],
+        },
+        {},
+    )
     context.update(_ask_stew_entry_context(
         request.user,
         'commission',

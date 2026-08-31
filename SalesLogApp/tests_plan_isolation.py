@@ -117,7 +117,7 @@ class MultiUserPlanIsolationTests(TestCase):
         self.assertNotContains(commission, 'NPS')
         sales = self.client.get(reverse('view_sales'))
         self.assertEqual(sales.status_code, 200)
-        self.assertNotContains(sales, 'NPS Survey Projection')
+        self.assertNotContains(sales, 'NPS Survey Bonus')
         for response in (commission, sales):
             self.assertNotContains(response, 'Green Pea')
             self.assertNotContains(response, 'AR Requirement')

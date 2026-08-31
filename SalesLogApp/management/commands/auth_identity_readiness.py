@@ -6,17 +6,24 @@ from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connection, models
 
+from SalesLogApp.auth_identity_constraints import (
+    ALLAUTH_EMAIL_CONSTRAINT_NAME,
+    USER_EMAIL_CONSTRAINT_NAME,
+    USERNAME_CONSTRAINT_NAME,
+    inspect_normalized_identity_constraints,
+)
 
-EMAIL_CONSTRAINT_NAME = 'auth_user_email_ci_unique'
-USERNAME_CONSTRAINT_NAME = 'auth_user_username_ci_unique'
+
+# Preserve the public names introduced by AUTH-1A.
+EMAIL_CONSTRAINT_NAME = USER_EMAIL_CONSTRAINT_NAME
 
 
 def normalize_email(value):
-    return (value or '').strip().casefold()
+    return (value or '').strip().lower()
 
 
 def normalize_username(value):
-    return (value or '').strip().casefold()
+    return (value or '').strip().lower()
 
 
 def _collision_groups(entries):
@@ -33,15 +40,6 @@ def _collision_groups(entries):
 
 def _user_ids(groups):
     return sorted({user_id for group in groups for user_id in group})
-
-
-def _constraint_names(user_model):
-    with connection.cursor() as cursor:
-        constraints = connection.introspection.get_constraints(
-            cursor,
-            user_model._meta.db_table,
-        )
-    return set(constraints)
 
 
 def build_auth_identity_readiness_report():
@@ -92,20 +90,33 @@ def build_auth_identity_readiness_report():
                 username_whitespace_user_ids.append(user_id)
 
     address_entries = []
+    address_row_entries = []
+    address_user_by_id = {}
     address_normalization_user_ids = set()
+    blank_address_user_ids = set()
     addresses_by_user = defaultdict(list)
     for address in addresses:
+        address_id = address['pk']
         user_id = address['user_id']
+        address_user_by_id[address_id] = user_id
         raw_email = address['email'] or ''
         normalized_email = normalize_email(raw_email)
         addresses_by_user[user_id].append((normalized_email, address))
         if normalized_email:
             address_entries.append((normalized_email, user_id))
+            address_row_entries.append((normalized_email, address_id))
+        else:
+            blank_address_user_ids.add(user_id)
         if raw_email != normalized_email:
             address_normalization_user_ids.add(user_id)
 
     user_email_collision_groups = _collision_groups(user_email_entries)
-    allauth_email_collision_groups = _collision_groups(address_entries)
+    allauth_email_collision_groups = _collision_groups(address_row_entries)
+    allauth_email_collision_user_ids = sorted({
+        address_user_by_id[address_id]
+        for group in allauth_email_collision_groups
+        for address_id in group
+    })
     combined_email_collision_groups = _collision_groups(
         user_email_entries + address_entries
     )
@@ -144,12 +155,17 @@ def build_auth_identity_readiness_report():
         ):
             primary_email_mismatch_user_ids.append(user_id)
 
-    constraint_names = _constraint_names(user_model)
+    constraint_diagnostics = inspect_normalized_identity_constraints(
+        connection
+    )
     normalized_email_constraint_present = (
-        EMAIL_CONSTRAINT_NAME in constraint_names
+        constraint_diagnostics['user_email']['enforced']
     )
     normalized_username_constraint_present = (
-        USERNAME_CONSTRAINT_NAME in constraint_names
+        constraint_diagnostics['username']['enforced']
+    )
+    normalized_allauth_email_constraint_present = (
+        constraint_diagnostics['allauth_email']['enforced']
     )
 
     blockers = {
@@ -160,6 +176,10 @@ def build_auth_identity_readiness_report():
         ),
         'allauth_email_normalization_user_ids': sorted(
             address_normalization_user_ids
+        ),
+        'blank_allauth_email_user_ids': sorted(blank_address_user_ids),
+        'allauth_email_collision_user_ids': (
+            allauth_email_collision_user_ids
         ),
         'missing_matching_allauth_address_user_ids': sorted(
             missing_matching_address_user_ids
@@ -178,6 +198,7 @@ def build_auth_identity_readiness_report():
     constraints_ready = (
         normalized_email_constraint_present
         and normalized_username_constraint_present
+        and normalized_allauth_email_constraint_present
     )
     pk_field = user_model._meta.pk
 
@@ -222,9 +243,16 @@ def build_auth_identity_readiness_report():
         'normalized_email_constraint_present': (
             normalized_email_constraint_present
         ),
+        'normalized_user_email_constraint_present': (
+            normalized_email_constraint_present
+        ),
         'normalized_username_constraint_present': (
             normalized_username_constraint_present
         ),
+        'normalized_allauth_email_constraint_present': (
+            normalized_allauth_email_constraint_present
+        ),
+        'normalized_constraint_diagnostics': constraint_diagnostics,
         'data_ready_for_enforcement': data_ready,
         'normalized_constraints_ready': constraints_ready,
         'email_login_cutover_ready': data_ready and constraints_ready,
@@ -249,13 +277,28 @@ class Command(BaseCommand):
             self.stdout.write(json.dumps(report, sort_keys=True))
         else:
             for name, value in report.items():
-                if name == 'blockers':
-                    self.stdout.write('blockers:')
-                    for blocker_name, user_ids in value.items():
-                        rendered_ids = ','.join(str(user_id) for user_id in user_ids)
-                        self.stdout.write(
-                            f'  {blocker_name}: [{rendered_ids}]'
-                        )
+                if isinstance(value, dict):
+                    self.stdout.write(f'{name}:')
+                    for nested_name, nested_value in value.items():
+                        if isinstance(nested_value, dict):
+                            self.stdout.write(f'  {nested_name}:')
+                            for detail_name, detail_value in nested_value.items():
+                                if isinstance(detail_value, bool):
+                                    detail_value = str(detail_value).lower()
+                                self.stdout.write(
+                                    f'    {detail_name}: {detail_value}'
+                                )
+                        else:
+                            if isinstance(nested_value, list):
+                                nested_value = ','.join(
+                                    str(item) for item in nested_value
+                                )
+                                nested_value = f'[{nested_value}]'
+                            elif isinstance(nested_value, bool):
+                                nested_value = str(nested_value).lower()
+                            self.stdout.write(
+                                f'  {nested_name}: {nested_value}'
+                            )
                 else:
                     if isinstance(value, bool):
                         value = str(value).lower()
