@@ -1,19 +1,22 @@
-# AUTH-1 email-login readiness
+# AUTH-1 normalized identity readiness
 
-AUTH-1 is blocked at the data-readiness gate. Authentication behavior must not
-be changed and normalized uniqueness must not be installed until every target
-database passes the read-only check described below.
+AUTH-1B adds normalized identity enforcement without changing customer login
+behavior. Production data was separately confirmed ready before this migration
+was authored. Every target database must still pass the read-only data gate
+before migration `0066_auth1b_normalized_identity_constraints` is applied.
 
 ## Current architecture
 
 - Django 5.2.15 and django-allauth 65.18.0 are installed.
 - The user model is Django's default `auth.User`.
 - `auth.User.id` is the existing numeric `AutoField` ownership key.
-- `auth.User.username` is raw-value unique but not case-insensitively unique.
-- `auth.User.email` is not database-unique.
+- `auth.User.username` receives normalized case-insensitive uniqueness from
+  AUTH-1B.
+- Nonblank `auth.User.email` receives normalized case-insensitive uniqueness;
+  multiple blank legacy compatibility values remain allowed.
 - allauth `EmailAddress` is the supported email identity record. A primary
   address synchronizes `User.email`, which billing still uses as a canonical
-  compatibility value.
+  compatibility value. AUTH-1B protects verified and unverified addresses.
 - The effective allauth login method is currently username because
   `ACCOUNT_LOGIN_METHODS` is not set.
 - The legacy `/SalesLogApp/login/` route and Django's `ModelBackend` also accept
@@ -44,10 +47,14 @@ user IDs rather than email addresses or usernames.
 
 - `--require-data-ready` exits unsuccessfully while identity rows need
   remediation.
-- `--require-ready` additionally requires the separately reviewed normalized
-  email and username constraints.
-- The expected constraint names are `auth_user_email_ci_unique` and
-  `auth_user_username_ci_unique`.
+- `--require-ready` additionally requires all three reviewed normalized unique
+  indexes and still does not enable email login.
+- The expected index names are `auth_user_email_ci_unique`,
+  `auth_user_username_ci_unique`, and
+  `account_emailaddress_email_ci_unique`.
+- Detailed diagnostics verify the table, uniqueness, expression-index shape,
+  exact SQLite definition or PostgreSQL catalog expression/predicate, and
+  database validity. A matching name alone is not considered ready.
 
 The local persistent database at the authorized baseline contains 24 users and
 is not ready:
@@ -59,39 +66,41 @@ is not ready:
 - 11 nonblank canonical emails have no matching allauth address.
 - All 3 existing canonical allauth addresses are unverified.
 - No usernames are blank, whitespace-padded, or case-insensitively duplicated.
-- Neither normalized database constraint is installed.
+- None of the three AUTH-1B indexes is installed.
 
 These results prohibit an immediate email-login conversion. The audit command
 was run with a SHA-256 hash before and after; the database remained byte-for-byte
 unchanged.
 
-## Required remediation and architecture decision
+## AUTH-1B enforcement design
 
-Remediation must be a separately reviewed, operator-owned process using current
-business records. It must not invent addresses, guess ownership, merge users, or
-delete accounts. For each database, operators must:
+Migration `0066` is atomic and performs no data repair. Its preflight rejects
+normalization problems, blank allauth addresses, normalized collisions (also
+two colliding rows owned by one user), cross-owner email conflicts, and invalid
+username identities. Blank `User.email` values are deliberately exempt.
 
-1. Resolve blank and normalized-collision email identities with the affected
-   account owners.
-2. Normalize approved canonical addresses and create or reconcile the matching
-   allauth primary `EmailAddress` rows.
-3. Preserve the existing user IDs and all foreign-key ownership.
-4. Re-run `auth_identity_readiness --require-data-ready`.
-5. Approve a database-specific uniqueness design before any authentication
-   setting changes.
+On PostgreSQL the preflight locks both identity tables against writes until the
+three indexes are built and the transaction commits. On SQLite the atomic
+read/DDL transaction either retains a stable snapshot or fails without
+committing partial DDL. A uniqueness race during index creation therefore
+fails the migration rather than applying partial enforcement.
 
-With the default Django user model, a `SalesLogApp` migration cannot add a normal
-Django model constraint to `auth.User`. After data remediation, the least
-invasive option is a separately authorized, vendor-reviewed migration that adds
-functional unique indexes for normalized nonblank `auth_user.email` and
-normalized `auth_user.username`. Application validation and generic
-`IntegrityError` handling are still required for friendly errors and races.
-This is not supplied merely by `ACCOUNT_UNIQUE_EMAIL`, and no such migration is
-included in the blocked branch.
+The migration uses explicitly named functional unique indexes because
+`auth.User` and `EmailAddress` are third-party models. It records no fake model
+state and does not replace either model. Reversal drops only the three AUTH-1B
+indexes; allauth's own exact `(user, email)`, verified-email, primary-email, and
+ordinary lookup indexes remain intact.
 
-## Post-remediation AUTH-1 implementation
+Signup, account-email, and inherited Django/allauth admin forms normalize input
+and return generic collision errors. Database `IntegrityError` is caught only
+after the relevant atomic write boundary has rolled back and only when a
+normalized identity collision is confirmed. Admin email writes synchronize the
+authoritative address and `User.email` without sending mail.
 
-Only after both data and constraint gates pass should AUTH-1 resume:
+## Deferred email-login and username changes
+
+AUTH-1B intentionally stops before the login/UI cutover. A later reviewed phase
+may:
 
 1. Set the allauth 65.18.0 setting `ACCOUNT_LOGIN_METHODS = {'email'}` and keep
    required username/email signup fields plus `ACCOUNT_UNIQUE_EMAIL = True`.
@@ -112,6 +121,8 @@ Only after both data and constraint gates pass should AUTH-1 resume:
 7. Run the focused authentication, verification, Teams, billing, profile/CX-3,
    social-provider, and full application suites against disposable databases.
 
-Until those prerequisites are complete, the current username authentication,
-admin behavior, social behavior, email verification, password reset, sessions,
-and ownership relationships remain unchanged.
+Until those later prerequisites are complete, customer login remains username
+based. Email login, customer username editing, customer email-change UI, and
+automatic social-account linking remain disabled. User IDs, ownership foreign
+keys, verification, password reset, sessions, billing, Teams, and inherited
+admin behavior remain unchanged.

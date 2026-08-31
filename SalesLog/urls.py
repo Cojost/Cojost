@@ -19,6 +19,7 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 from SalesLogApp import views as sales_views
+from SalesLogApp.auth_views import NormalizedEmailView, NormalizedSignupView
 
 
 _avatar_route = (
@@ -30,6 +31,16 @@ urlpatterns = [
     path('', sales_views.landing_page, name='landing_page'),
     path('admin/', admin.site.urls),
     path('SalesLogApp/', include('SalesLogApp.urls')),
+    path(
+        'accounts/signup/',
+        NormalizedSignupView.as_view(),
+        name='account_signup',
+    ),
+    path(
+        'accounts/email/',
+        NormalizedEmailView.as_view(),
+        name='account_email',
+    ),
     path('accounts/', include('allauth.urls')),
     path('stripe/', include('djstripe.urls', namespace='djstripe')),
     path(

@@ -3,6 +3,11 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from allauth.account.adapter import DefaultAccountAdapter
 from django.urls import reverse
 
+from .auth_identity import (
+    normalize_email,
+    normalize_username,
+    users_matching_username,
+)
 from .billing_onboarding import (
     billing_onboarding_handoff_name,
     billing_onboarding_redirect_name,
@@ -13,6 +18,16 @@ TEAM_INVITATION_RESUME_SESSION_KEY = 'team_invitation_verification_resume'
 
 
 class StewLogAccountAdapter(DefaultAccountAdapter):
+    def clean_username(self, username, shallow=False):
+        username = normalize_username(username)
+        username = super().clean_username(username, shallow=shallow)
+        if not shallow and users_matching_username(username).exists():
+            raise self.validation_error('username_taken')
+        return username
+
+    def clean_email(self, email):
+        return normalize_email(super().clean_email(normalize_email(email)))
+
     def get_signup_redirect_url(self, request):
         redirect_name = billing_onboarding_redirect_name(request.user)
         if redirect_name:
