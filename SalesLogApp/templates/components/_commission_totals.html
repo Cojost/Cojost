@@ -1,8 +1,8 @@
 <dl class="commission-grid summary-cards" aria-label="Commission totals">
-  <div class="summary-card summary-card-primary"><dt>Total commission</dt><dd>${{ total_commission|floatformat:2 }}</dd></div>
+  <div class="summary-card summary-card-primary"><dt>Total commission</dt><dd>{{ display_total_commission }}</dd></div>
   <div class="summary-card"><dt>Front-end commission</dt><dd>${{ total_front_end|floatformat:2 }}</dd></div>
   <div class="summary-card"><dt>Back-end commission</dt><dd>${{ total_back_end|floatformat:2 }}</dd></div>
-  <div class="summary-card"><dt>Bonuses</dt><dd>${{ total_bonus|floatformat:2 }}</dd></div>
+  <div class="summary-card summary-card-bonus"><dt>Bonuses<small>View bonus details</small><button type="button" class="bonus-breakdown-trigger bonus-card-overlay-trigger" data-dialog="bonus-breakdown-dialog" aria-haspopup="dialog" aria-controls="bonus-breakdown-dialog" aria-label="View bonus details. Current bonuses {{ bonus_breakdown.display_total }}."></button></dt><dd>{{ bonus_breakdown.display_total }}</dd></div>
   <div class="summary-card"><dt>Adjustments</dt><dd>${{ total_adjustments|floatformat:2 }}</dd></div>
   <div class="summary-card"><dt>Unit credit</dt><dd>{{ total_count|floatformat:1 }}</dd></div>
 </dl>

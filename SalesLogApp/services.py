@@ -52,12 +52,17 @@ def month_bounds(month_start):
     return start, end
 
 
-def commission_totals(user, sales):
+def commission_totals(user, sales, *, period_start=None, period_end=None):
     sales = list(sales)
     commission = Commission.objects.filter(user=user).first()
     units = sum((sale.unit_credit for sale in sales), ZERO)
     if uses_new_engine(user):
-        diagnostics = CommissionEngineService.calculate_sales(user, sales)
+        diagnostics = CommissionEngineService.calculate_sales(
+            user,
+            sales,
+            period_start=period_start,
+            period_end=period_end,
+        )
         return {
             'units': units,
             'front': diagnostics['total_front'],
@@ -170,6 +175,79 @@ def _bonus_tier_rows(tiers, bonus_units, current_tier=None, next_tier=None):
     return rows
 
 
+def format_bonus_amount(amount):
+    amount = Decimal(str(amount or 0))
+    if amount < 0:
+        return f'-${abs(amount):,.2f}'
+    return f'${amount:,.2f}'
+
+
+def _bonus_component_rows(diagnostics, expected_total):
+    """Group authoritative bonus line items without changing their total."""
+    grouped = {}
+
+    def include(item, scope):
+        amount = Decimal(str(item.get('amount') or 0))
+        rule_name = (item.get('rule_name') or '').strip()
+        rule_type = item.get('rule_type') or ''
+        fallback_names = {
+            'volume_bonus': 'Monthly volume bonus',
+            'per_unit_bonus': 'Per-unit bonus',
+            'period_qualification_bonus': 'Monthly qualification bonus',
+            'survey_count_bonus': 'NPS survey bonus',
+            'acquisition_bonus': 'Acquisition bonus',
+            'vehicle_spiff': 'Vehicle bonus',
+        }
+        label = rule_name or fallback_names.get(rule_type, 'Other bonus')
+        rule_id = item.get('rule_id')
+        key = (scope, rule_id or (rule_type, label))
+        component = grouped.setdefault(key, {
+            'label': label,
+            'rule_id': rule_id,
+            'rule_type': rule_type,
+            'amount': ZERO,
+            'count': 0,
+            'scope': scope,
+            'explanation': item.get('explanation') or '',
+        })
+        component['amount'] += amount
+        component['count'] += 1
+
+    unit_bonus = diagnostics.get('unit_bonus') or {}
+    for item in unit_bonus.get('line_items') or []:
+        include(item, 'period')
+
+    for result in diagnostics.get('results') or []:
+        for item in result.line_items:
+            if item.get('applied') and item.get('category') in {'bonus', 'spiff'}:
+                include(item, 'deal')
+
+    rows = []
+    for component in grouped.values():
+        if component['scope'] == 'period':
+            component['detail'] = 'Monthly bonus'
+        elif component['count'] == 1:
+            component['detail'] = '1 deal'
+        else:
+            component['detail'] = f"{component['count']} deals"
+        component['display_amount'] = format_bonus_amount(component['amount'])
+        rows.append(component)
+
+    itemized_total = sum((row['amount'] for row in rows), ZERO)
+    remainder = Decimal(str(expected_total or 0)) - itemized_total
+    if remainder:
+        rows.append({
+            'label': 'Other bonus',
+            'amount': remainder,
+            'display_amount': format_bonus_amount(remainder),
+            'count': 1,
+            'scope': 'other',
+            'detail': 'Included in the calculated bonus total',
+            'explanation': '',
+        })
+    return rows
+
+
 def bonus_breakdown(user, totals, diagnostics):
     """Describe the authoritative bonus total without recalculating it."""
     if uses_new_engine(user):
@@ -187,6 +265,8 @@ def bonus_breakdown(user, totals, diagnostics):
         }
         return {
             'total': totals['bonus'],
+            'display_total': format_bonus_amount(totals['bonus']),
+            'items': _bonus_component_rows(diagnostics, totals['bonus']),
             'unit_bonus': diagnostics.get('period_unit_bonus', ZERO),
             'deal_bonus': diagnostics.get('total_deal_bonus', ZERO),
             'bonus_units': bonus_units,
@@ -224,6 +304,16 @@ def bonus_breakdown(user, totals, diagnostics):
     ), None)
     return {
         'total': totals['bonus'],
+        'display_total': format_bonus_amount(totals['bonus']),
+        'items': ([{
+            'label': 'Unit bonus',
+            'amount': totals['bonus'],
+            'display_amount': format_bonus_amount(totals['bonus']),
+            'count': 1,
+            'scope': 'period',
+            'detail': 'Monthly bonus',
+            'explanation': '',
+        }] if totals['bonus'] else []),
         'unit_bonus': totals['bonus'],
         'deal_bonus': ZERO,
         'bonus_units': totals['units'],
@@ -235,7 +325,9 @@ def bonus_breakdown(user, totals, diagnostics):
     }
 
 
-def reporting_commission_totals(user, records):
+def reporting_commission_totals(
+    user, records, *, period_start=None, period_end=None,
+):
     """Use the accepted live/archive reporting policy for a record collection."""
 
     records = list(records)
@@ -245,7 +337,12 @@ def reporting_commission_totals(user, records):
     ):
         return archived_month_commission_totals(user, records)
     return {
-        **commission_totals(user, records),
+        **commission_totals(
+            user,
+            records,
+            period_start=period_start,
+            period_end=period_end,
+        ),
         'commission_complete': True,
         'commission_source': 'live_sales',
         'commission_diagnostic': '',
@@ -264,7 +361,12 @@ def month_metrics(user, month_start):
         end_date=end,
     )
     records = record_set.records
-    totals = reporting_commission_totals(user, records)
+    totals = reporting_commission_totals(
+        user,
+        records,
+        period_start=start,
+        period_end=end - timedelta(days=1),
+    )
     total_gross = sum(
         (
             Decimal(str(sale.frontEnd or 0))
@@ -377,7 +479,12 @@ def sales_month_context(user, month_start):
     sales = Sale.objects.filter(
         user=user, date__gte=start, date__lt=end
     ).select_related('vehicle__make', 'vehicle__model').order_by('date', 'dealNumber')
-    totals = commission_totals(user, sales)
+    totals = commission_totals(
+        user,
+        sales,
+        period_start=start,
+        period_end=end - timedelta(days=1),
+    )
     diagnostics = totals.get('diagnostics') or CommissionEngineService.calculate_sales(user, list(sales))
     draw_progress = diagnostics.get('draw_progress')
     draw_amount = (
@@ -398,6 +505,7 @@ def sales_month_context(user, month_start):
         'bonus_breakdown': bonus_breakdown(user, totals, diagnostics),
         'total_adjustments': totals['adjustments'],
         'total_commission': totals['total'],
+        'display_total_commission': format_bonus_amount(totals['total']),
         'draw_amount': draw_amount,
         'total_commission_after_draw': totals['total'] - draw_amount,
         'commission_instance': Commission.objects.filter(user=user).first(),

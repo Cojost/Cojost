@@ -1212,6 +1212,13 @@ legend {
   font-weight: 700;
 }
 
+.bonus-component-list dt small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted-text);
+  font-weight: 400;
+}
+
 .bonus-component-list dd {
   margin: 0;
   color: var(--link-color);
@@ -1241,21 +1248,21 @@ legend {
   margin: 0;
 }
 
-.nps-projection-card {
+.nps-bonus-card {
   padding: 18px;
 }
 
-.nps-projection-header {
+.nps-bonus-header {
   align-items: center;
   margin-bottom: 14px;
 }
 
-.nps-projection-header h2,
-.nps-projection-header p {
+.nps-bonus-header h2,
+.nps-bonus-header p {
   margin-top: 0;
 }
 
-.nps-projection-summary {
+.nps-bonus-summary {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
@@ -1301,26 +1308,26 @@ legend {
   font-size: 1.15rem;
 }
 
-.nps-projection-tier {
+.nps-bonus-tier {
   margin: 12px 0 0;
   color: var(--muted-text);
   font-size: .9rem;
 }
 
-.nps-projection-dialog-body {
+.nps-bonus-dialog-body {
   padding: 18px;
 }
 
-.nps-projection-dialog-body form {
+.nps-bonus-dialog-body form {
   margin-top: 18px;
 }
 
 @media (max-width: 760px) {
-  .nps-projection-header {
+  .nps-bonus-header {
     align-items: stretch;
   }
 
-  .nps-projection-summary {
+  .nps-bonus-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -1971,6 +1978,29 @@ progress {
   color: var(--link-color);
 }
 
+.summary .summary-row-bonus {
+  width: 100%;
+  min-height: 0;
+  padding: 7px 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--primary-text);
+  font: inherit;
+  text-align: left;
+}
+
+.summary .summary-row-bonus:hover,
+.summary .summary-row-bonus:focus-visible {
+  background: var(--row-hover-background);
+}
+
+.summary-row-bonus small {
+  display: block;
+  margin-top: 2px;
+  color: var(--link-color);
+}
+
 .summary-total {
   padding-top: 8px;
   border-top: 1px solid var(--border-color);
@@ -2083,6 +2113,33 @@ progress {
 
 .summary-card-primary {
   border-width: 2px;
+}
+
+.summary-card-bonus {
+  position: relative;
+}
+
+.summary-card-bonus dt small {
+  display: block;
+  margin-top: 8px;
+  color: var(--link-color);
+  font-weight: 700;
+}
+
+.summary-card-bonus .bonus-card-overlay-trigger {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  min-height: 0;
+  padding: 0;
+  border-radius: 9px;
+  background: transparent;
+}
+
+.summary-card-bonus .bonus-card-overlay-trigger:hover,
+.summary-card-bonus .bonus-card-overlay-trigger:focus-visible {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--link-color);
 }
 
 .summary-card dd {

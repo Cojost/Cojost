@@ -4,12 +4,18 @@
     <button type="button" class="vehicle-dialog-close" aria-label="Close bonus details">&times;</button>
   </div>
   <div class="bonus-breakdown-body">
-    <p class="card-description">Based on {{ bonus_breakdown.bonus_units|floatformat:1 }} bonus-eligible units for {{ selected_month|date:"F Y" }}.</p>
+    <p class="card-description">Every item included in Current bonus for {{ selected_month|date:"F Y" }} is listed below.</p>
 
     <dl class="bonus-component-list">
-      <div><dt>Period bonus</dt><dd>${{ bonus_breakdown.unit_bonus|floatformat:2 }}</dd></div>
-      {% if bonus_breakdown.deal_bonus %}<div><dt>Deal-specific bonuses</dt><dd>${{ bonus_breakdown.deal_bonus|floatformat:2 }}</dd></div>{% endif %}
-      <div class="bonus-component-total"><dt>Included in Current bonus</dt><dd>${{ bonus_breakdown.total|floatformat:2 }}</dd></div>
+      {% for item in bonus_breakdown.items %}
+        <div>
+          <dt>{{ item.label }}{% if item.detail %}<small>{{ item.detail }}</small>{% endif %}</dt>
+          <dd>{{ item.display_amount }}</dd>
+        </div>
+      {% empty %}
+        <div><dt>No bonus earned</dt><dd>$0.00</dd></div>
+      {% endfor %}
+      <div class="bonus-component-total"><dt>Included in Current bonus</dt><dd>{{ bonus_breakdown.display_total }}</dd></div>
     </dl>
 
     <h4>Available unit bonus tiers</h4>

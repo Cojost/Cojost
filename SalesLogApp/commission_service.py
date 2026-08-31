@@ -293,8 +293,10 @@ class CommissionEngineService:
         line_items = [
             {
                 'rule_name': item.rule_name,
+                'rule_id': item.rule_id,
                 'rule_type': item.rule_type,
                 'category': item.category,
+                'scope': item.scope,
                 'amount': item.amount,
                 'applied': item.applied,
                 'explanation': item.explanation,
@@ -310,7 +312,10 @@ class CommissionEngineService:
             plan_version=version.version_name,
             frontend_commission=cls._sum_line_item_category(result, 'front_end'),
             backend_commission=cls._sum_line_item_category(result, 'back_end'),
-            bonus_commission=cls._sum_line_item_category(result, 'bonus'),
+            bonus_commission=(
+                cls._sum_line_item_category(result, 'bonus')
+                + cls._sum_line_item_category(result, 'spiff')
+            ),
             acquisition_bonus=sum(
                 (item.amount for item in acquisition_items),
                 Decimal('0.00'),
@@ -339,6 +344,8 @@ class CommissionEngineService:
     def calculate_sales(
         cls, user: Any, sales: list[Any], *,
         allow_historical_versions: bool = False,
+        period_start: Any | None = None,
+        period_end: Any | None = None,
     ) -> dict[str, Any]:
         sales = list(sales)
         monthly_metrics = build_period_context(sales) if sales else {}
@@ -358,7 +365,12 @@ class CommissionEngineService:
         total_front = sum((item.frontend_commission for item in calculated), Decimal('0.00'))
         total_back = sum((item.backend_commission for item in calculated), Decimal('0.00'))
         deal_bonus = sum((item.bonus_commission for item in calculated), Decimal('0.00'))
-        unit_bonus = UnitBonusService.calculate(user, sales)
+        unit_bonus = UnitBonusService.calculate(
+            user,
+            sales,
+            period_start=period_start,
+            period_end=period_end,
+        )
         period_unit_bonus = unit_bonus['amount']
         total_bonus = deal_bonus + period_unit_bonus
         total_deal_commission = sum(
@@ -406,7 +418,13 @@ class _UnitBonusCalculator:
     """Period-level unit bonus adapter; never allocates the full bonus to a sale."""
 
     @staticmethod
-    def calculate(user: Any, sales: list[Any]) -> dict[str, Any]:
+    def calculate(
+        user: Any,
+        sales: list[Any],
+        *,
+        period_start: Any | None = None,
+        period_end: Any | None = None,
+    ) -> dict[str, Any]:
         sales = list(sales)
         units = sum(
             (Decimal(str(getattr(s, 'unit_credit', 0) or 0)) for s in sales),
@@ -424,14 +442,17 @@ class _UnitBonusCalculator:
             'units_needed': None,
             'qualification_pending': False,
             'explanation': [],
+            'line_items': [],
         }
-        if not sales:
+        if not sales and (period_start is None or period_end is None):
             return empty
+        calculation_start = period_start or min(s.date for s in sales)
+        calculation_end = period_end or max(s.date for s in sales)
         try:
             period = calculate_period_commission(
                 user, sales,
-                min(s.date for s in sales),
-                max(s.date for s in sales),
+                calculation_start,
+                calculation_end,
             )
         except CommissionEngineError:
             return empty
@@ -450,7 +471,7 @@ class _UnitBonusCalculator:
         version = period.pay_plan_version
         metrics = build_period_context(sales)
         tiers: list[dict[str, Any]] = []
-        period_date = min(s.date for s in sales)
+        period_date = calculation_start
         period_context = {
             **metrics,
             **build_eligibility_context(user, period_date),
@@ -521,6 +542,17 @@ class _UnitBonusCalculator:
             ),
             'qualification_pending': qualification_pending and not tiers,
             'explanation': [item.explanation for item in bonus_items],
+            'line_items': [
+                {
+                    'rule_id': item.rule_id,
+                    'rule_name': item.rule_name,
+                    'rule_type': item.rule_type,
+                    'scope': item.scope,
+                    'amount': item.amount,
+                    'explanation': item.explanation,
+                }
+                for item in bonus_items
+            ],
         }
 
 class CommissionEngineService(CommissionEngineService):
