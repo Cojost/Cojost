@@ -471,6 +471,9 @@ ACCOUNT_SIGNUP_FIELDS = [
 ACCOUNT_UNIQUE_EMAIL = True
 ACCOUNT_EMAIL_VERIFICATION = 'optional'
 ACCOUNT_ADAPTER = 'SalesLogApp.account_adapter.StewLogAccountAdapter'
+ACCOUNT_RATE_LIMITS = {
+    'password_proof': '5/m/user',
+}
 EMAIL_VERIFICATION_PUBLIC_BASE_URL = os.getenv(
     'EMAIL_VERIFICATION_PUBLIC_BASE_URL',
     'http://localhost:8000' if DEBUG else '',

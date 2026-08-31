@@ -27,8 +27,8 @@ before migration `0066_auth1b_normalized_identity_constraints` is applied.
 
 Every audited application ownership relationship uses the immutable user ID,
 including sales, commissions, pay plans, billing and Stripe, Teams, goals,
-activity, profiles, social accounts, and audit records. A later username-only
-change will not re-key those records or invalidate an existing session.
+activity, profiles, social accounts, and audit records. A username-only change
+does not re-key those records or invalidate an existing session.
 
 ## Read-only readiness command
 
@@ -97,10 +97,19 @@ after the relevant atomic write boundary has rolled back and only when a
 normalized identity collision is confirmed. Admin email writes synchronize the
 authoritative address and `User.email` without sending mail.
 
-## Deferred email-login and username changes
+## Self-service username changes and deferred email login
 
-AUTH-1B intentionally stops before the login/UI cutover. A later reviewed phase
-may:
+Profile Settings now includes a password-confirmed username change form. It
+applies the installed allauth username policy, performs a case-insensitive
+uniqueness check, locks and rechecks the current user inside a transaction,
+updates only that user's username, and converts a confirmed database race into
+the same generic unavailable-name error. Users without a usable password must
+set one in Security first. The immutable user ID keeps ownership records and the
+current session intact; because customer login is still username-based, the new
+username becomes the credential for the next sign-in.
+
+Email-login and email-change cutover work remains deferred. A later reviewed
+phase may:
 
 1. Set the allauth 65.18.0 setting `ACCOUNT_LOGIN_METHODS = {'email'}` and keep
    required username/email signup fields plus `ACCOUNT_UNIQUE_EMAIL = True`.
@@ -114,15 +123,11 @@ may:
 5. Keep social email authentication disabled until provider-specific verified
    Google/Apple linking tests prove that unverified addresses cannot link and
    existing provider/UID accounts cannot duplicate.
-6. Add the password-confirmed username form to Profile Settings. Validate with
-   the installed allauth username policy, recheck `username__iexact` inside a
-   transaction, update only the current user's username, and handle the database
-   race generically.
-7. Run the focused authentication, verification, Teams, billing, profile/CX-3,
+6. Run the focused authentication, verification, Teams, billing, profile/CX-3,
    social-provider, and full application suites against disposable databases.
 
 Until those later prerequisites are complete, customer login remains username
-based. Email login, customer username editing, customer email-change UI, and
-automatic social-account linking remain disabled. User IDs, ownership foreign
-keys, verification, password reset, sessions, billing, Teams, and inherited
-admin behavior remain unchanged.
+based. Email login, customer email-change UI, and automatic social-account
+linking remain disabled. User IDs, ownership foreign keys, verification,
+password reset, sessions, billing, Teams, and inherited admin behavior remain
+unchanged.

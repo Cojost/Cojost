@@ -47,10 +47,15 @@ from .forms import (
     ScenarioSaveForm,
 )
 from .eligibility_forms import DashboardNPSBonusForm, PayPlanEligibilityForm
+from .auth_forms import (
+    ProfilePasswordChangeForm,
+    SelfServiceUsernameChangeForm,
+    UsernameChangeRejected,
+)
 from django.utils import timezone
 from django.contrib.auth.views import LoginView
 from django.contrib.auth import update_session_auth_hash
-from django.contrib.auth.forms import PasswordChangeForm, SetPasswordForm
+from django.contrib.auth.forms import SetPasswordForm
 from django.contrib.auth.models import User
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
@@ -113,6 +118,7 @@ from .services import (
     month_bounds,
     sales_month_context,
 )
+from django.views.decorators.debug import sensitive_post_parameters
 from .selling_calendar import SellingDayCalendarError
 from .stew_coach_calendar import owner_selling_calendar
 from .stew_coach_nudges import active_nudges
@@ -862,6 +868,12 @@ def print_activity_history(request):
 
 
 @login_required
+@sensitive_post_parameters(
+    'current_password',
+    'old_password',
+    'new_password1',
+    'new_password2',
+)
 def profile(request):
     user_profile = get_user_profile(request.user)
     allowed_sections = {'account', 'appearance', 'billing', 'security'}
@@ -870,8 +882,11 @@ def profile(request):
         requested_section if requested_section in allowed_sections else ''
     )
     password_dialog_open = False
+    username_dialog_open = False
     password_form_class = (
-        PasswordChangeForm if request.user.has_usable_password() else SetPasswordForm
+        ProfilePasswordChangeForm
+        if request.user.has_usable_password()
+        else SetPasswordForm
     )
     if request.method == 'POST':
         action = request.POST.get('form_type')
@@ -908,9 +923,41 @@ def profile(request):
                 storage.delete(old_name)
             messages.success(request, 'Profile picture removed.')
             return redirect('profile')
+        elif action == 'username':
+            open_section = 'account'
+            username_form = SelfServiceUsernameChangeForm(
+                request.user,
+                request.POST,
+                request=request,
+            )
+            if username_form.is_valid():
+                try:
+                    changed_user = username_form.save()
+                except UsernameChangeRejected:
+                    username_dialog_open = True
+                else:
+                    messages.success(
+                        request,
+                        f'Username changed to {changed_user.username}. '
+                        'Use it the next time you sign in.',
+                    )
+                    return redirect(
+                        f"{reverse('profile')}?section=account"
+                    )
+            else:
+                username_dialog_open = True
         elif action == 'password':
             open_section = 'security'
-            password_form = password_form_class(request.user, request.POST)
+            password_form_kwargs = (
+                {'request': request}
+                if password_form_class is ProfilePasswordChangeForm
+                else {}
+            )
+            password_form = password_form_class(
+                request.user,
+                request.POST,
+                **password_form_kwargs,
+            )
             if password_form.is_valid():
                 changed_user = password_form.save()
                 update_session_auth_hash(request, changed_user)
@@ -922,8 +969,20 @@ def profile(request):
         'appearance_form', AppearanceForm(instance=user_profile)
     )
     avatar_form = locals().get('avatar_form', AvatarForm(instance=user_profile))
+    username_form = locals().get(
+        'username_form',
+        SelfServiceUsernameChangeForm(request.user),
+    )
     password_form = locals().get(
-        'password_form', password_form_class(request.user)
+        'password_form',
+        password_form_class(
+            request.user,
+            **(
+                {'request': request}
+                if password_form_class is ProfilePasswordChangeForm
+                else {}
+            ),
+        ),
     )
     billing_settings_enabled = bool(
         settings.BILLING_FEATURE_ENABLED
@@ -938,10 +997,12 @@ def profile(request):
         'profile': user_profile,
         'appearance_form': appearance_form,
         'avatar_form': avatar_form,
+        'username_form': username_form,
         'password_form': password_form,
         'password_is_set': request.user.has_usable_password(),
         'open_section': open_section,
         'password_dialog_open': password_dialog_open,
+        'username_dialog_open': username_dialog_open,
         'settings_billing_enabled': billing_settings_enabled,
         **billing_context,
     })
