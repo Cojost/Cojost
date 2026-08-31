@@ -765,6 +765,35 @@ a:hover {
   white-space: normal;
 }
 
+.ask-stew-context-notice {
+  margin-bottom: 18px;
+}
+
+.ask-stew-context-notice p {
+  margin-bottom: 0;
+}
+
+.ask-stew-answer-follow-ups {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border-color);
+}
+
+.ask-stew-answer-follow-ups h3 {
+  margin-top: 0;
+}
+
+.ask-stew-context-link,
+.ask-stew-row-link {
+  color: var(--link-color);
+  font-weight: 700;
+}
+
+.bonus-metric-card .ask-stew-context-link {
+  display: inline-block;
+  margin: 0 14px 14px;
+}
+
 .button,
 .submit {
   display: inline-block;
@@ -2592,10 +2621,15 @@ progress {
 
 @media (max-width: 420px) {
   .page-header,
+  .section-heading-row,
   .rule-summary-heading,
   .sandbox-banner {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .section-heading-row .button {
+    width: 100%;
   }
 
   .data-table {

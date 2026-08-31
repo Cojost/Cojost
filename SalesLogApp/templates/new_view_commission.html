@@ -5,7 +5,10 @@
 {% if ask_stew_ai_authorized %}<section class="card ask-stew-entry" aria-labelledby="commission-ask-stew-heading"><h2 id="commission-ask-stew-heading">Ask Stew AI</h2><p>Ask for a read-only explanation of your current commission results, pay plan, bonuses, or eligibility.</p><a class="button button-primary" href="{% url 'ask_stew_ai' %}">Ask Stew AI</a></section>{% endif %}
 {% if commission_diagnostics.results %}
 <section class="card">
-  <h3>{{ selected_month|date:'F Y' }} earnings</h3>
+  <div class="section-heading-row">
+    <h3>{{ selected_month|date:'F Y' }} earnings</h3>
+    {% if ask_stew_entry_points.month_summary %}<a class="button button-secondary button-compact" href="{{ ask_stew_entry_points.month_summary }}">Explain this total</a>{% endif %}
+  </div>
   {% include "components/_commission_totals.html" %}
 </section>
 {% else %}
@@ -23,6 +26,8 @@
   <div class="actions">
     <a class="button button-primary" href="{% url 'my_pay_plan' %}">My Pay Plan</a>
     {% if active_plan_summary.requirements.has_monthly_requirements %}<a class="button button-secondary" href="{% url 'pay_plan_eligibility' %}">Update monthly eligibility</a>{% endif %}
+    {% if ask_stew_entry_points.active_plan %}<a class="button button-secondary" href="{{ ask_stew_entry_points.active_plan }}">Explain my plan</a>{% endif %}
+    {% if active_plan_summary.requirements.has_monthly_requirements and ask_stew_entry_points.eligibility %}<a class="button button-secondary" href="{{ ask_stew_entry_points.eligibility }}">What am I missing?</a>{% endif %}
     {% if user.is_staff or user.is_superuser %}<details class="pay-plan-action-menu">
       <summary class="button button-primary">View pay plan options</summary>
       <div class="pay-plan-action-list">
@@ -56,7 +61,10 @@
 
 {% if commission_diagnostics.unit_bonus %}
 <section class="card">
-  <h3>Vehicle Bonus Progress</h3>
+  <div class="section-heading-row">
+    <h3>Vehicle Bonus Progress</h3>
+    {% if ask_stew_entry_points.bonus_progress %}<a class="button button-secondary button-compact" href="{{ ask_stew_entry_points.bonus_progress }}">How close am I?</a>{% endif %}
+  </div>
   <dl class="commission-grid">
     <div><dt>Unit credit</dt><dd>{{ commission_diagnostics.unit_bonus.units }}</dd></div>
     <div><dt>New vehicles</dt><dd>{{ commission_diagnostics.unit_bonus.new_units }}</dd></div>

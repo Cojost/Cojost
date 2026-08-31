@@ -5,6 +5,7 @@
   <h2>Monthly Eligibility</h2>
   <p>The current month starts Eligible for requirements in your active pay plan. You can change the current month, while previous months remain preserved as read-only history.</p>
   <p><strong>{{ selected_month|date:"F Y" }}</strong>{% if not is_current_month %} · Historical record{% endif %}</p>
+  {% if ask_stew_entry_points.eligibility %}<p><a class="button button-secondary" href="{{ ask_stew_entry_points.eligibility }}">Ask what I’m missing</a></p>{% endif %}
 </div>
 <form method="post" class="card form-card" novalidate>
   {% csrf_token %}

@@ -4,6 +4,7 @@ from functools import wraps
 import logging
 import mimetypes
 from time import perf_counter
+from urllib.parse import urlencode
 from uuid import uuid4
 from django.http import FileResponse, Http404, JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
@@ -80,7 +81,12 @@ from .ask_stew_conversations import (
     AskStewRateLimitError,
     safe_failure_answer,
 )
-from .ask_stew_entitlements import ask_stew_ai_required
+from .ask_stew_entitlements import ask_stew_ai_authorized, ask_stew_ai_required
+from .ask_stew_entry_points import (
+    contextual_entry_points,
+    contextual_source,
+    resolve_contextual_question,
+)
 from .ask_stew_provider import ask_stew_provider_availability
 from .billing_entitlements import get_billing_entitlement
 from .billing_plans import BASIC, MONTH, PRO, YEAR
@@ -366,6 +372,17 @@ def _selected_month(request):
         except ValueError:
             pass
     return timezone.localdate().replace(day=1)
+
+
+def _ask_stew_entry_context(user, source, *, sales=(), current_period=True):
+    if not current_period or not ask_stew_ai_authorized(user):
+        return {'ask_stew_entry_points': {}}
+    return {
+        'ask_stew_entry_points': contextual_entry_points(
+            source,
+            sales=sales,
+        ),
+    }
 
 
 def _previous_month(month):
@@ -727,6 +744,14 @@ def view_sales(request):
     else:
         nps_projection_form = DashboardNPSProjectionForm(instance=eligibility)
     context = sales_month_context(request.user, selected_month)
+    context.update(_ask_stew_entry_context(
+        request.user,
+        'dashboard',
+        sales=context['sales'],
+        current_period=(
+            selected_month == timezone.localdate().replace(day=1)
+        ),
+    ))
     projection_source = eligibility or PayPlanEligibility()
     nps_projection = NPSSurveyProjectionService.calculate(
         projection_rules,
@@ -1048,6 +1073,11 @@ def view_commission(request):
         ensure_current_month_eligibility(user, start_of_month)
         context = sales_month_context(request.user, start_of_month)
         help_context = CommissionHelpContext.build(request.user)
+        context.update(_ask_stew_entry_context(
+            request.user,
+            'commission',
+            sales=context['sales'],
+        ))
         return render(request, 'new_view_commission.html', {
             **context,
             'help_context': help_context,
@@ -1108,7 +1138,7 @@ def view_commission(request):
 
     total_count, total_calculated_front_end, total_calculated_back_end, total_bonus = calculate_totals_and_bonuses(sales)
 
-    return render(request, 'view_commission.html', {
+    context = {
         'commission_instance': commission_instance,
         'total_count': total_count,
         'total_front_end': total_calculated_front_end,
@@ -1118,7 +1148,13 @@ def view_commission(request):
         'total_adjustments': total_adjustments,
         'total_commission': total_calculated_front_end + total_calculated_back_end + total_bonus + total_adjustments,
         'sales': sales,
-    })
+    }
+    context.update(_ask_stew_entry_context(
+        request.user,
+        'commission',
+        sales=sales,
+    ))
+    return render(request, 'view_commission.html', context)
 
 
 
@@ -1656,6 +1692,19 @@ def ask_stew_ai(request):
             if request.method == 'GET':
                 messages.info(request, '; '.join(exc.messages))
 
+    source_key = (
+        request.POST.get('source')
+        if request.method == 'POST'
+        else request.GET.get('source')
+    )
+    ask_stew_source = contextual_source(source_key)
+    contextual_question = ''
+    if request.method == 'GET':
+        contextual_question = resolve_contextual_question(
+            request.user,
+            request.GET.get('prompt'),
+            deal_number=request.GET.get('deal'),
+        )
     form = (
         AskStewQuestionForm(request.POST)
         if request.method == 'POST'
@@ -1664,6 +1713,7 @@ def ask_stew_ai(request):
             'conversation_id': (
                 conversation.public_id if conversation is not None else None
             ),
+            'question': contextual_question,
         })
     )
     answer = None
@@ -1779,6 +1829,7 @@ def ask_stew_ai(request):
         'starter_questions': tuple(starter_questions),
         'follow_up_questions': follow_up_questions,
         'lab_only': settings.ASK_STEW_AI_LAB_ONLY,
+        'ask_stew_source': ask_stew_source,
     })
 
 
@@ -1800,9 +1851,11 @@ def ask_stew_feedback(request, conversation_id, turn_id):
             messages.success(request, 'Thanks—your pilot feedback was recorded.')
     else:
         messages.error(request, 'Choose whether that Ask Stew answer was helpful.')
-    return redirect(
-        f'{reverse("ask_stew_ai")}?conversation={conversation_id}',
-    )
+    query = {'conversation': conversation_id}
+    source = contextual_source(request.POST.get('source'))
+    if source is not None:
+        query['source'] = source['key']
+    return redirect(f'{reverse("ask_stew_ai")}?{urlencode(query)}')
 
 
 @login_required
@@ -2515,7 +2568,7 @@ def pay_plan_eligibility(request):
             read_only=not is_current_month,
         )
     history = PayPlanEligibility.objects.filter(user=request.user)[:12]
-    return render(request, 'pay_plan_eligibility.html', {
+    context = {
         'form': form,
         'selected_month': selected_month,
         'eligibility': instance,
@@ -2523,7 +2576,13 @@ def pay_plan_eligibility(request):
         'plan_requirements': plan_requirements,
         'current_month': current_month,
         'is_current_month': is_current_month,
-    })
+    }
+    context.update(_ask_stew_entry_context(
+        request.user,
+        'eligibility',
+        current_period=is_current_month,
+    ))
+    return render(request, 'pay_plan_eligibility.html', context)
 
 def create_default_bonus_levels(user):
     commission = Commission.objects.filter(user=user).first()

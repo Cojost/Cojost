@@ -25,6 +25,13 @@
   {% endif %}
 </section>
 
+{% if ask_stew_source %}
+<div class="notice ask-stew-context-notice" role="note">
+  <strong>Prepared from {{ ask_stew_source.label }}</strong>
+  <p>Review the question below, then choose Ask Stew AI. Nothing runs until you submit it.</p>
+</div>
+{% endif %}
+
 {% if turns %}
 <section class="card assistant-conversation-card" aria-labelledby="ask-stew-conversation-heading">
   <div class="section-heading-row">
@@ -32,7 +39,7 @@
       <h2 id="ask-stew-conversation-heading">Your conversation</h2>
       <p class="card-description">Follow-up questions stay connected for this short-lived pilot conversation.</p>
     </div>
-    <a class="button button-secondary" href="{% url 'ask_stew_ai' %}">Start new</a>
+    <a class="button button-secondary" href="{% if ask_stew_source %}{{ ask_stew_source.new_conversation_url }}{% else %}{% url 'ask_stew_ai' %}{% endif %}">Start new</a>
   </div>
   <ol class="assistant-conversation" aria-live="polite">
     {% for turn in turns %}
@@ -54,11 +61,13 @@
         <span>Was this helpful?</span>
         <form method="post" action="{% url 'ask_stew_feedback' conversation.public_id turn.id %}">
           {% csrf_token %}
+          {% if ask_stew_source %}<input type="hidden" name="source" value="{{ ask_stew_source.key }}">{% endif %}
           <input type="hidden" name="helpful" value="true">
           <button class="button button-secondary button-compact" type="submit">Yes</button>
         </form>
         <form method="post" action="{% url 'ask_stew_feedback' conversation.public_id turn.id %}">
           {% csrf_token %}
+          {% if ask_stew_source %}<input type="hidden" name="source" value="{{ ask_stew_source.key }}">{% endif %}
           <input type="hidden" name="helpful" value="false">
           <button class="button button-secondary button-compact" type="submit">No</button>
         </form>
@@ -68,32 +77,32 @@
     </li>
     {% endfor %}
   </ol>
+  {% if follow_up_questions %}
+  <div class="ask-stew-answer-follow-ups" aria-labelledby="follow-up-questions-heading">
+    <h3 id="follow-up-questions-heading">Ask a related follow-up</h3>
+    <div class="ask-stew-starters">
+      {% for question in follow_up_questions %}
+      <button type="button" class="button button-secondary ask-stew-starter" data-question="{{ question }}">{{ question }}</button>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
 </section>
 {% endif %}
 
 <form method="post" class="card form-card assistant-submission-form" id="ask-stew-form" novalidate>
   {% csrf_token %}
+  {% if ask_stew_source %}<input type="hidden" name="source" value="{{ ask_stew_source.key }}">{% endif %}
   {{ form.conversation_id }}
   {{ form.submission_token }}
   <h2>{% if conversation %}Ask a follow-up{% else %}What would you like to know?{% endif %}</h2>
   {{ form.non_field_errors }}
   <p>{{ form.question.errors }}{{ form.question.label_tag }}{{ form.question }}</p>
   <div class="actions">
-    <a class="button button-secondary" href="{% url 'view_commission' %}">Back to Commission</a>
+    <a class="button button-secondary" href="{% if ask_stew_source %}{{ ask_stew_source.url }}{% else %}{% url 'view_commission' %}{% endif %}">Back to {% if ask_stew_source %}{{ ask_stew_source.label }}{% else %}Commission{% endif %}</a>
     <button class="button button-primary" type="submit" data-processing-label="Checking StewLog…">Ask Stew AI</button>
   </div>
 </form>
-
-{% if follow_up_questions %}
-<section class="card" aria-labelledby="follow-up-questions-heading">
-  <h2 id="follow-up-questions-heading">Useful follow-ups</h2>
-  <div class="ask-stew-starters">
-    {% for question in follow_up_questions %}
-    <button type="button" class="button button-secondary ask-stew-starter" data-question="{{ question }}">{{ question }}</button>
-    {% endfor %}
-  </div>
-</section>
-{% endif %}
 
 <section class="card" aria-labelledby="starter-questions-heading">
   <h2 id="starter-questions-heading">Try asking</h2>

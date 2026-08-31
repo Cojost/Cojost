@@ -1,3 +1,4 @@
+from datetime import timedelta
 from decimal import Decimal
 import json
 from types import SimpleNamespace
@@ -220,6 +221,105 @@ class AskStewAIViewTests(TestCase):
         self.assertNotContains(page, 'scenario')
         self.assertNotContains(page, 'rule_type')
         self.assertNotContains(page, 'JSON')
+
+    def test_contextual_entry_points_prepare_supported_questions_without_get_call(self):
+        sale = self.sale(deal_number=73110)
+        dashboard = self.client.get(reverse('view_sales'))
+        commission = self.client.get(reverse('view_commission'))
+
+        self.assertContains(dashboard, 'Explain this total')
+        self.assertContains(dashboard, 'How close am I?')
+        self.assertContains(dashboard, 'Ask why')
+        self.assertContains(commission, 'Explain my plan')
+        self.assertContains(commission, 'Explain this total')
+
+        requests = (
+            ('month-summary', None, 'What have I made this month?'),
+            ('bonus-progress', None, 'How close am I to my next bonus?'),
+            ('active-plan', None, 'How am I paid?'),
+            (
+                'eligibility',
+                None,
+                'What eligibility information am I missing?',
+            ),
+            ('recorded-sale', sale.dealNumber, 'Break down deal #73110.'),
+        )
+        with patch('SalesLogApp.views.AskStewService.answer') as answer:
+            for prompt, deal_number, expected_question in requests:
+                query = {'prompt': prompt, 'source': 'dashboard'}
+                if deal_number is not None:
+                    query['deal'] = deal_number
+                with self.subTest(prompt=prompt):
+                    response = self.client.get(reverse('ask_stew_ai'), query)
+                    self.assertEqual(response.status_code, 200)
+                    self.assertEqual(
+                        response.context['form'].initial['question'],
+                        expected_question,
+                    )
+                    self.assertEqual(
+                        response.context['ask_stew_source']['label'],
+                        'Dashboard',
+                    )
+                    self.assertContains(response, 'Nothing runs until you submit it.')
+        answer.assert_not_called()
+
+    def test_recorded_sale_prefill_is_owner_scoped_and_source_is_allowlisted(self):
+        other_sale = self.sale(user=self.other, deal_number=73111)
+
+        with patch('SalesLogApp.views.AskStewService.answer') as answer:
+            response = self.client.get(reverse('ask_stew_ai'), {
+                'prompt': 'recorded-sale',
+                'deal': other_sale.dealNumber,
+                'source': 'https://example.invalid/redirect',
+            })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['form'].initial['question'], '')
+        self.assertIsNone(response.context['ask_stew_source'])
+        self.assertNotContains(response, 'example.invalid')
+        self.assertNotContains(response, 'Private Customer Name')
+        answer.assert_not_called()
+
+    def test_contextual_current_month_links_are_absent_on_historical_dashboard(self):
+        historical_month = (
+            timezone.localdate().replace(day=1) - timedelta(days=1)
+        ).replace(day=1)
+        Sale.objects.create(
+            user=self.pilot,
+            customer='Historical Customer',
+            dealNumber=73112,
+            count=Decimal('1.0'),
+            frontEnd=Decimal('1000.00'),
+            backend=Decimal('0.00'),
+            date=historical_month,
+        )
+
+        response = self.client.get(
+            reverse('view_sales'),
+            {'month': historical_month.strftime('%Y-%m')},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, 'Explain this total')
+        self.assertNotContains(response, 'How close am I?')
+        self.assertNotContains(response, 'class="text-link ask-stew-row-link"')
+
+    def test_current_eligibility_page_has_contextual_entry_point(self):
+        PayPlanRuleCondition.objects.create(
+            rule=self.front_rule,
+            field_name='training_requirements_met',
+            operator='is_true',
+            value=True,
+        )
+
+        response = self.client.get(reverse('pay_plan_eligibility'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Ask what I’m missing')
+        self.assertIn(
+            'prompt=eligibility',
+            response.context['ask_stew_entry_points']['eligibility'],
+        )
 
     def test_staff_accesses_new_page_but_basic_cannot_reach_legacy_assistant(self):
         self.client.force_login(self.staff)
