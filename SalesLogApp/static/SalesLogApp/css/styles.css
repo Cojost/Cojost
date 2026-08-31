@@ -1877,7 +1877,8 @@ progress {
   cursor: pointer;
 }
 
-.settings-password-form {
+.settings-password-form,
+.settings-username-form {
   max-width: none;
   margin: 0;
 }
@@ -1976,6 +1977,10 @@ progress {
 
 .summary-row strong {
   color: var(--link-color);
+}
+
+.settings-account-actions {
+  margin-top: 2px;
 }
 
 .summary .summary-row-bonus {

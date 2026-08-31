@@ -1,20 +1,31 @@
 import shutil
+import sys
 import tempfile
 from io import BytesIO
 from pathlib import Path
+from unittest.mock import patch
 
+from allauth.account.models import EmailAddress
 from PIL import Image
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import IntegrityError
 from django.contrib.staticfiles import finders
-from django.test import TestCase, override_settings
+from django.test import Client, RequestFactory, TestCase, override_settings
 from django.urls import reverse
+from django.views.debug import ExceptionReporter
 
+from .auth_forms import (
+    SelfServiceUsernameChangeForm,
+    UsernameChangeRejected,
+)
 from .models import Team, TeamMembership, UserProfile
 
 
 class ProfileTests(TestCase):
     def setUp(self):
+        cache.clear()
         self.media_dir = tempfile.mkdtemp()
         self.media_override = override_settings(MEDIA_ROOT=self.media_dir)
         self.media_override.enable()
@@ -23,6 +34,7 @@ class ProfileTests(TestCase):
         self.other = User.objects.create_user('profile-other', password='Other-pass-123!')
 
     def tearDown(self):
+        cache.clear()
         self.media_override.disable()
         shutil.rmtree(self.media_dir, ignore_errors=True)
 
@@ -77,8 +89,368 @@ class ProfileTests(TestCase):
         self.assertContains(response, 'class="settings-section"', count=3)
         self.assertNotContains(response, 'id="billing-settings"')
         self.assertContains(response, 'data-open-password-dialog')
+        self.assertContains(response, 'data-open-username-dialog')
+        self.assertContains(response, 'data-username-dialog')
+        self.assertContains(response, 'Change username')
+        self.assertContains(
+            response,
+            'Your username is currently used to sign in.',
+        )
+        self.assertEqual(
+            response.context['username_form']['username'].value(),
+            self.user.username,
+        )
         self.assertContains(response, '<dialog')
         self.assertContains(response, 'data-auto-open="false"')
+
+    def test_username_change_is_password_confirmed_scoped_and_keeps_session(self):
+        address = EmailAddress.objects.create(
+            user=self.user,
+            email='profile-owner@example.com',
+            primary=True,
+            verified=True,
+        )
+        original_pk = self.user.pk
+        original_email = self.user.email
+        original_password = self.user.password
+        self.client.force_login(self.user)
+
+        response = self.client.post(reverse('profile'), {
+            'form_type': 'username',
+            'username': '  NewDisplayName  ',
+            'current_password': 'Old-pass-123!',
+            'user': self.other.pk,
+            'email': 'attacker@example.com',
+            'is_staff': 'on',
+            'is_superuser': 'on',
+        })
+
+        self.assertRedirects(
+            response,
+            f"{reverse('profile')}?section=account",
+        )
+        self.user.refresh_from_db()
+        self.other.refresh_from_db()
+        address.refresh_from_db()
+        self.assertEqual(self.user.pk, original_pk)
+        self.assertEqual(self.user.username, 'NewDisplayName')
+        self.assertEqual(self.user.email, original_email)
+        self.assertEqual(self.user.password, original_password)
+        self.assertFalse(self.user.is_staff)
+        self.assertFalse(self.user.is_superuser)
+        self.assertEqual(self.other.username, 'profile-other')
+        self.assertEqual(address.email, 'profile-owner@example.com')
+        self.assertTrue(address.primary)
+        self.assertTrue(address.verified)
+        self.assertEqual(
+            int(self.client.session['_auth_user_id']),
+            original_pk,
+        )
+        self.assertEqual(self.client.get(reverse('profile')).status_code, 200)
+
+        self.client.logout()
+        self.assertFalse(self.client.login(
+            username='profile-owner',
+            password='Old-pass-123!',
+        ))
+        self.assertTrue(self.client.login(
+            username='NewDisplayName',
+            password='Old-pass-123!',
+        ))
+
+    def test_username_change_requires_password_before_availability_disclosure(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(reverse('profile'), {
+            'form_type': 'username',
+            'username': '  PROFILE-OTHER  ',
+            'current_password': 'wrong-password',
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Your current password was incorrect.')
+        self.assertNotContains(response, 'This username is unavailable.')
+        self.assertEqual(response.context['open_section'], 'account')
+        self.assertTrue(response.context['username_dialog_open'])
+        self.assertContains(response, 'data-auto-open="true"')
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.username, 'profile-owner')
+
+    def test_username_change_rejects_normalized_collision_generically(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(reverse('profile'), {
+            'form_type': 'username',
+            'username': '  PROFILE-OTHER  ',
+            'current_password': 'Old-pass-123!',
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'This username is unavailable.')
+        self.assertNotContains(response, 'profile-other already exists')
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.username, 'profile-owner')
+
+    def test_username_change_applies_allauth_policy_and_maximum_length(self):
+        self.client.force_login(self.user)
+
+        invalid = self.client.post(reverse('profile'), {
+            'form_type': 'username',
+            'username': 'invalid username',
+            'current_password': 'Old-pass-123!',
+        })
+        self.assertEqual(invalid.status_code, 200)
+        self.assertContains(invalid, 'Enter a valid username')
+
+        overlong = self.client.post(reverse('profile'), {
+            'form_type': 'username',
+            'username': 'x' * 151,
+            'current_password': 'Old-pass-123!',
+        })
+        self.assertEqual(overlong.status_code, 200)
+        self.assertContains(
+            overlong,
+            'Ensure this value has at most 150 characters',
+        )
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.username, 'profile-owner')
+
+    @override_settings(ACCOUNT_USERNAME_BLACKLIST=['reserved-name'])
+    def test_username_change_uses_allauth_blacklist(self):
+        form = SelfServiceUsernameChangeForm(self.user, {
+            'username': 'reserved-name',
+            'current_password': 'Old-pass-123!',
+        })
+
+        self.assertFalse(form.is_valid())
+        self.assertIn('username', form.errors)
+
+    @override_settings(ACCOUNT_USERNAME_MIN_LENGTH=8)
+    def test_username_change_uses_allauth_minimum_length(self):
+        form = SelfServiceUsernameChangeForm(self.user, {
+            'username': 'short',
+            'current_password': 'Old-pass-123!',
+        })
+
+        self.assertFalse(form.is_valid())
+        self.assertEqual(form.fields['username'].min_length, 8)
+        self.assertEqual(form.fields['username'].widget.attrs['minlength'], 8)
+        self.assertIn('username', form.errors)
+
+    def test_username_change_rejects_unchanged_normalized_value(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(reverse('profile'), {
+            'form_type': 'username',
+            'username': '  profile-owner  ',
+            'current_password': 'Old-pass-123!',
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            'Enter a username different from your current username.',
+        )
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.username, 'profile-owner')
+
+    def test_username_change_allows_case_only_self_edit(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(reverse('profile'), {
+            'form_type': 'username',
+            'username': 'Profile-Owner',
+            'current_password': 'Old-pass-123!',
+        })
+
+        self.assertRedirects(
+            response,
+            f"{reverse('profile')}?section=account",
+        )
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.username, 'Profile-Owner')
+
+    def test_username_change_blocks_accounts_without_usable_password(self):
+        self.user.set_unusable_password()
+        self.user.save(update_fields=['password'])
+        self.client.force_login(self.user)
+
+        page = self.client.get(reverse('profile'))
+        self.assertNotContains(
+            page,
+            '<button class="button button-primary" type="button" '
+            'data-open-username-dialog>',
+            html=True,
+        )
+        self.assertContains(page, 'Set password to change username')
+
+        response = self.client.post(reverse('profile'), {
+            'form_type': 'username',
+            'username': 'ShouldNotSave',
+            'current_password': 'anything',
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            'Set a password in Security before changing your username.',
+        )
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.username, 'profile-owner')
+
+    @override_settings(ACCOUNT_RATE_LIMITS={'password_proof': '2/m/user'})
+    def test_username_and_password_change_share_password_proof_throttle(self):
+        cache.clear()
+        self.client.force_login(self.user)
+
+        username_failure = self.client.post(reverse('profile'), {
+            'form_type': 'username',
+            'username': 'RateLimitedName',
+            'current_password': 'wrong-password',
+        })
+        self.assertContains(
+            username_failure,
+            'Your current password was incorrect.',
+        )
+        password_failure = self.client.post(reverse('profile'), {
+            'form_type': 'password',
+            'old_password': 'wrong-password',
+            'new_password1': 'New-secure-pass-456!',
+            'new_password2': 'New-secure-pass-456!',
+        })
+        self.assertContains(password_failure, 'old password')
+
+        limited = self.client.post(reverse('profile'), {
+            'form_type': 'username',
+            'username': 'RateLimitedName',
+            'current_password': 'Old-pass-123!',
+        })
+        self.assertContains(limited, 'Too many username change attempts.')
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.username, 'profile-owner')
+
+    def test_username_change_rechecks_availability_inside_transaction(self):
+        form = SelfServiceUsernameChangeForm(self.user, {
+            'username': 'LateCollision',
+            'current_password': 'Old-pass-123!',
+        })
+        self.assertTrue(form.is_valid(), form.errors)
+        get_user_model().objects.create_user(
+            'latecollision',
+            password='Racer-pass-123!',
+        )
+
+        with self.assertRaises(UsernameChangeRejected):
+            form.save()
+
+        self.assertEqual(
+            form.errors['username'],
+            ['This username is unavailable. Please choose a different username.'],
+        )
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.username, 'profile-owner')
+
+    def test_username_change_translates_only_confirmed_integrity_collision(self):
+        empty = get_user_model().objects.none()
+        collision = get_user_model().objects.filter(pk=self.other.pk)
+        form = SelfServiceUsernameChangeForm(self.user, {
+            'username': 'DatabaseRace',
+            'current_password': 'Old-pass-123!',
+        })
+
+        with patch(
+            'SalesLogApp.auth_forms.users_matching_username',
+            side_effect=[empty, empty, collision],
+        ), patch.object(
+            get_user_model(),
+            'save',
+            autospec=True,
+            side_effect=IntegrityError('simulated normalized collision'),
+        ):
+            self.assertTrue(form.is_valid(), form.errors)
+            with self.assertRaises(UsernameChangeRejected):
+                form.save()
+
+        self.assertIn('username', form.errors)
+
+        unrelated = SelfServiceUsernameChangeForm(self.user, {
+            'username': 'UnrelatedFailure',
+            'current_password': 'Old-pass-123!',
+        })
+        with patch(
+            'SalesLogApp.auth_forms.users_matching_username',
+            side_effect=[empty, empty, empty],
+        ), patch.object(
+            get_user_model(),
+            'save',
+            autospec=True,
+            side_effect=IntegrityError('unrelated database failure'),
+        ):
+            self.assertTrue(unrelated.is_valid(), unrelated.errors)
+            with self.assertRaisesMessage(
+                IntegrityError,
+                'unrelated database failure',
+            ):
+                unrelated.save()
+
+    def test_username_change_post_requires_csrf(self):
+        csrf_client = Client(enforce_csrf_checks=True)
+        csrf_client.force_login(self.user)
+
+        response = csrf_client.post(reverse('profile'), {
+            'form_type': 'username',
+            'username': 'NoCsrfName',
+            'current_password': 'Old-pass-123!',
+        })
+
+        self.assertEqual(response.status_code, 403)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.username, 'profile-owner')
+
+    @override_settings(DEBUG=False)
+    def test_username_change_redacts_password_from_exception_report(self):
+        diagnostic_password = 'Diagnostic-secret-9371!'
+        self.user.set_password(diagnostic_password)
+        self.user.save(update_fields=['password'])
+        request = RequestFactory().post(reverse('profile'), {
+            'form_type': 'username',
+            'username': 'DiagnosticName',
+            'current_password': diagnostic_password,
+        })
+        request.user = self.user
+        request.sensitive_post_parameters = ('current_password',)
+        form = SelfServiceUsernameChangeForm(
+            self.user,
+            request.POST,
+            request=request,
+        )
+
+        with patch(
+            'SalesLogApp.auth_forms.users_matching_username',
+            side_effect=RuntimeError('simulated availability lookup failure'),
+        ):
+            try:
+                form.is_valid()
+            except RuntimeError:
+                exc_type, exc_value, traceback = sys.exc_info()
+            else:
+                self.fail('Expected the simulated lookup failure.')
+
+        # Exclude this test method's frame, which intentionally owns the
+        # diagnostic secret, and inspect the report for the application stack.
+        rendered_report = ExceptionReporter(
+            request,
+            exc_type,
+            exc_value,
+            traceback.tb_next,
+        ).get_traceback_text()
+        exposed_at = rendered_report.find(diagnostic_password)
+        self.assertEqual(
+            exposed_at,
+            -1,
+            rendered_report[max(0, exposed_at - 180):exposed_at + 220],
+        )
+        self.assertIn('current_password', rendered_report)
+        self.assertIn('********************', rendered_report)
 
     def test_appearance_uses_visual_mode_controls_and_color_swatches(self):
         self.client.force_login(self.user)
